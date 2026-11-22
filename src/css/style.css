@@ -571,3 +571,21 @@ nav.tabs button[aria-current="page"]::before { display: none; }
 .field-sec.dread h3 { color: #ff8a7a; } .field-sec.dread h3::before { background: #d65a4a; }
 .field-sec.normal .enemy { border-left: 3px solid rgba(79, 139, 224, .7); }
 .field-sec.dread .enemy { border-left: 3px solid rgba(214, 90, 74, .75); }
+/* 「敵」タブの見出し（タップで開閉）。フィールド＝通常（青）/恐るべき強敵（赤）、夜の強敵＝1日目/2日目 */
+.sec-toggle { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: transparent; padding: 6px 2px; cursor: pointer; font-size: 13px; font-weight: 700; letter-spacing: .08em; text-align: left; }
+.sec-toggle::before { content: ""; width: 4px; height: 16px; border-radius: 2px; background: var(--line-strong); flex: none; }
+.sec-toggle small { color: var(--dim); font-weight: 400; letter-spacing: 0; }
+.sec-toggle .chev { margin-left: auto; transform: rotate(-135deg); margin-top: 4px; }
+.field-sec.closed .sec-toggle .chev { transform: rotate(45deg); margin-top: -4px; }
+.field-sec.normal .sec-toggle { color: #7fb0ff; } .field-sec.normal .sec-toggle::before { background: #4f8be0; }
+.field-sec.dread .sec-toggle { color: #ff8a7a; } .field-sec.dread .sec-toggle::before { background: #d65a4a; }
+.field-sec.day1 .sec-toggle { color: #c9b8ff; } .field-sec.day1 .sec-toggle::before { background: #8f7be8; }
+.field-sec.day2 .sec-toggle { color: #f2c46b; } .field-sec.day2 .sec-toggle::before { background: #d9a440; }
+.field-sec.day1 .enemy { border-left: 3px solid rgba(143, 123, 232, .7); }
+.field-sec.day2 .enemy { border-left: 3px solid rgba(217, 164, 64, .7); }
+.dlc-note { font-size: 11.5px; padding: 0 4px; }
+/* 人数と夜の王の絞り込みを横に並べる */
+.filter-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.party-toggle .ico { width: 16px; height: 16px; margin-right: 3px; vertical-align: -3px; }
+.lord-filter .chip .ico { width: 16px; height: 16px; margin-right: 4px; vertical-align: -3px; }
+.lord-filter .chip[aria-pressed="true"] .ico { filter: brightness(0) opacity(.8); }
