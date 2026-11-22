@@ -596,3 +596,15 @@ nav.tabs button[aria-current="page"]::before { display: none; }
 .field-sec.base .enemy { border-left: 3px solid rgba(79, 174, 116, .7); }
 .field-sec.roof .sec-toggle { color: #f3a86a; } .field-sec.roof .sec-toggle::before { background: #de7f3a; }
 .field-sec.roof .enemy { border-left: 3px solid rgba(222, 127, 58, .7); }
+/* 「敵」タブ：カテゴリの列は右端を薄くして、横にスクロールできることが分かるように */
+.enemy-tools .chips.one-row { -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); padding-right: 24px; }
+/* 絞り込みのボタンを押しやすい大きさに */
+.party-toggle { min-height: 36px; padding: 6px 14px; font-size: 13px; }
+.lord-filter .chip { min-height: 36px; }
+.enemy-detail .unknown { color: var(--dim); font-weight: 400; font-size: 12px; }
+/* 雑魚の見出し */
+.field-sec.mob .sec-toggle { color: #c9cde6; } .field-sec.mob .sec-toggle::before { background: #8b90b8; }
+.merged-note { font-size: 11px; }
+.stat b { font-size: clamp(11.5px, 3.4vw, 13.5px); }
+/* 画面を作り直したときのスクロール位置はアプリ側で合わせる（ブラウザの自動調整と二重にずれないように） */
+html { overflow-anchor: none; }

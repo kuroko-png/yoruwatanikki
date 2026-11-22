@@ -7,6 +7,8 @@ from collections import defaultdict, OrderedDict
 import openpyxl
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from enemy_names_ja import BASE, SPECIAL, VARIANT, TAG
+from enemy_kinds import KINDS, NAMES as KIND_NAMES
+KIND_OF = {n: KINDS.index(k) for k, ns in KIND_NAMES.items() for n in ns}
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 SRC = os.path.join(os.path.expanduser('~'), 'Desktop', 'Nightreign', 'Elden Ring Nightreign - PvE Stats (Calibrations Ver 1.02.3).xlsx')
@@ -55,7 +57,7 @@ def fight_of(name, tag):
         return FIGHT_OF_MAIN.get(name, name), 'b'
     f = tag[:-1] if tag.endswith('戦') else tag
     f = FIGHT_ALIAS.get(f, f)
-    return f, 'b' if name in BOSS_IN_FIGHT else 'p'
+    return f, 'b' if name in BOSS_IN_FIGHT or f == 'ティビアの呼び舟' and tag.startswith('ティビアの呼び舟の') else 'p'
 
 
 def parse(name):
@@ -94,7 +96,7 @@ def read(party):
 def category(base, tag):
     t = tag or ''
     # 練習用・未使用かもしれないもの・追憶のボス（不要と決めた）は載せない
-    if base in ('Training Dummy',) or t in ('Training', 'Tutorial', 'Limveld but maybe unused?'):
+    if base in ('Training Dummy',) or t in ('Training', 'Tutorial', 'Limveld but maybe unused?', 'Silly Worm'):
         return None
     if 'Remembrance' in base or base.startswith('Revenant:'):
         return None
@@ -142,7 +144,7 @@ def main():
             ja = BASE.get(base)
             if ja is None:
                 missing.add(base)
-                ja = base
+                continue
         if var:
             ja += '(' + '・'.join(VARIANT.get(v.strip(), v.strip()) for v in var.split(',')) + ')'
         for i, s in enumerate(rows):
@@ -165,7 +167,8 @@ def main():
         neg = [round(v) if v is not None else None for v in g['neg']]
         res = [round(v) if v is not None else None for v in g['res']]
         fight = fight_of(g['name'], g['tag']) if g['cat'] == 'night' else (None, None)
-        out.append([CATS.index(g['cat']), g['name'], g['tag'], g['en'], g['icon'], hp, neg, res, poise, *fight])
+        kind = KIND_OF.get(re.sub(r'[(（].*[)）]$', '', g['name']), len(KINDS) - 1)  # 雑魚の種類（見出し用）
+        out.append([CATS.index(g['cat']), g['name'], g['tag'], g['en'], g['icon'], hp, neg, res, poise, *fight, kind])
     # 並び：種類 → 夜の王は王の順 → 名前
     out.sort(key=lambda e: (e[0], LORD_ORDER.index(e[4]) if e[0] == 0 else 0, e[1], e[2]))
 
