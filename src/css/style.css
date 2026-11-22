@@ -546,3 +546,16 @@ nav.tabs button[aria-current="page"]::before { display: none; }
 .variant[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: rgba(220, 184, 108, .08); }
 .variant[aria-pressed="true"] small { color: var(--accent); }
 .variant-list + .enemy-detail { border-top: 0; }
+/* 敵の数値：枠線なしで、数値の色だけで強弱を見せる */
+.stat-grid .stat { border: 0; background: rgba(0,0,0,.2); }
+.stat.good b { color: #5fd39f; }
+.stat.mid b { color: #e8cf5a; }
+.stat.orange b { color: #f0954a; }
+.stat.bad b { color: #ef6b5b; }
+.stat.weak, .stat.strong { border: 0; background: rgba(0,0,0,.2); }
+/* 夜の王：アイコンと名前だけの行。開くと通常／常夜の切り替え */
+.enemy-head .chev { margin-left: auto; }
+.enemy.open .enemy-head .chev { transform: rotate(-135deg); margin-top: 4px; }
+.lord-body { display: grid; gap: 8px; padding: 10px 12px 0; border-top: 1px solid var(--line); }
+.mode-seg button { font-size: 14px; }
+.lord-body + .enemy-detail { border-top: 0; }

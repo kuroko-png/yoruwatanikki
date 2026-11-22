@@ -503,14 +503,26 @@ function viewEnemies() {
     const pool = named.length ? named : items;
     const main = pool.find(([e]) => !e[2]) || pool[0];
     const open = E.open === `g:${icon}`;
-    const sel = items.find(([, i]) => i === E.sub) || main;
+    // 通常／常夜の切り替え（常夜のない王はスイッチを出さない）。常夜＝場面に「常夜」が付くもの、またはハルモニアの常夜「救いの旗手」
+    const isEver = ([e]) => e[2].includes('常夜') || e[1] === '救いの旗手';
+    const hasEver = items.some(isEver);
+    const mode = hasEver && E.mode === 'ever' ? 'ever' : 'normal';
+    const inMode = items.filter(x => isEver(x) === (mode === 'ever'));
+    // 最初に選ぶのは「通常」「常夜」、なければ「第1形態」
+    const sel = inMode.find(([, i]) => i === E.sub) || inMode.find(([e]) => !e[2] || e[2] === '常夜') || inMode.find(([e]) => e[2].includes('第1形態')) || inMode[0];
+    // 同じ切り替えの中に形態などが複数あるときは、小さなボタンで選ぶ。名前の違い（例：(影)、瓦礫の王）と場面を短く出す
+    const label = ([e]) => {
+      const who = e[1] === main[0][1] ? '' : e[1].startsWith(main[0][1]) ? e[1].slice(main[0][1].length).replace(/^\(|\)$/g, '') : e[1];
+      const scene = mode === 'ever' ? e[2].replace(/^常夜・?/, '') : e[2];
+      return [who, scene].filter(Boolean).join('・') || (mode === 'ever' ? '常夜' : '通常');
+    };
     return `<div class="enemy ${open ? 'open' : ''}">
       <button class="enemy-head" data-act="enemyOpen" data-v="g:${icon}" aria-expanded="${open}">
-        <span class="enemy-name">${ico('lord', icon)}<span><b>${esc(main[0][1])}</b><small>${items.length}種類（常夜・形態など）</small></span></span>
-        <span class="enemy-hp"><small>HP</small>${hpOf(main[0][5][p])}</span></button>
-      ${open ? `<div class="variant-list">${items.map(([e, i]) => `<button class="variant" data-act="enemySub" data-v="${i}" ${pressed(i === sel[1])}>
-          <span>${e[1] !== main[0][1] ? `${esc(e[1])}<br>` : ''}<small>${esc(e[2] || '通常')}</small></span><b>${hpOf(e[5][p])}</b></button>`).join('')}</div>
-        ${enemyDetail(sel[0], p)}` : ''}</div>`;
+        <span class="enemy-name">${ico('lord', icon)}<span><b>${esc(main[0][1])}</b></span></span><span class="chev"></span></button>
+      ${open ? `<div class="lord-body">
+        ${hasEver ? `<div class="seg mode-seg"><button data-act="enemyMode" data-v="normal" ${pressed(mode === 'normal')}>通常</button><button data-act="enemyMode" data-v="ever" ${pressed(mode === 'ever')}>常夜</button></div>` : ''}
+        ${inMode.length > 1 ? `<div class="chips">${inMode.map(x => `<button class="chip small" data-act="enemySub" data-v="${x[1]}" ${pressed(x[1] === sel[1])}>${esc(label(x))}</button>`).join('')}</div>` : ''}
+      </div>${enemyDetail(sel[0], p)}` : ''}</div>`;
   };
   const groupLords = !q && E.cat === 0;
   const groups = groupLords ? [...list.reduce((m, x) => { const k = x[0][4] || x[0][1]; (m.get(k) || m.set(k, []).get(k)).push(x); return m; }, new Map())] : [];
@@ -529,17 +541,21 @@ function enemyPage(body, chip, q, list) {
     </div>
     ${q ? `<p class="hint">「${esc(q)}」の検索結果：${list.length}件</p>` : ''}
     ${body}
-    <p class="hint source-note">数値の出典：Recycle氏の解析シート「Elden Ring Nightreign - PvE Stats」（Calibrations Ver 1.02.3・2025年9月時点）。DLC（1.03）以降の調整とDLCの敵は入っていません。名前は神攻略wikiの表記に合わせています。</p>
+    <p class="hint source-note">数値の出典：Recycle氏の解析シート「Elden Ring Nightreign - PvE Stats」（Calibrations Ver 1.02.3・2025年9月時点）。DLC（1.03）以降の調整とDLCの敵は入っていません。</p>
   </div>`;
 }
+// 色分け（数値の色だけ変える）
+// カット率：マイナス＝緑（弱点）、+1〜40%＝黄、41%以上＝赤、0%は白
+const negTone = v => v == null || v === 0 ? '' : v < 0 ? 'good' : v <= 40 ? 'mid' : 'bad';
+// 状態異常の耐性：154未満＝緑、154〜251＝黄、252〜539＝オレンジ、540以上＝赤、無効＝灰
+const resTone = v => v == null ? 'immune' : v < 154 ? 'good' : v < 252 ? 'mid' : v < 540 ? 'orange' : 'bad';
 function enemyDetail(e, p) {
   const [, , , en, , hp, neg, res, poise] = e;
   const h = hp[p];
   // カット率：マイナスは弱点（よく効く）、高いほど効きにくい
-  const negCell = (v, i) => `<div class="stat ${v == null ? '' : v < 0 ? 'weak' : v >= 30 ? 'strong' : ''}"><span>${NEG_LABELS[i]}</span><b>${v == null ? '–' : v + '%'}</b></div>`;
+  const negCell = (v, i) => `<div class="stat ${negTone(v)}"><span>${NEG_LABELS[i]}</span><b>${v == null ? '–' : v + '%'}</b></div>`;
   // 状態異常耐性：低いほど早くかかる。null は無効
-  const lowest = Math.min(...res.filter(v => v != null));
-  const resCell = (v, i) => `<div class="stat ${v == null ? 'immune' : v === lowest && v < 500 ? 'weak' : ''}"><span>${RES_LABELS[i]}</span><b>${v == null ? '無効' : v}</b></div>`;
+  const resCell = (v, i) => `<div class="stat ${resTone(v)}"><span>${RES_LABELS[i]}</span><b>${v == null ? '無効' : v}</b></div>`;
   return `<div class="enemy-detail">
     <div class="enemy-kv"><span>HP</span><b>1日目 ${fmtR(h[0], h[1])}${h[2] != null && (h[2] !== h[0] || h[3] !== h[1]) ? `／2日目 ${fmtR(h[2], h[3])}` : ''}</b></div>
     <div class="enemy-kv"><span>崩し値</span><b>${fmtPoise(poise[p])}</b></div>
@@ -927,8 +943,9 @@ document.addEventListener('click', e => {
     case 'heatBy': S.stats.heatBy = v; break;
     case 'enemyCat': S.enemy.cat = +v; S.enemy.open = null; S.enemy.limit = ENEMY_PAGE; break;
     case 'enemyParty': S.enemy.party = v; break;
-    case 'enemyOpen': { const k = v.startsWith('g:') ? v : +v; S.enemy.open = S.enemy.open === k ? null : k; S.enemy.sub = null; break; }
+    case 'enemyOpen': { const k = v.startsWith('g:') ? v : +v; S.enemy.open = S.enemy.open === k ? null : k; S.enemy.sub = null; S.enemy.mode = 'normal'; break; }
     case 'enemySub': S.enemy.sub = +v; break;
+    case 'enemyMode': S.enemy.mode = v; S.enemy.sub = null; break;
     case 'enemyMore': S.enemy.limit += ENEMY_PAGE; break;
     case 'statsMore': (S.statsMore ||= {})[v] = true; break;
     case 'bv': S.buildView = v; break;

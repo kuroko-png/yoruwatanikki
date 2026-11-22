@@ -272,7 +272,7 @@ TAG = {
     'Night Horde- Skull Plate': '夜の群れ・髑髏', 'Night Horde- Winged': '夜の群れ・翼', 'Invader': '夜の侵入者', 'Night Raider': '夜の侵入者',
     'Large': '大', 'Medium': '中', 'Small': '小', 'Small Sack': '小・袋', 'Skull Plate': '髑髏', 'Winged': '翼', 'Single Dog': '1匹',
     'Enhanced, Single Dog': '常夜・1匹', 'Small; Nameless King Entourage': '小・無名の王の取り巻き',
-    'Random Encounter': '偶然の遭遇', 'Seed Encounter': '特定の配置', 'Limveld Event': 'リムベルドのイベント', 'Limveld but maybe unused?': 'リムベルド（未使用かも）',
+    'Random Encounter': '襲撃イベント', 'Seed Encounter': '襲撃イベント', 'Limveld Event': '襲撃イベント', 'Limveld but maybe unused?': 'リムベルド（未使用かも）',
     'Silly Worm': 'ミミズ', 'Tibia Mariner Summon': 'ティビアの呼び舟の召喚', 'Tibia Mariner Torso': 'ティビアの呼び舟の胴',
     'Ulcerated Tree Spirit': '爛れた樹霊',
 }
