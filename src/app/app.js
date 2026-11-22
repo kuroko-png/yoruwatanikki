@@ -228,6 +228,23 @@ function optSummary() {
   return parts.join('・');
 }
 
+// ---------- バックアップの声かけ ----------
+// 前回のバックアップから「戦績が20件増えた」または「14日たって1件以上増えた」ら、そっと知らせる
+const BACKUP_EVERY_RUNS = 20, BACKUP_EVERY_DAYS = 14;
+function backupState() {
+  const n = liveRuns().length, last = prefs().lastBackupAt || 0;
+  const added = n - (prefs().lastBackupRuns || 0);
+  const days = last ? Math.floor((Date.now() - last) / 864e5) : null;
+  const due = n > 0 && (added >= BACKUP_EVERY_RUNS || (added > 0 && (days === null ? n >= 5 : days >= BACKUP_EVERY_DAYS)));
+  return { n, last, days, added, due };
+}
+const backupAgo = b => !b.last ? 'まだ一度も保存していません' : b.days === 0 ? '今日' : `${b.days}日前`;
+function backupNotice() {
+  const b = backupState();
+  if (!b.due || (prefs().backupSnoozeUntil || 0) > Date.now()) return '';
+  return `<div class="backup-note"><span>${b.last ? `前回のバックアップから戦績が${b.added}件増えています` : `まだバックアップをしていません（戦績${b.n}件）`}</span>
+    <button class="ghost small" data-act="exportJson">保存</button><button class="note-x" data-act="backupLater" aria-label="あとで">あとで</button></div>`;
+}
 function viewHistory() {
   const all = liveRuns().sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt - a.updatedAt);
   if (!all.length) return `<div class="empty-state">まだ記録がありません。「記録」タブから1戦目を残しましょう。</div>`;
@@ -247,10 +264,10 @@ function viewHistory() {
     ${active ? `<div class="hist-sum"><span>${x.n}戦 ${x.w}勝 ${x.n - x.w}敗${x.n ? `・勝率 ${pct(x.p)}` : ''}</span><button class="ghost small" data-act="hfClear">絞り込みを解除</button></div>`
       : `<p class="hint">戦績をタップすると、メモの確認・編集・削除ができます。</p>`}
   </div>`;
-  if (!runs.length) return `<div class="stack-lg">${filter}<div class="empty-state">この条件の記録はありません</div></div>`;
+  if (!runs.length) return `<div class="stack-lg">${backupNotice()}${filter}<div class="empty-state">この条件の記録はありません</div></div>`;
   const groups = {};
   runs.forEach(r => (groups[r.date] ||= []).push(r));
-  return `<div class="stack-lg">${filter}` + Object.entries(groups).map(([d, rs]) => {
+  return `<div class="stack-lg">${backupNotice()}${filter}` + Object.entries(groups).map(([d, rs]) => {
     const w = rs.filter(r => r.result === 'win').length;
     return `<div class="day"><div class="day-head"><b>${dateLabel(d)}</b><span>${w}勝 ${rs.length - w}敗</span></div>
       ${rs.map(runRow).join('')}</div>`;
@@ -633,7 +650,7 @@ function menuSheet() {
     <p class="hint">記録はこの端末のブラウザに保存されています（戦績 ${n}件・プリセット ${activePresets().length}件）。機種変更の前やブラウザのデータを消す前に、バックアップを保存してください。</p>
     <div class="sheet-list">
       ${item('guide', '使い方・ホーム画面に追加', 'はじめに出た案内をもう一度見る')}
-      ${item('exportJson', 'バックアップを保存', '全データをファイルに書き出します')}
+      ${item('exportJson', 'バックアップを保存', `最後のバックアップ：${backupAgo(backupState())}${backupState().due ? '（おすすめ）' : ''}`, backupState().due ? 'recommend' : '')}
       <label class="pick" for="importFile"><span><b>バックアップから復元</b><br><span class="hint">今のデータは、ファイルの内容に置き換わります</span></span><span class="cat">›</span></label>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
       ${item('exportCsv', 'CSVで書き出す', '戦績をExcelなどで開ける形にします')}
@@ -674,6 +691,7 @@ function render() {
   const v = { record: viewRecord, history: viewHistory, stats: viewStats, builds: viewBuilds }[S.tab];
   document.getElementById('view').innerHTML = v();
   document.getElementById('appsub').textContent = appSub();
+  document.querySelector('[data-act=menu]')?.classList.toggle('due', backupState().due);
   document.getElementById('actionbar').innerHTML = BAR ? `<div class="action-bar"><div class="in">${BAR}</div></div>` : '';
   document.querySelector('.app').classList.toggle('has-bar', !!BAR);
   renderSheet();
@@ -698,8 +716,15 @@ document.addEventListener('click', e => {
     case 'guide': S.sheet = { type: 'guide' }; break;
     case 'guideClose': prefs().onboarded = true; S.sheet = null; break;
     case 'install': installPrompt?.prompt(); installPrompt = null; return;
-    case 'exportJson': exportJson(db); toast('バックアップを保存しました'); return;
-    case 'exportCsv': exportCsv(csvRows()); toast('CSVを書き出しました'); return;
+    case 'exportJson':
+      exportJson(db).then(res => {
+        if (res === 'cancelled') { toast('保存をやめました'); return; }
+        prefs().lastBackupAt = Date.now(); prefs().lastBackupRuns = liveRuns().length; prefs().backupSnoozeUntil = 0;
+        render(); toast(res === 'shared' ? 'バックアップを渡しました' : 'バックアップを保存しました');
+      });
+      return;
+    case 'backupLater': prefs().backupSnoozeUntil = Date.now() + 7 * 864e5; toast('7日後にまたお知らせします'); break;
+    case 'exportCsv': exportCsv(csvRows()).then(res => toast(res === 'cancelled' ? '書き出しをやめました' : 'CSVを書き出しました')); return;
     case 'loadSample':
       if (S.confirmDel !== 'sample') { S.confirmDel = 'sample'; break; }
       replaceDb(seed()); S.confirmDel = null; S.sheet = null; toast('サンプルデータを入れました'); break;

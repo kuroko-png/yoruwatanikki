@@ -439,3 +439,13 @@ body.typing .action-bar, body.typing nav.tabs { display: none; }
 @media (max-width: 349px) {
   .tile-btn.with-ico { flex-direction: column; gap: 2px; font-size: 12.5px; padding-block: 6px; }
 }
+
+/* backup reminder */
+.icon-btn { position: relative; }
+.icon-btn.due::after { content: ""; position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.backup-note { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; border-radius: 12px; font-size: 12px; color: var(--dim);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); background: rgba(220, 184, 108, .06); }
+.backup-note span { flex: 1; min-width: 0; }
+.backup-note .ghost.small, .ghost.small { padding: 5px 10px; font-size: 12px; border-radius: 8px; }
+.note-x { border: 0; background: transparent; color: var(--dim); font-size: 12px; padding: 5px 6px; cursor: pointer; }
+.pick.recommend .hint { color: var(--accent); }

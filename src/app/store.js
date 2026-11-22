@@ -44,18 +44,32 @@ function download(filename, blob) {
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
-const stamp = () => new Date().toISOString().slice(0, 10);
+const stamp = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const isPhone = () => /iPhone|iPad|iPod|Android/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+// スマホでは共有メニューを開く（「ファイル」アプリ・Googleドライブ・LINE などに保存できる）。
+// パソコンや共有に対応していないブラウザでは、ふつうにダウンロードする。
+// 戻り値：'shared' | 'downloaded' | 'cancelled'
+async function saveFile(filename, blob, title) {
+  const file = new File([blob], filename, { type: blob.type });
+  if (isPhone() && navigator.canShare?.({ files: [file] })) {
+    try { await navigator.share({ files: [file], title }); return 'shared'; }
+    catch (e) { if (e.name === 'AbortError') return 'cancelled'; /* 共有できなければダウンロードに切り替える */ }
+  }
+  download(filename, blob);
+  return 'downloaded';
+}
 
 export function exportJson(data) {
   const text = JSON.stringify({ app: 'yowatari-nikki', version: VERSION, exportedAt: new Date().toISOString(), data }, null, 2);
-  download(`夜渡日記_バックアップ_${stamp()}.json`, new Blob([text], { type: 'application/json' }));
+  return saveFile(`夜渡日記_バックアップ_${stamp()}.json`, new Blob([text], { type: 'application/json' }), '夜渡日記のバックアップ');
 }
 
 // rows: 見出し行を含む2次元配列。Excelで文字化けしないよう BOM を付ける
 export function exportCsv(rows) {
   const cell = v => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const text = '﻿' + rows.map(r => r.map(cell).join(',')).join('\r\n');
-  download(`夜渡日記_戦績_${stamp()}.csv`, new Blob([text], { type: 'text/csv' }));
+  return saveFile(`夜渡日記_戦績_${stamp()}.csv`, new Blob([text], { type: 'text/csv' }), '夜渡日記の戦績');
 }
 
 export function readJsonFile(file) {
