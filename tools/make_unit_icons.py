@@ -18,7 +18,7 @@ SHEETS = [
     ('マリス.png', 'lords', ['maris']),
     ('ナメレス　リブラ　ストラゲス　ハルモニア.png', 'lords', [None, 'libra', 'strages', 'harmonia']),  # 左上のナメレスは、単体の ナメレス.png を使う
     ('ナメレス.png', 'lords', ['final']),
-    ('フルゴール.png', 'lords', ['fulghor']),
+    ('フルゴール2.png', 'lords', ['fulghor']),  # 2026-11-23 差し替え（元：フルゴール.png）
     ('カリゴ.png', 'lords', ['caligo']),
 ]
 
