@@ -259,7 +259,7 @@ TAG = {
     'Everdark Phase 1, White Valkyries': '常夜・第1形態', 'Everdark Phase 2, Bloody Valkyries': '常夜・第2形態',
     'Maris, Fathom of Night': 'マリス戦', 'Night Boss': '', 'Night Boss Enemy': '夜の強敵の前哨戦',
     'Field Boss': 'フィールド', 'Fort Boss': '砦のボス', 'Camp Boss': '野営地のボス', 'Ruins Boss': '遺跡のボス',
-    'Evergaol Boss': '封牢のボス', 'Cathedral Boss': '大教会のボス', 'Castle Rooftop Boss': '城の屋上', 'Castle Basement Boss': '城の地下',
+    'Evergaol Boss': '封牢のボス', 'Cathedral Boss': '大教会のボス', 'Castle Rooftop Boss': '砦（屋上）', 'Castle Basement Boss': '砦（地下）',
     'Mountaintop Ruins Boss': '山嶺・遺跡のボス', 'Noklateo Boss': 'ノクラテオのボス', 'Crystalian Alliance; Fort Boss': '砦のボス（結晶人）',
     'Godskin Duo Evergaol Boss': '封牢のボス（神肌のふたり）', 'The Oldest Gaol': '最古の封牢', 'Character Unlock Fight': '夜渡り解放戦',
     'Camp': '野営地', 'Ruins': '遺跡', 'Fort': '砦', 'Cathedral': '大教会', 'Evergaol': '封牢', 'Mine': '坑道',

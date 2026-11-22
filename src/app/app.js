@@ -142,7 +142,7 @@ const S = {
   tab: 'record', recOpen: {}, form: blankForm(), openRun: null, confirmDel: null,
   stats: { period: 'all', mode: 'all', drill: {}, heatBy: 'lord' },
   hist: { result: 'all', lord: '', char: '' },
-  enemy: { cat: 0, q: '', party: 'trio', partyOpen: false, lord: '', lordOpen: false, closed: {}, open: null, limit: 60 },  // 人数はトリオから。変えたいときだけ開く
+  enemy: { cat: 0, q: '', party: 'trio', partyOpen: false, lord: '', lordOpen: false, base: '', baseOpen: false, closed: {}, open: null, limit: 60 },  // 人数はトリオから。変えたいときだけ開く
   buildView: 'presets', edit: null, sheet: null,
 };
 { // remember last character / preset as sensible defaults
@@ -545,8 +545,10 @@ function viewEnemies() {
       + sec('f-dread', 'dread', '恐るべき強敵', open.filter(g => FIELD_DREAD.has(g.title)))
       + sec('f-gaol', 'gaol', '封牢', gaol), chip, q, groups);
   }
-  if (E.cat === 3) {  // 拠点：拠点／砦（屋上）
-    const isRoof = e => e[2] === '城の屋上';
+  if (E.cat === 3) {  // 拠点：拠点／砦（屋上）。型で絞り込んだときは、その型だけ
+    const type = BASE_TYPES.find(t => t[0] === E.base);
+    if (type) return enemyPage(sec(`b-${type[0]}`, type[0].startsWith('砦(') ? 'roof' : 'base', type[0], rowsOf(e => type[1].includes(e[2]))), chip, q, groups);
+    const isRoof = e => e[2] === '砦（屋上）';
     return enemyPage(sec('b-base', 'base', '拠点', rowsOf(e => !isRoof(e))) + sec('b-roof', 'roof', '砦（屋上）', rowsOf(isRoof)), chip, q, groups);
   }
   // 夜の強敵：1日目と2日目に分ける。夜の王で絞り込むと、その王の遠征に出るものだけ
@@ -565,6 +567,9 @@ function viewEnemies() {
     ${groups.length > shownG.length ? `<button class="more-btn" data-act="enemyMore">もっと見る（残り${groups.length - shownG.length}件）</button>` : ''}`, chip, q, groups);
 }
 // 種類ごとのまとめ方。modes は開いたときの切り替えスイッチ（中身があるものだけ出す）、label は小さなボタンの文字
+// 拠点の型の絞り込み（フィルタの名前 → 敵データの場所の名前）
+const BASE_TYPES = [['大教会', ['大教会のボス']], ['大野営地', ['野営地のボス']], ['大遺跡', ['遺跡のボス', '山嶺・遺跡のボス']],
+  ['小砦', ['砦のボス', '砦のボス（結晶人）']], ['砦(屋上)', ['砦（屋上）']], ['砦(地下)', ['砦（地下）']]];
 // フィールドボスのうち「恐るべき強敵」（神攻略wiki フィールドボスのページより。飛竜＝丘陵の飛竜として扱う）
 const FIELD_DREAD = new Set(['黄金樹の化身', 'カーリアの親衛騎士', '丘陵の飛竜', '飛竜', '黒き剣の眷属', '死儀礼の鳥', '鈴玉狩り', '祖霊', '爛れた樹霊', 'ツリーガード', '溶岩土竜', '竜のツリーガード']);
 function enemyGroups(cat, rows) {
@@ -603,8 +608,10 @@ function enemyPage(body, chip, q, list) {
         ${E.partyOpen
           ? `<div class="party-row"><span class="flag-label">人数</span>${[['solo', 'ソロ'], ['duo', 'デュオ'], ['trio', 'トリオ']].map(([v, l]) => chip('enemyParty', v, l, E.party === v)).join('')}</div>`
           : `<button class="party-toggle" data-act="enemyPartyOpen">人数：<b>${{ solo: 'ソロ', duo: 'デュオ', trio: 'トリオ' }[E.party]}</b><span class="chev"></span></button>`}
+        ${!q && E.cat === 3 && !E.baseOpen ? `<button class="party-toggle" data-act="enemyBaseOpen">拠点：<b>${E.base || 'すべて'}</b><span class="chev"></span></button>` : ''}
         ${!q && E.cat === 1 && !E.lordOpen ? `<button class="party-toggle" data-act="enemyLordOpen">夜の王：<b>${E.lord ? ico('lord', E.lord) + LORD[E.lord].name : 'すべて'}</b><span class="chev"></span></button>` : ''}
       </div>
+      ${!q && E.cat === 3 && E.baseOpen ? `<div class="chips lord-filter">${chip('enemyBase', '', 'すべて', !E.base)}${BASE_TYPES.map(([t]) => chip('enemyBase', t, t, E.base === t)).join('')}</div>` : ''}
       ${!q && E.cat === 1 && E.lordOpen ? `<div class="chips lord-filter">${chip('enemyLord', '', 'すべて', !E.lord)}${LORDS.map(l => chip('enemyLord', l.id, ico('lord', l.id) + l.name, E.lord === l.id)).join('')}</div>` : ''}
     </div>
     ${q ? `<p class="hint">「${esc(q)}」の検索結果：${list.length}件</p>` : ''}
@@ -1013,6 +1020,8 @@ document.addEventListener('click', e => {
     case 'enemyParty': S.enemy.party = v; S.enemy.partyOpen = false; break;
     case 'enemyPartyOpen': S.enemy.partyOpen = true; break;
     case 'enemyLordOpen': S.enemy.lordOpen = true; break;
+    case 'enemyBaseOpen': S.enemy.baseOpen = true; break;
+    case 'enemyBase': S.enemy.base = v; S.enemy.baseOpen = false; S.enemy.open = null; break;
     case 'enemyLord': S.enemy.lord = v; S.enemy.lordOpen = false; S.enemy.open = null; break;
     case 'enemySec': S.enemy.closed[v] = !S.enemy.closed[v]; break;
     case 'enemyOpen': { const k = v.startsWith('g:') ? v : +v; S.enemy.open = S.enemy.open === k ? null : k; S.enemy.sub = null; S.enemy.mode = 'normal'; break; }
