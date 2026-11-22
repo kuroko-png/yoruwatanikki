@@ -589,3 +589,10 @@ nav.tabs button[aria-current="page"]::before { display: none; }
 .party-toggle .ico { width: 16px; height: 16px; margin-right: 3px; vertical-align: -3px; }
 .lord-filter .chip .ico { width: 16px; height: 16px; margin-right: 4px; vertical-align: -3px; }
 .lord-filter .chip[aria-pressed="true"] .ico { filter: brightness(0) opacity(.8); }
+/* フィールドの「封牢」（紫）、拠点の「拠点」（緑）と「砦（屋上）」（橙） */
+.field-sec.gaol .sec-toggle { color: #c6a2ff; } .field-sec.gaol .sec-toggle::before { background: #9a6be0; }
+.field-sec.gaol .enemy { border-left: 3px solid rgba(154, 107, 224, .7); }
+.field-sec.base .sec-toggle { color: #8fd6a8; } .field-sec.base .sec-toggle::before { background: #4fae74; }
+.field-sec.base .enemy { border-left: 3px solid rgba(79, 174, 116, .7); }
+.field-sec.roof .sec-toggle { color: #f3a86a; } .field-sec.roof .sec-toggle::before { background: #de7f3a; }
+.field-sec.roof .enemy { border-left: 3px solid rgba(222, 127, 58, .7); }

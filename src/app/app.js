@@ -536,9 +536,18 @@ function viewEnemies() {
       <button class="sec-toggle" data-act="enemySec" data-v="${id}" aria-expanded="${!closed}"><span>${title}</span><small>${list.length}</small><span class="chev"></span></button>
       ${closed ? '' : note + (list.length ? `<div class="enemy-list">${list.map(group).join('')}</div>` : '')}</div>`;
   };
-  if (E.cat === 2) {
-    const dread = groups.filter(g => FIELD_DREAD.has(g.title)), normal = groups.filter(g => !FIELD_DREAD.has(g.title));
-    return enemyPage(sec('f-normal', 'normal', '通常', normal) + sec('f-dread', 'dread', '恐るべき強敵', dread), chip, q, groups);
+  // 場所で行を先に分けてから、名前ごとにまとめる（同じ敵がフィールドと封牢の両方にいることがあるため）
+  const rowsOf = test => enemyGroups(E.cat, ENEMY_DATA.map((e, i) => [e, i]).filter(([e]) => e[0] === E.cat && test(e)));
+  if (E.cat === 2) {  // フィールド：通常（青）／恐るべき強敵（赤）／封牢
+    const isGaol = e => e[2].includes('封牢');
+    const open = rowsOf(e => !isGaol(e)), gaol = rowsOf(isGaol);
+    return enemyPage(sec('f-normal', 'normal', '通常', open.filter(g => !FIELD_DREAD.has(g.title)))
+      + sec('f-dread', 'dread', '恐るべき強敵', open.filter(g => FIELD_DREAD.has(g.title)))
+      + sec('f-gaol', 'gaol', '封牢', gaol), chip, q, groups);
+  }
+  if (E.cat === 3) {  // 拠点：拠点／砦（屋上）
+    const isRoof = e => e[2] === '城の屋上';
+    return enemyPage(sec('b-base', 'base', '拠点', rowsOf(e => !isRoof(e))) + sec('b-roof', 'roof', '砦（屋上）', rowsOf(isRoof)), chip, q, groups);
   }
   // 夜の強敵：1日目と2日目に分ける。夜の王で絞り込むと、その王の遠征に出るものだけ
   if (E.cat === 1) {
