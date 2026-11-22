@@ -1,0 +1,24 @@
+// 画面に出る選択肢の表記
+// このファイルの名前（name の部分や文字列）は自由に書き換えられます。
+// id は記録データとのつながりに使うので、変えないでください。
+
+export const COLORS = [{ id: 'red', name: '赤', word: '燃える' }, { id: 'blue', name: '青', word: '滴る' }, { id: 'yellow', name: '黄', word: '輝く' }, { id: 'green', name: '緑', word: '静まる' }];
+
+export const SIZES = [{ n: 3, name: '壮大' }, { n: 2, name: '端正' }, { n: 1, name: '繊細' }];
+
+export const KINDS = [{ id: 'normal', name: '通常', word: '景色' }, { id: 'deep', name: '深層', word: '昏景' }];
+
+export const STYLES = [{ id: 'melee', name: '近接' }, { id: 'arts', name: '戦技' }, { id: 'caster', name: 'スペル特化' }];
+
+export const SPEC_SORC = ['輝剣', '石掘り', 'カーリアの剣', '不可視', '結晶人', '重力', '茨'];
+
+export const SPEC_INC = ['黄金律原理主義', '王都古竜信仰', '巨人の火', '神狩り', '獣', '狂い火', '竜餐'];
+
+export const WEAPON_TYPES = ['短剣', '直剣', '大剣', '特大剣', '刺剣', '重刺剣', '曲剣', '大曲剣', '刀', '両刃剣', '斧', '大斧', '槌', 'フレイル', '大槌', '特大武器',
+  '槍', '大槍', '斧槍', '鎌', '鞭', '拳', '爪', '弓', '大弓', 'クロスボウ', 'バリスタ', '松明', '杖', '聖印', '小盾', '中盾', '大盾'];
+
+export const LOSS_AT = [{ id: 'd1', name: '1日目' }, { id: 'd2', name: '2日目' }, { id: 'final', name: '最終戦' }];
+
+export const MODES = [{ id: 'normal', name: '通常' }, { id: 'deep', name: '深き夜' }];
+
+export const PARTY = [{ id: 'solo', name: 'ソロ' }, { id: 'duo', name: 'デュオ' }, { id: 'trio', name: 'トリオ' }];

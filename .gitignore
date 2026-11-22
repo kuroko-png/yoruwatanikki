@@ -1,0 +1,7 @@
+# Claude Code の設定
+/.claude/
+# 試作（1ファイル版）と参考資料。公開しない
+/mockup/
+/data/
+# Python
+__pycache__/

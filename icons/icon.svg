@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1b2466"/><stop offset="1" stop-color="#070a1c"/></linearGradient>
+    <radialGradient id="moon" cx=".36" cy=".34" r=".7"><stop offset="0" stop-color="#fff4d2"/><stop offset=".4" stop-color="#ecc97c"/><stop offset="1" stop-color="#a77a30"/></radialGradient>
+    <radialGradient id="glow" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#ecc97c" stop-opacity=".45"/><stop offset="1" stop-color="#ecc97c" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#sky)"/>
+  <circle cx="256" cy="250" r="190" fill="url(#glow)"/>
+  <circle cx="256" cy="250" r="118" fill="url(#moon)"/>
+  <circle cx="300" cy="222" r="104" fill="#0f1640" opacity=".9"/>
+  <circle cx="132" cy="120" r="5" fill="#fff" opacity=".8"/><circle cx="398" cy="96" r="4" fill="#fff" opacity=".7"/>
+  <circle cx="410" cy="380" r="5" fill="#ffe9b5" opacity=".7"/><circle cx="108" cy="396" r="4" fill="#fff" opacity=".6"/>
+</svg>
