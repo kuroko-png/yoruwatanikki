@@ -41,7 +41,7 @@ def on_night(src, n, scale):
 
 
 # 画面下のタブのアイコン（元画像のファイル名 → タブの id）
-TABS = {'記録.webp': 'record', '履歴.webp': 'history', '統計.webp': 'stats', 'ビルド.webp': 'builds'}
+TABS = {'記録.webp': 'record', '履歴.webp': 'history', '統計.webp': 'stats', 'ビルド2.webp': 'builds'}
 
 
 def tab_icon(path):
