@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.retry1.outputs.page_url || steps.retry2.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
       - name: 公開するファイルだけを集める
@@ -31,5 +31,21 @@ jobs:
       - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
+      # 反映は、GitHub側の都合で「まとめたファイルが見つからない」と失敗することがある。
+      # そのときは少し待ってから、最大あと2回やり直す（3回とも失敗したときだけ、全体を失敗にする）
       - id: deployment
+        uses: actions/deploy-pages@v5
+        continue-on-error: true
+      - name: 失敗したので少し待つ（1回目）
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 30
+      - id: retry1
+        if: steps.deployment.outcome == 'failure'
+        uses: actions/deploy-pages@v5
+        continue-on-error: true
+      - name: 失敗したので少し待つ（2回目）
+        if: steps.deployment.outcome == 'failure' && steps.retry1.outcome == 'failure'
+        run: sleep 60
+      - id: retry2
+        if: steps.deployment.outcome == 'failure' && steps.retry1.outcome == 'failure'
         uses: actions/deploy-pages@v5

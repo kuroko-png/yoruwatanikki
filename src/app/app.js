@@ -4,7 +4,7 @@ import { CHARS } from '../data/characters.js';
 import { OPT, EFF_NORMAL_ROWS, EFF_DEEP_ROWS, DEMERIT_ROWS } from '../data/effects.js';
 import { VESSEL_ROWS } from '../data/vessels.js';
 import { SPECIAL_ROWS } from '../data/relics.js';
-import { COLORS, SIZES, KINDS, STYLES, SPEC_SORC, SPEC_INC, WEAPON_TYPES, LOSS_AT, MODES, PARTY, DEPTHS, RUN_FLAGS } from '../data/labels.js';
+import { COLORS, SIZES, KINDS, STYLES, SPEC_SORC, SPEC_INC, WEAPON_TYPES, LOSS_AT, MODES, PARTY, DEPTHS, RUN_FLAGS, SHIFTS } from '../data/labels.js';
 import { load, save, exportJson, exportCsv, readJsonFile } from './store.js';
 
 // ---------- 遺物効果の組み立て ----------
@@ -63,7 +63,9 @@ const SPECIAL = byIdEarly(SPECIALS);
 const fitsSpecial = (sc, sp) => sc === 'any' || !sp.color || sp.color === sc;
 // ビルドの型・メイン武器
 const byId = arr => Object.fromEntries(arr.map(x => [x.id, x]));
-const RUN_FLAG = byId(RUN_FLAGS);
+const RUN_FLAG = byId(RUN_FLAGS), SHIFT = byId(SHIFTS);
+// 印の表示名。地変は種類があれば「地変：火口」のように出す
+const flagName = (x, r) => x === 'shift' && r.shift ? `地変：${SHIFT[r.shift]?.name ?? r.shift}` : RUN_FLAG[x]?.name ?? x;
 const LORD = byId(LORDS), CHAR = byId(CHARS), LOSS = byId(LOSS_AT), MODE = byId(MODES), PARTYM = byId(PARTY);
 
 // ---------- helpers ----------
@@ -131,7 +133,7 @@ function seed() {
 const db = load() ?? { runs: [], relics: [], presets: [] };
 db.prefs ||= {};
 const prefs = () => db.prefs;
-const blankForm = () => ({ dateMode: 'today', date: today(), lordId: null, everdark: null, flags: [], mode: prefs().mode || 'normal', depth: prefs().depth || null,
+const blankForm = () => ({ dateMode: 'today', date: today(), lordId: null, everdark: null, flags: [], shift: null, mode: prefs().mode || 'normal', depth: prefs().depth || null,
   party: prefs().party || 'trio', charId: null, result: null, lossAt: null, presetId: null, note: '' });
 const lastPresetFor = charId => { const id = (prefs().presetByChar || {})[charId]; return id && db.presets.some(p => p.id === id && !p.deleted) ? id : null; };
 const S = {
@@ -184,7 +186,7 @@ function viewRecord() {
     ${card('夜の王の種類', '', `<div class="chips">${chip('everdark', 'no', '通常', f.everdark === false, 'chip small')}${chip('everdark', 'yes', '常夜', f.everdark === true, 'chip small')}</div>`)}
     ${recDisc('lord', '夜の王', f.lordId && LORD[f.lordId].name,
       `<div class="grid-btns">${lords.map(l => chip('lord', l.id, lordName(l.id), f.lordId === l.id, 'tile-btn with-ico')).join('')}</div>`,
-      f.lordId ? `<div class="flag-row"><span class="flag-label">あれば</span>${RUN_FLAGS.map(x => chip('flag', x.id, x.name, f.flags.includes(x.id), 'chip small')).join('')}</div>` : '')}
+      f.lordId ? flagRow(f, chip) : '')}
     ${recDisc('char', '夜渡り', f.charId && CHAR[f.charId].name,
       `<div class="grid-btns">${CHARS.map(c => chip('char', c.id, charName(c.id), f.charId === c.id, 'tile-btn with-ico')).join('')}</div>`)}
     ${f.charId ? card('ビルド', `<div class="chips one-line">${chip('preset', '', '記録無し', !f.presetId)}${presets.map(p => chip('preset', p.id, esc(presetLabel(p)), f.presetId === p.id)).join('')}</div>
@@ -219,6 +221,13 @@ function recDisc(key, label, value, body, extra = '') {
       <span class="k">${label}</span><span class="v ${value ? 'set' : ''}">${value ? ico(key, key === 'lord' ? S.form.lordId : S.form.charId) : ''}<span class="txt">${value ? esc(value) : '未選択'}</span></span><span class="chev"></span></button>
     ${open ? `<div class="disc-body">${body}</div>` : ''}
     ${extra ? `<div class="disc-extra">${extra}</div>` : ''}</div>`;
+}
+// 夜の王の下の印：「地図欠損・ボス不明」or「地変」。地変を選んだときだけ、その下に種類を出す
+function flagRow(f, chip) {
+  const c = x => chip('flag', x.id, x.name, f.flags.includes(x.id), 'chip small');
+  const shiftOn = f.flags.includes('shift');
+  return `<div class="flag-row"><span class="flag-label">あれば</span>${RUN_FLAGS.filter(x => x.id !== 'shift').map(c).join('')}<span class="flag-alt"><span class="flag-or">or</span>${c(RUN_FLAG.shift)}</span></div>
+    ${shiftOn ? `<div class="shift-row">${SHIFTS.map(x => chip('shift', x.id, x.name, f.shift === x.id, 'chip mini')).join('')}</div>` : ''}`;
 }
 // 常夜の王を選んだときは、常夜にいない夜の王を外す（lords.js の everdark: false）
 const lordsFor = everdark => LORDS.filter(l => everdark !== true || l.everdark !== false);
@@ -280,7 +289,7 @@ function runRow(r) {
   return `<button class="run ${r.result}" data-act="openRun" data-v="${r.id}" aria-expanded="${open}">
     <span class="stripe"></span>
     <span class="main"><span class="who"><span class="nm-ico">${lordName(r.lordId)}</span><span class="x">×</span><span class="nm-ico">${charName(r.charId)}</span></span>
-      <span class="meta">${r.everdark ? '<span class="badge ever">常夜</span>' : ''}${r.mode === 'deep' ? `<span class="badge deep">深き夜${r.depth ? ' 深度' + r.depth : ''}</span>` : ''}${(r.flags || []).map(x => `<span class="badge">${RUN_FLAG[x]?.name ?? x}</span>`).join('')}<span>${PARTYM[r.party].name}</span>${pname ? `<span>${esc(pname)}</span>` : ''}</span></span>
+      <span class="meta">${r.everdark ? '<span class="badge ever">常夜</span>' : ''}${r.mode === 'deep' ? `<span class="badge deep">深き夜${r.depth ? ' 深度' + r.depth : ''}</span>` : ''}${(r.flags || []).map(x => `<span class="badge">${flagName(x, r)}</span>`).join('')}<span>${PARTYM[r.party].name}</span>${pname ? `<span>${esc(pname)}</span>` : ''}</span></span>
     <span class="res">${r.result === 'win' ? '勝利' : '敗北'}${r.lossAt ? `<small>${LOSS[r.lossAt].name}</small>` : ''}</span>
     <span class="more-dots" aria-hidden="true">${open ? '×' : '⋯'}</span>
   </button>
@@ -665,7 +674,7 @@ function replaceDb(next) {
 function csvRows() {
   const rows = [['日付', '夜の王', '常夜', '地図欠損など', 'モード', '深度', '人数', '夜渡り', '結果', '倒れた場所', 'ビルド', 'メモ']];
   liveRuns().sort((a, b) => a.date.localeCompare(b.date) || a.updatedAt - b.updatedAt).forEach(r => rows.push([
-    r.date, LORD[r.lordId]?.name ?? r.lordId, r.everdark ? '常夜' : '', (r.flags || []).map(x => RUN_FLAG[x]?.name ?? x).join('/'), MODE[r.mode]?.name ?? r.mode, r.depth ?? '', PARTYM[r.party]?.name ?? r.party,
+    r.date, LORD[r.lordId]?.name ?? r.lordId, r.everdark ? '常夜' : '', (r.flags || []).map(x => flagName(x, r)).join('/'), MODE[r.mode]?.name ?? r.mode, r.depth ?? '', PARTYM[r.party]?.name ?? r.party,
     CHAR[r.charId]?.name ?? r.charId, r.result === 'win' ? '勝利' : '敗北', r.lossAt ? LOSS[r.lossAt].name : '', presetById(r.presetId) ? presetLabel(presetById(r.presetId)) : (r.presetId ? '削除済み' : ''), r.note]));
   return rows;
 }
@@ -732,10 +741,16 @@ document.addEventListener('click', e => {
       if (S.confirmDel !== 'wipe') { S.confirmDel = 'wipe'; break; }
       replaceDb({ runs: [], relics: [], presets: [] }); S.confirmDel = null; S.sheet = null; toast('すべてのデータを削除しました'); break;
     case 'date': f.dateMode = v; if (v === 'today') f.date = today(); if (v === 'yesterday') f.date = daysAgo(1); break;
-    case 'lord': f.lordId = f.lordId === v ? null : v; if (!f.lordId) f.flags = []; S.recOpen.lord = !f.lordId; break;
+    case 'lord': f.lordId = f.lordId === v ? null : v; if (!f.lordId) { f.flags = []; f.shift = null; } S.recOpen.lord = !f.lordId; break;
     case 'rdisc': S.recOpen[v] = !recOpen(v, !!(v === 'lord' ? f.lordId : f.charId)); break;
     case 'everdark': f.everdark = v === 'yes'; if (f.lordId && !lordsFor(f.everdark).some(l => l.id === f.lordId)) f.lordId = null; break;
-    case 'flag': f.flags = f.flags.includes(v) ? f.flags.filter(x => x !== v) : [...f.flags, v]; break;
+    case 'flag':
+      if (f.flags.includes(v)) f.flags = f.flags.filter(x => x !== v);
+      // 地変と「地図欠損・ボス不明」はどちらか一方だけ
+      else f.flags = v === 'shift' ? ['shift'] : [...f.flags.filter(x => x !== 'shift'), v];
+      if (!f.flags.includes('shift')) f.shift = null;
+      break;
+    case 'shift': f.shift = f.shift === v ? null : v; break;
     case 'char': if (f.charId !== v) f.presetId = lastPresetFor(v); f.charId = v; S.recOpen.char = false; break;
     case 'result': f.result = v; if (v === 'win') f.lossAt = null; break;
     case 'lossAt': f.lossAt = f.lossAt === v ? null : v; break;
@@ -748,7 +763,7 @@ document.addEventListener('click', e => {
       if (!(dateOk && f.everdark !== null && f.lordId && f.charId && f.result)) return;
       const date = f.dateMode === 'pick' ? f.date : f.dateMode === 'yesterday' ? daysAgo(1) : today();
       const p = f.presetId && presetById(f.presetId);
-      const fields = { date, lordId: f.lordId, everdark: f.everdark, flags: f.flags, mode: f.mode, depth: f.mode === 'deep' ? f.depth : null, party: f.party,
+      const fields = { date, lordId: f.lordId, everdark: f.everdark, flags: f.flags, shift: f.flags.includes('shift') ? f.shift : null, mode: f.mode, depth: f.mode === 'deep' ? f.depth : null, party: f.party,
         charId: f.charId, result: f.result, lossAt: f.result === 'loss' ? f.lossAt : null, presetId: f.presetId, note: f.note.trim() };
       if (S.editRun) {
         const r = db.runs.find(x => x.id === S.editRun);
@@ -761,13 +776,13 @@ document.addEventListener('click', e => {
       S.undo = { id: newId, form: structuredClone(f), recOpen: { ...S.recOpen } };
       db.runs.push({ id: newId, ...fields, presetRev: p ? presetRev(p) : null, updatedAt: Date.now(), deleted: false });
       toast(`${LORD[f.lordId].name}戦の${f.result === 'win' ? '勝利' : '敗北'}を記録しました`, { act: 'undoSave', label: '取り消す' });
-      Object.assign(f, { dateMode: 'today', date: today(), lordId: null, everdark: null, flags: [], result: null, lossAt: null, note: '' }); S.recOpen = {};
+      Object.assign(f, { dateMode: 'today', date: today(), lordId: null, everdark: null, flags: [], shift: null, result: null, lossAt: null, note: '' }); S.recOpen = {};
       break;
     }
     case 'editRun': {
       const r = db.runs.find(x => x.id === v);
       S.editRun = r.id;
-      S.form = { dateMode: 'pick', date: r.date || today(), lordId: r.lordId, everdark: !!r.everdark, flags: [...(r.flags || [])], mode: r.mode || 'normal', depth: r.depth ?? null,
+      S.form = { dateMode: 'pick', date: r.date || today(), lordId: r.lordId, everdark: !!r.everdark, flags: [...(r.flags || [])], shift: r.shift ?? null, mode: r.mode || 'normal', depth: r.depth ?? null,
         party: r.party || 'trio', charId: r.charId, result: r.result, lossAt: r.lossAt ?? null, presetId: r.presetId ?? null, origPresetId: r.presetId ?? null, note: r.note || '' };
       S.recOpen = {}; S.tab = 'record'; S.openRun = null; window.scrollTo(0, 0); break;
     }
