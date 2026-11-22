@@ -131,7 +131,8 @@ const blankForm = () => ({ dateMode: 'today', date: today(), lordId: null, everd
 const lastPresetFor = charId => { const id = (prefs().presetByChar || {})[charId]; return id && db.presets.some(p => p.id === id && !p.deleted) ? id : null; };
 const S = {
   tab: 'record', recOpen: {}, form: blankForm(), openRun: null, confirmDel: null,
-  stats: { period: 'all', mode: 'all' },
+  stats: { period: 'all', mode: 'all', drill: {}, heatBy: 'lord' },
+  hist: { result: 'all', lord: '', char: '' },
   buildView: 'presets', edit: null, sheet: null,
 };
 { // remember last character / preset as sensible defaults
@@ -223,11 +224,28 @@ function optSummary() {
 }
 
 function viewHistory() {
-  const runs = liveRuns().sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt - a.updatedAt);
-  if (!runs.length) return `<div class="empty-state">まだ記録がありません。「記録」タブから1戦目を残しましょう。</div>`;
+  const all = liveRuns().sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt - a.updatedAt);
+  if (!all.length) return `<div class="empty-state">まだ記録がありません。「記録」タブから1戦目を残しましょう。</div>`;
+  // 絞り込み（夜の王・夜渡り・勝敗）
+  const h = S.hist;
+  const runs = all.filter(r => (!h.lord || r.lordId === h.lord) && (!h.char || r.charId === h.char) && (h.result === 'all' || r.result === h.result));
+  const active = h.lord || h.char || h.result !== 'all';
+  const opt = (list, cur, allLabel) => `<option value="">${allLabel}</option>${list.map(x => `<option value="${x.id}" ${cur === x.id ? 'selected' : ''}>${x.name}</option>`).join('')}`;
+  const usedLords = LORDS.filter(l => all.some(r => r.lordId === l.id)), usedChars = CHARS.filter(c => all.some(r => r.charId === c.id));
+  const x = rate(runs);
+  const filter = `<div class="hist-filter">
+    <div class="chips">${[['all', 'すべて'], ['win', '勝利'], ['loss', '敗北']].map(([v, l]) => `<button class="chip small" data-act="hf" data-v="${v}" ${pressed(h.result === v)}>${l}</button>`).join('')}</div>
+    <div class="sel-row">
+      <select data-hf="lord" aria-label="夜の王で絞り込む" class="${h.lord ? 'on' : ''}">${opt(usedLords, h.lord, '夜の王：すべて')}</select>
+      <select data-hf="char" aria-label="夜渡りで絞り込む" class="${h.char ? 'on' : ''}">${opt(usedChars, h.char, '夜渡り：すべて')}</select>
+    </div>
+    ${active ? `<div class="hist-sum"><span>${x.n}戦 ${x.w}勝 ${x.n - x.w}敗${x.n ? `・勝率 ${pct(x.p)}` : ''}</span><button class="ghost small" data-act="hfClear">絞り込みを解除</button></div>`
+      : `<p class="hint">戦績をタップすると、メモの確認・編集・削除ができます。</p>`}
+  </div>`;
+  if (!runs.length) return `<div class="stack-lg">${filter}<div class="empty-state">この条件の記録はありません</div></div>`;
   const groups = {};
   runs.forEach(r => (groups[r.date] ||= []).push(r));
-  return `<div class="stack-lg">` + Object.entries(groups).map(([d, rs]) => {
+  return `<div class="stack-lg">${filter}` + Object.entries(groups).map(([d, rs]) => {
     const w = rs.filter(r => r.result === 'win').length;
     return `<div class="day"><div class="day-head"><b>${dateLabel(d)}</b><span>${w}勝 ${rs.length - w}敗</span></div>
       ${rs.map(runRow).join('')}</div>`;
@@ -242,6 +260,7 @@ function runRow(r) {
     <span class="main"><span class="who">${LORD[r.lordId].name} <span style="color:var(--dim);font-weight:400">×</span> ${CHAR[r.charId].name}</span>
       <span class="meta">${r.everdark ? '<span class="badge ever">常夜</span>' : ''}${r.mode === 'deep' ? `<span class="badge deep">深き夜${r.depth ? ' 深度' + r.depth : ''}</span>` : ''}${(r.flags || []).map(x => `<span class="badge">${RUN_FLAG[x]?.name ?? x}</span>`).join('')}<span>${PARTYM[r.party].name}</span>${pname ? `<span>${esc(pname)}</span>` : ''}</span></span>
     <span class="res">${r.result === 'win' ? '勝利' : '敗北'}${r.lossAt ? `<small>${LOSS[r.lossAt].name}</small>` : ''}</span>
+    <span class="more-dots" aria-hidden="true">${open ? '×' : '⋯'}</span>
   </button>
   ${open ? `<div class="run-detail">
     ${r.note ? `<div>${esc(r.note)}</div>` : `<div style="color:var(--dim)">メモなし</div>`}
@@ -258,9 +277,19 @@ function filteredRuns() {
     if (mode === 'normal' && r.mode !== 'normal') return false;
     if (mode === 'deep' && r.mode !== 'deep') return false;
     if (mode === 'ever' && !r.everdark) return false;
-    return true;
+    return Object.entries(S.stats.drill).every(([k, id]) => DRILL[k].match(r, id));
   });
 }
+// 統計の行をタップして絞り込む（深掘り）。種類ごとに「どの戦績が当てはまるか」と「表示名」
+const DRILL = {
+  lord: { label: '夜の王', match: (r, id) => r.lordId === id, name: id => LORD[id]?.name ?? id },
+  char: { label: '夜渡り', match: (r, id) => r.charId === id, name: id => CHAR[id]?.name ?? id },
+  preset: { label: 'ビルド', match: (r, id) => id === '__none' ? !r.presetId : id === '__gone' ? !!r.presetId && !presetById(r.presetId) : r.presetId === id,
+    name: id => id === '__none' ? '記録無し' : id === '__gone' ? '削除済み（詳細不明）' : presetById(id) ? presetLabel(presetById(id)) : '削除済み' },
+  style: { label: '型', match: (r, id) => runBuild(r)?.style === id, name: id => STYLES.find(x => x.id === id)?.name ?? id },
+  weapon: { label: 'メイン武器', match: (r, id) => runBuild(r)?.weaponType === id, name: id => id },
+  effect: { label: '効果', match: (r, id) => presetHasEffect(r, id), name: id => id.startsWith('sp:') ? `《${SPECIAL[id.slice(3)]?.name ?? '?'}》` : ALL_EFF[id]?.label ?? id },
+};
 const rate = arr => { const w = arr.filter(r => r.result === 'win').length; return { w, n: arr.length, p: arr.length ? w / arr.length : 0 }; };
 const STATS_MIN_RUNS = 5;  // これ未満の試合数は「参考」として下にまとめる
 function barRows(items, getRuns, opts = {}) {
@@ -272,19 +301,29 @@ function barRows(items, getRuns, opts = {}) {
   const limit = opts.limit && !(S.statsMore || {})[opts.key] ? opts.limit : Infinity;
   const hidden = Math.max(0, rows.length - limit);
   rows = rows.slice(0, limit);
-  const row = x => barRow(x, x.n < STATS_MIN_RUNS);
+  const row = x => barRow(x, x.n < STATS_MIN_RUNS, opts.drill);
   const shownEnough = rows.filter(x => x.n >= STATS_MIN_RUNS), shownFew = rows.filter(x => x.n < STATS_MIN_RUNS);
   return `<div class="bars">${shownEnough.map(row).join('')}
     ${shownFew.length ? `<div class="few-label">${STATS_MIN_RUNS}戦未満（参考）</div>${shownFew.map(row).join('')}` : ''}</div>
     ${hidden ? `<button class="more-btn" data-act="statsMore" data-v="${opts.key}">すべて表示（残り${hidden}件）</button>` : ''}`;
 }
-function barRow(x, dim) {
-  return `<div class="bar-row ${dim ? 'dim' : ''}"><span class="name" title="${esc(x.it.name)}">${esc(x.it.name)}</span>
-    <span class="bar-track"><span class="bar-fill" style="width:${x.p * 100}%;background:${x.p >= .5 ? 'var(--grad-win)' : 'var(--grad-loss)'}"></span></span>
-    <span class="num"><b>${pct(x.p)}</b> ${x.w}/${x.n}</span></div>`;
+// 名前を1行目に全部出し、棒グラフは2行目に置く（長い名前が切れないように）。drill を渡すとタップで絞り込める
+function barRow(x, dim, drill) {
+  const inner = `<span class="name">${esc(x.it.name)}</span><span class="num"><b>${pct(x.p)}</b> ${x.w}/${x.n}</span>
+    <span class="bar-track"><span class="bar-fill" style="width:${x.p * 100}%;background:${x.p >= .5 ? 'var(--grad-win)' : 'var(--grad-loss)'}"></span></span>`;
+  return drill
+    ? `<button class="bar-row tap ${dim ? 'dim' : ''}" data-act="drill" data-k="${drill}" data-v="${esc(x.it.id)}">${inner}<span class="go" aria-hidden="true">›</span></button>`
+    : `<div class="bar-row ${dim ? 'dim' : ''}">${inner}</div>`;
+}
+function drillBanner() {
+  const keys = Object.keys(S.stats.drill);
+  if (!keys.length) return `<p class="hint">各項目の行をタップすると、その条件に絞って詳しく見られます。</p>`;
+  return `<div class="drill-banner"><b>絞り込み中</b><div class="chips">${keys.map(k => `<button class="chip small drill-chip" data-act="undrill" data-v="${k}" aria-label="${DRILL[k].label}の絞り込みを外す">${DRILL[k].label}：${esc(DRILL[k].name(S.stats.drill[k]))} <span aria-hidden="true">×</span></button>`).join('')}</div>
+    ${keys.length > 1 ? '<button class="ghost small" data-act="undrillAll">すべて外す</button>' : ''}</div>`;
 }
 function viewStats() {
   const runs = filteredRuns();
+  const dr = S.stats.drill;
   const all = rate(runs);
   const chrono = [...runs].sort((a, b) => a.date.localeCompare(b.date) || a.updatedAt - b.updatedAt);
   let streak = 0; for (let i = chrono.length - 1; i >= 0 && chrono[i].result === 'win'; i--) streak++;
@@ -299,6 +338,7 @@ function viewStats() {
       <div class="chips">${filterChips('period', [['all', '全期間'], ['30', '30日'], ['7', '7日']])}</div>
       <div class="chips">${filterChips('mode', [['all', 'すべて'], ['normal', '通常'], ['deep', '深き夜'], ['ever', '常夜の王']])}</div>
     </div>
+    ${drillBanner()}
     ${runs.length ? `
     <div class="tiles">
       <div class="tile"><div class="k">戦数</div><div class="v">${all.n}</div><div class="s">${all.w}勝 ${all.n - all.w}敗</div></div>
@@ -306,17 +346,17 @@ function viewStats() {
       <div class="tile"><div class="k">連勝</div><div class="v">${streak}</div><div class="s">最高 ${best}</div></div>
     </div>
     ${card('勝率の推移', `<p class="hint">直近10戦ごとの勝率。点線は50%</p>${spark(chrono)}`)}
-    ${card('夜の王別', barRows(LORDS, l => runs.filter(r => r.lordId === l.id)))}
-    ${card('夜渡り別', barRows(CHARS, c => runs.filter(r => r.charId === c.id)))}
-    ${card('相性表', `<p class="hint">夜の王 × 夜渡りの勝率。数字は戦数</p>${heat(runs)}`)}
+    ${dr.lord ? '' : card('夜の王別', barRows(LORDS, l => runs.filter(r => r.lordId === l.id), { drill: 'lord' }))}
+    ${dr.char ? '' : card('夜渡り別', barRows(CHARS, c => runs.filter(r => r.charId === c.id), { drill: 'char' }))}
+    ${dr.lord || dr.char ? '' : card('相性表', heat(runs), `<div class="chips">${[['lord', '夜の王ごと'], ['char', '夜渡りごと']].map(([v, l]) => `<button class="chip small" data-act="heatBy" data-v="${v}" ${pressed(S.stats.heatBy === v)}>${l}</button>`).join('')}</div>`)}
     ${card('どこで倒れたか', lossTotal ? `<div class="stack">${lossCounts.filter(x => x.n).map(x => `<div style="flex:${x.n};background:${lossColors[x.id]}">${x.n >= lossTotal * .12 ? pct(x.n / lossTotal) : ''}</div>`).join('')}</div>
       <div class="legend">${lossCounts.map(x => `<span><i style="background:${lossColors[x.id]}"></i>${x.name} ${x.n}回</span>`).join('')}</div>` : `<p class="hint">敗北の記録はありません</p>`)}
-    ${card('ビルド別', barRows([...db.presets.map(p => ({ id: p.id, name: presetLabel(p) })), { id: null, name: '記録無し' }, { id: '__gone', name: '削除済み（詳細不明）' }],
-      p => runs.filter(r => p.id === '__gone' ? r.presetId && !presetById(r.presetId) : (r.presetId || null) === p.id)))}
-    ${card('型・メイン武器別', `${barRows(STYLES, st => runs.filter(r => runBuild(r)?.style === st.id))}
-      ${barRows(WEAPON_TYPES.map(w => ({ id: w, name: w })), w => runs.filter(r => runBuild(r)?.weaponType === w.id))}`)}
+    ${dr.preset ? '' : card('ビルド別', barRows([...db.presets.map(p => ({ id: p.id, name: presetLabel(p) })), { id: '__none', name: '記録無し' }, { id: '__gone', name: '削除済み（詳細不明）' }],
+      p => runs.filter(r => DRILL.preset.match(r, p.id)), { drill: 'preset' }))}
+    ${dr.style && dr.weapon ? '' : card('型・メイン武器別', `${dr.style ? '' : barRows(STYLES, st => runs.filter(r => runBuild(r)?.style === st.id), { drill: 'style' })}
+      ${dr.weapon ? '' : barRows(WEAPON_TYPES.map(w => ({ id: w, name: w })), w => runs.filter(r => runBuild(r)?.weaponType === w.id), { drill: 'weapon' })}`)}
     ${card('効果別', `<p class="hint">その効果を積んでいた試合の勝率。プリセットに登録した効果だけが対象です</p>
-      <div class="bars-wide">${barRows(usedEffects(runs), ef => runs.filter(r => presetHasEffect(r, ef.id)), { limit: 10, key: 'effects' })}</div>`)}` : `<div class="empty-state">この条件の記録はありません</div>`}
+      ${barRows(usedEffects(runs).filter(ef => ef.id !== dr.effect), ef => runs.filter(r => presetHasEffect(r, ef.id)), { limit: 10, key: 'effects', drill: 'effect' })}`)}` : `<div class="empty-state">この条件の記録はありません</div>`}
   </div>`;
 }
 function spark(chrono) {
@@ -337,18 +377,21 @@ function spark(chrono) {
     <text x="${W - padX - 6}" y="${Math.max(14, y(last) - 8)}" fill="var(--fg)" font-size="11" text-anchor="end">${pct(last)}</text>
   </svg>`;
 }
+// 相性表：横に広い表をやめて、夜の王（または夜渡り）ごとに、相手との勝率を色付きの札で並べる
 function heat(runs) {
-  const chars = CHARS.filter(c => runs.some(r => r.charId === c.id));
-  const lords = LORDS.filter(l => runs.some(r => r.lordId === l.id));
-  return `<div class="scroll-x"><table class="heat"><thead><tr><th></th>${chars.map(c => `<th>${c.name}</th>`).join('')}</tr></thead><tbody>
-    ${lords.map(l => `<tr><th>${l.name}</th>${chars.map(c => {
-      const x = rate(runs.filter(r => r.lordId === l.id && r.charId === c.id));
-      if (!x.n) return `<td class="cell empty">・</td>`;
+  const byLord = S.stats.heatBy !== 'char';
+  const groups = byLord ? LORDS : CHARS, others = byLord ? CHARS : LORDS;
+  const gKey = byLord ? 'lordId' : 'charId', oKey = byLord ? 'charId' : 'lordId';
+  const rows = groups.filter(g => runs.some(r => r[gKey] === g.id)).map(g => {
+    const mine = runs.filter(r => r[gKey] === g.id);
+    const cells = others.map(o => ({ o, ...rate(mine.filter(r => r[oKey] === o.id)) })).filter(x => x.n).sort((a, b) => b.n - a.n || b.p - a.p);
+    return `<div class="match-group"><div class="match-head"><b>${g.name}</b><span>${rate(mine).n}戦</span></div><div class="match-cells">${cells.map(x => {
       const col = x.p >= .5 ? 'var(--win)' : 'var(--loss)';
       const strength = Math.round(18 + Math.abs(x.p - .5) * 2 * 60);
-      return `<td class="cell" style="background:color-mix(in srgb, ${col} ${strength}%, var(--panel))" title="${x.w}/${x.n}"><b>${pct(x.p)}</b><br><span style="color:var(--dim)">${x.n}</span></td>`;
-    }).join('')}</tr>`).join('')}
-  </tbody></table></div>`;
+      return `<span class="match ${x.n < STATS_MIN_RUNS ? 'few' : ''}" style="background:color-mix(in srgb, ${col} ${strength}%, var(--panel))"><span class="nm">${x.o.name}</span><b>${pct(x.p)}</b><small>${x.w}/${x.n}</small></span>`;
+    }).join('')}</div></div>`;
+  });
+  return `<p class="hint">${byLord ? '夜の王ごとに、使った夜渡りの勝率' : '夜渡りごとに、戦った夜の王との勝率'}。緑ほど勝ち越し、赤ほど負け越し。点線の札は${STATS_MIN_RUNS}戦未満（参考）です</p><div class="match-list">${rows.join('')}</div>`;
 }
 
 function relicSub(r) { if (r.special) return SPECIAL[r.special].effects.join('・'); return r.effects.filter(Boolean).map(e => ALL_EFF[e].name).join('・') || '効果未登録'; }
@@ -436,7 +479,7 @@ function editPreset() {
       + disc('relicDeep', '深層の遺物', relicValue('deep'), `<div class="section">${[0, 1, 2].map(i => slot('deep', i)).join('')}</div><p class="hint">深き夜で使う遺物です。</p>`, false, true)
       + '<p class="hint">枠は空いたままでも保存できます。</p>' : ''}
     <div class="form-actions"><button class="ghost" data-act="eCancel">キャンセル</button><button class="primary" data-act="eSave">保存する</button></div>
-    ${S.edit.isNew ? '' : `<div class="row-actions" style="justify-content:center"><button class="ghost danger" data-act="eDel">${S.confirmDel === 'edit' ? 'もう一度押すと削除' : 'このプリセットを削除'}</button></div>`}
+    ${S.edit.isNew ? '' : `<div class="row-actions" style="justify-content:center"><button class="ghost" data-act="eDup">複製して新しく作る</button><button class="ghost danger" data-act="eDel">${S.confirmDel === 'edit' ? 'もう一度押すと削除' : 'このプリセットを削除'}</button></div>`}
   </div>`;
 }
 function editSlot() {
@@ -709,7 +752,13 @@ document.addEventListener('click', e => {
     case 'delRun':
       if (S.confirmDel !== v) { S.confirmDel = v; break; }
       { const r = db.runs.find(r => r.id === v); r.deleted = true; r.updatedAt = Date.now(); } S.confirmDel = null; S.openRun = null; toast('削除しました'); break;
+    case 'hf': S.hist.result = v; S.openRun = null; break;
+    case 'hfClear': S.hist = { result: 'all', lord: '', char: '' }; S.openRun = null; break;
     case 'sf': S.stats[t.dataset.k] = v; break;
+    case 'drill': S.stats.drill[t.dataset.k] = v; window.scrollTo(0, 0); break;
+    case 'undrill': delete S.stats.drill[v]; break;
+    case 'undrillAll': S.stats.drill = {}; break;
+    case 'heatBy': S.stats.heatBy = v; break;
     case 'statsMore': (S.statsMore ||= {})[v] = true; break;
     case 'bv': S.buildView = v; break;
     case 'newPreset': S.edit = { type: 'preset', isNew: true, open: { char: true }, data: { id: uid(), name: '', nameAuto: true, charId: null, vesselId: null, normal: [null, null, null], deep: [null, null, null] } }; window.scrollTo(0, 0); break;
@@ -802,6 +851,14 @@ document.addEventListener('click', e => {
       if (S.form.presetId === id) S.form.presetId = null;
       S.confirmDel = null; S.edit = null; toast('削除しました'); break;
     }
+    case 'eDup': {
+      // 保存済みの中身をコピーして、新しいプリセットとして作り始める（元のプリセットは変わらない）
+      const src = structuredClone(presetById(S.edit.data.id));
+      const { rev, history, deleted, ...rest } = src;
+      const named = !rest.nameAuto && rest.name?.trim();
+      S.edit = { type: 'preset', isNew: true, open: {}, data: { ...rest, id: uid(), name: named ? `${rest.name}（コピー）` : '', nameAuto: !named } };
+      window.scrollTo(0, 0); toast('複製しました。直して保存すると新しいプリセットになります'); break;
+    }
     case 'eCancel': S.edit = null; break;
     default: return;
   }
@@ -826,6 +883,7 @@ if (!prefs().onboarded && !db.runs.length) S.sheet = { type: 'guide' };
 render();
 
 document.addEventListener('change', e => {
+  if (e.target.dataset?.hf) { S.hist[e.target.dataset.hf] = e.target.value; S.openRun = null; render(); return; }
   if (e.target.id !== 'importFile' || !e.target.files[0]) return;
   readJsonFile(e.target.files[0])
     .then(next => { replaceDb(next); S.sheet = null; render(); toast(`復元しました（戦績 ${next.runs.filter(r => !r.deleted).length}件）`); })
