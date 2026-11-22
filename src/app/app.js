@@ -262,12 +262,26 @@ function filteredRuns() {
   });
 }
 const rate = arr => { const w = arr.filter(r => r.result === 'win').length; return { w, n: arr.length, p: arr.length ? w / arr.length : 0 }; };
-function barRows(items, getRuns) {
-  const rows = items.map(it => ({ it, ...rate(getRuns(it)) })).filter(x => x.n > 0).sort((a, b) => b.p - a.p || b.n - a.n);
-  if (!rows.length) return `<p class="hint">この条件の記録はありません</p>`;
-  return `<div class="bars">${rows.map(x => `<div class="bar-row"><span class="name" title="${esc(x.it.name)}">${esc(x.it.name)}</span>
+const STATS_MIN_RUNS = 5;  // これ未満の試合数は「参考」として下にまとめる
+function barRows(items, getRuns, opts = {}) {
+  const all = items.map(it => ({ it, ...rate(getRuns(it)) })).filter(x => x.n > 0);
+  if (!all.length) return `<p class="hint">この条件の記録はありません</p>`;
+  const enough = all.filter(x => x.n >= STATS_MIN_RUNS).sort((a, b) => b.p - a.p || b.n - a.n);
+  const few = all.filter(x => x.n < STATS_MIN_RUNS).sort((a, b) => b.n - a.n || b.p - a.p);
+  let rows = [...enough, ...few];
+  const limit = opts.limit && !(S.statsMore || {})[opts.key] ? opts.limit : Infinity;
+  const hidden = Math.max(0, rows.length - limit);
+  rows = rows.slice(0, limit);
+  const row = x => barRow(x, x.n < STATS_MIN_RUNS);
+  const shownEnough = rows.filter(x => x.n >= STATS_MIN_RUNS), shownFew = rows.filter(x => x.n < STATS_MIN_RUNS);
+  return `<div class="bars">${shownEnough.map(row).join('')}
+    ${shownFew.length ? `<div class="few-label">${STATS_MIN_RUNS}戦未満（参考）</div>${shownFew.map(row).join('')}` : ''}</div>
+    ${hidden ? `<button class="more-btn" data-act="statsMore" data-v="${opts.key}">すべて表示（残り${hidden}件）</button>` : ''}`;
+}
+function barRow(x, dim) {
+  return `<div class="bar-row ${dim ? 'dim' : ''}"><span class="name" title="${esc(x.it.name)}">${esc(x.it.name)}</span>
     <span class="bar-track"><span class="bar-fill" style="width:${x.p * 100}%;background:${x.p >= .5 ? 'var(--grad-win)' : 'var(--grad-loss)'}"></span></span>
-    <span class="num"><b>${pct(x.p)}</b> ${x.w}/${x.n}</span></div>`).join('')}</div>`;
+    <span class="num"><b>${pct(x.p)}</b> ${x.w}/${x.n}</span></div>`;
 }
 function viewStats() {
   const runs = filteredRuns();
@@ -302,7 +316,7 @@ function viewStats() {
     ${card('型・メイン武器別', `${barRows(STYLES, st => runs.filter(r => runBuild(r)?.style === st.id))}
       ${barRows(WEAPON_TYPES.map(w => ({ id: w, name: w })), w => runs.filter(r => runBuild(r)?.weaponType === w.id))}`)}
     ${card('効果別', `<p class="hint">その効果を積んでいた試合の勝率。プリセットに登録した効果だけが対象です</p>
-      <div class="bars-wide">${barRows(usedEffects(runs), ef => runs.filter(r => presetHasEffect(r, ef.id)))}</div>`)}` : `<div class="empty-state">この条件の記録はありません</div>`}
+      <div class="bars-wide">${barRows(usedEffects(runs), ef => runs.filter(r => presetHasEffect(r, ef.id)), { limit: 10, key: 'effects' })}</div>`)}` : `<div class="empty-state">この条件の記録はありません</div>`}
   </div>`;
 }
 function spark(chrono) {
@@ -369,10 +383,10 @@ function viewBuilds() {
   </div>`;
 }
 // タップで開閉する行。値が決まっていれば右側に表示する
-function disc(key, label, value, body, disabled = false) {
-  const open = !disabled && !!S.edit.open[key];
+function disc(key, label, value, body, disabled = false, defOpen = false) {
+  const open = !disabled && (S.edit.open[key] ?? defOpen);
   return `<div class="disc ${open ? 'open' : ''}">
-    <button class="disc-head" data-act="disc" data-v="${key}" aria-expanded="${open}" ${disabled ? 'disabled' : ''}>
+    <button class="disc-head" data-act="disc" data-v="${key}" data-open="${open}" aria-expanded="${open}" ${disabled ? 'disabled' : ''}>
       <span class="k">${label}</span><span class="v ${value.set ? 'set' : ''}">${value.html}</span><span class="chev"></span></button>
     ${open ? `<div class="disc-body">${body}</div>` : ''}</div>`;
 }
@@ -399,18 +413,29 @@ function editPreset() {
   const weaponBody = `<input type="text" id="e-wname" data-edit="weaponName" value="${esc(p.weaponName || '')}" placeholder="武器の名前（任意）例：月光の大剣">
       <div class="chips">${WEAPON_TYPES.map(x => `<button class="chip small" data-act="eWeapon" data-v="${x}" ${pressed(p.weaponType === x)}>${x}</button>`).join('')}</div>`;
   const val = (txt, set) => ({ html: `<span class="txt">${esc(txt)}</span>`, set });
-  BAR = `<button class="ghost" data-act="eCancel">キャンセル</button><button class="primary" data-act="eSave">保存する</button>`;
+  // 遺物の枠：埋まっている数と色を、畳んだ行の右側に出す
+  const relicValue = kind => { const n = p[kind].filter(Boolean).length;
+    return { html: `<span class="txt">${n}/3</span><span class="slots">${p[kind].map((r, i) => `<span class="slot-dot ${kind === 'deep' ? 'deep' : ''} ${r ? 'c-' + r.color : 'o-' + v[kind][i]}"></span>`).join('')}</span>`, set: n > 0 }; };
+  const name = presetName(p);
+  const nameRow = S.edit.editingName
+    ? `<section class="card-sec"><div class="sec-head"><h2>プリセット名</h2></div>
+        <input type="text" id="e-name" data-edit="name" value="${esc(p.nameAuto ? '' : p.name)}" placeholder="${esc(autoName(p))}">
+        <div class="row-actions">${p.nameAuto ? '' : '<button class="ghost" data-act="nameAuto">自動の名前に戻す</button>'}<button class="ghost" data-act="nameDone">決定</button></div>
+        <p class="hint">空のままにすると「型 メイン武器」の名前になります。</p></section>`
+    : `<button class="name-row" data-act="nameEdit"><span class="k">プリセット名</span><span class="nm">${esc(name)}</span><span class="pen">${p.nameAuto ? '自動・変更' : '変更'}</span></button>`;
+  BAR = '';
   return `<div class="stack-lg">
     <div class="page-title">${S.edit.isNew ? 'プリセットを作る' : 'プリセットを編集'}</div>
-    ${card('名前', `<input type="text" id="e-name" data-edit="name" value="${esc(p.name)}" placeholder="例：追跡者・出血型">`)}
     ${disc('char', '夜渡り', p.charId ? val(CHAR[p.charId].name, true) : val('未選択', false),
       `<div class="grid-btns">${CHARS.map(c => `<button class="tile-btn" data-act="eChar" data-v="${c.id}" ${pressed(p.charId === c.id)}>${c.name}</button>`).join('')}</div>`)}
     ${disc('style', '型', styleName ? val(styleName, true) : val('未設定', false), styleBody)}
     ${disc('weapon', 'メイン武器', p.weaponType ? val(p.weaponName ? `${p.weaponName}（${p.weaponType}）` : p.weaponType, true) : val('未設定', false), weaponBody)}
     ${disc('vessel', '献器', !p.charId ? val('先に夜渡りを選択', false) : v ? { html: `<span class="txt">${esc(v.name)}</span>${vesselCols(v, 'normal')}`, set: true } : val('未選択', false), vesselBody, !p.charId)}
-    ${v ? card('表の遺物（景色）', [0, 1, 2].map(i => slot('normal', i)).join(''))
-      + card('深層の遺物（昏景）', [0, 1, 2].map(i => slot('deep', i)).join(''), '<span class="val">深き夜用</span>')
+    ${nameRow}
+    ${v ? disc('relicNormal', '表の遺物', relicValue('normal'), `<div class="section">${[0, 1, 2].map(i => slot('normal', i)).join('')}</div>`, false, true)
+      + disc('relicDeep', '深層の遺物', relicValue('deep'), `<div class="section">${[0, 1, 2].map(i => slot('deep', i)).join('')}</div><p class="hint">深き夜で使う遺物です。</p>`, false, true)
       + '<p class="hint">枠は空いたままでも保存できます。</p>' : ''}
+    <div class="form-actions"><button class="ghost" data-act="eCancel">キャンセル</button><button class="primary" data-act="eSave">保存する</button></div>
     ${S.edit.isNew ? '' : `<div class="row-actions" style="justify-content:center"><button class="ghost danger" data-act="eDel">${S.confirmDel === 'edit' ? 'もう一度押すと削除' : 'このプリセットを削除'}</button></div>`}
   </div>`;
 }
@@ -441,6 +466,12 @@ function editSlot() {
     ${existed ? `<div class="row-actions" style="justify-content:center"><button class="ghost danger" data-act="eSlotClear">この枠を空にする</button></div>` : ''}
   </div>`;
 }
+// プリセット名は、自分で付けなければ「型 メイン武器」になる
+function autoName(p) {
+  const parts = [p.style && STYLES.find(x => x.id === p.style)?.name, p.weaponType].filter(Boolean);
+  return parts.length ? parts.join(' ') : p.charId ? `${CHAR[p.charId].name}のビルド` : '名前なしのビルド';
+}
+const presetName = p => (p.nameAuto || !p.name?.trim()) ? autoName(p) : p.name;
 function styleText(p) {
   const parts = [];
   if (p.style) parts.push(STYLES.find(x => x.id === p.style).name + ((p.spec || []).length ? `（${p.spec.join('・')}特化）` : ''));
@@ -473,6 +504,7 @@ function renderSheet() {
   const sh = S.sheet;
   if (!sh) { el.innerHTML = ''; return; }
   if (sh.type === 'menu') { el.innerHTML = menuSheet(); return; }
+  if (sh.type === 'guide') { el.innerHTML = guideSheet(); return; }
   const isDem = sh.kind === 'demerits';
   const deep = S.edit.slot.k === 'deep';
   const specialCats = !isDem && !deep ? [['__lord', '夜の王の遺物'], ['__char', '固有遺物']] : [];
@@ -523,6 +555,28 @@ function specialRows(type) {
     : `<p class="hint">この枠の色に合う${type === 'lord' ? '夜の王の' : '固有'}遺物はありません</p>`)
     + (ng.length ? `<p class="hint" style="padding:8px">色が合わないため装備できない：${ng.map(x => x.name).join('、')}</p>` : '');
 }
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+let installPrompt = null;  // Android Chrome の「インストール」ボタン用
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; if (S.sheet?.type === 'guide') renderSheet(); });
+function guideSheet() {
+  const installed = isStandalone();
+  const step = (n, title, body) => `<div class="guide-step"><span class="num">${n}</span><div><b>${title}</b><p class="hint">${body}</p></div></div>`;
+  const install = installed
+    ? `<div class="guide-ok">✓ ホーム画面から開いています</div>`
+    : isIOS
+      ? step(1, 'ホーム画面に追加する', 'Safariの下にある共有ボタン（□に↑）→「ホーム画面に追加」。<br><b>追加しないと、しばらく開かなかったときに記録が消えることがあります。</b>Safariとホーム画面のアプリは記録が別々なので、追加したあとはホーム画面から開いてください。')
+      : step(1, 'ホーム画面に追加する', `ブラウザのメニュー →「ホーム画面に追加」または「アプリをインストール」。アプリのように全画面で使えます。${installPrompt ? '<br><button class="ghost" data-act="install" style="margin-top:6px">今すぐ追加する</button>' : ''}`);
+  return `<div class="scrim" data-act="guideClose"></div><div class="sheet guide" role="dialog" aria-label="はじめに">
+    <div class="sheet-head"><h2>夜渡日記へようこそ</h2></div>
+    <div class="sheet-list guide-list">
+      <p class="hint">ナイトレインの戦績を記録して、夜の王・夜渡り・ビルドごとの勝率を振り返るアプリです。</p>
+      ${install}
+      ${step(installed ? 1 : 2, '戦績を記録する', '「記録」タブで、常夜かどうか・夜の王・夜渡り・結果を選んで「記録する」。2戦目からは前回の夜渡りとビルドを覚えています。')}
+      ${step(installed ? 2 : 3, 'バックアップを取る', '記録はこのスマホの中だけに保存されます。機種変更の前などは、右上の「データ」→「バックアップを保存」をしてください。')}
+    </div>
+    <button class="primary" data-act="guideClose">はじめる</button></div>`;
+}
 function menuSheet() {
   const n = liveRuns().length;
   const item = (act, title, sub, cls = '') => `<button class="pick ${cls}" data-act="${act}"><span><b>${title}</b><br><span class="hint">${sub}</span></span><span class="cat">›</span></button>`;
@@ -530,6 +584,7 @@ function menuSheet() {
     <div class="sheet-head"><h2>データ管理</h2><button class="ghost" data-act="sClose">閉じる</button></div>
     <p class="hint">記録はこの端末のブラウザに保存されています（戦績 ${n}件・プリセット ${activePresets().length}件）。機種変更の前やブラウザのデータを消す前に、バックアップを保存してください。</p>
     <div class="sheet-list">
+      ${item('guide', '使い方・ホーム画面に追加', 'はじめに出た案内をもう一度見る')}
       ${item('exportJson', 'バックアップを保存', '全データをファイルに書き出します')}
       <label class="pick" for="importFile"><span><b>バックアップから復元</b><br><span class="hint">今のデータは、ファイルの内容に置き換わります</span></span><span class="cat">›</span></label>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
@@ -577,10 +632,11 @@ function render() {
   save(db);
 }
 let toastTimer;
-function toast(msg) {
+// action を渡すと、通知の右側にボタンが付く（例：取り消す）
+function toast(msg, action) {
   const el = document.getElementById('toast');
-  el.innerHTML = `<div class="toast" role="status">${esc(msg)}</div>`;
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.innerHTML = '', 1800);
+  el.innerHTML = `<div class="toast ${action ? 'with-action' : ''}" role="status"><span>${esc(msg)}</span>${action ? `<button class="toast-btn" data-act="${action.act}">${action.label}</button>` : ''}</div>`;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.innerHTML = ''; if (action) S.undo = null; }, action ? 6000 : 1800);
 }
 
 // ---------- events ----------
@@ -591,6 +647,9 @@ document.addEventListener('click', e => {
   switch (a) {
     case 'tab': S.tab = v; S.sheet = null; window.scrollTo(0, 0); break;
     case 'menu': S.sheet = { type: 'menu' }; break;
+    case 'guide': S.sheet = { type: 'guide' }; break;
+    case 'guideClose': prefs().onboarded = true; S.sheet = null; break;
+    case 'install': installPrompt?.prompt(); installPrompt = null; return;
     case 'exportJson': exportJson(db); toast('バックアップを保存しました'); return;
     case 'exportCsv': exportCsv(csvRows()); toast('CSVを書き出しました'); return;
     case 'loadSample':
@@ -625,8 +684,10 @@ document.addEventListener('click', e => {
         S.editRun = null; S.form = blankForm(); S.form.charId = fields.charId; S.form.presetId = lastPresetFor(fields.charId);
         S.recOpen = {}; S.tab = 'history'; S.openRun = r.id; toast('戦績を更新しました'); break;
       }
-      db.runs.push({ id: uid(), ...fields, presetRev: p ? presetRev(p) : null, updatedAt: Date.now(), deleted: false });
-      toast(`${LORD[f.lordId].name}戦の${f.result === 'win' ? '勝利' : '敗北'}を記録しました`);
+      const newId = uid();
+      S.undo = { id: newId, form: structuredClone(f), recOpen: { ...S.recOpen } };
+      db.runs.push({ id: newId, ...fields, presetRev: p ? presetRev(p) : null, updatedAt: Date.now(), deleted: false });
+      toast(`${LORD[f.lordId].name}戦の${f.result === 'win' ? '勝利' : '敗北'}を記録しました`, { act: 'undoSave', label: '取り消す' });
       Object.assign(f, { dateMode: 'today', date: today(), lordId: null, everdark: null, flags: [], result: null, lossAt: null, note: '' }); S.recOpen = {};
       break;
     }
@@ -638,13 +699,20 @@ document.addEventListener('click', e => {
       S.recOpen = {}; S.tab = 'record'; S.openRun = null; window.scrollTo(0, 0); break;
     }
     case 'cancelEdit': S.editRun = null; S.form = blankForm(); S.recOpen = {}; S.tab = 'history'; break;
+    case 'undoSave': {
+      if (!S.undo) return;
+      db.runs = db.runs.filter(r => r.id !== S.undo.id);
+      S.form = S.undo.form; S.recOpen = S.undo.recOpen; S.undo = null; S.editRun = null; S.tab = 'record';
+      toast('記録を取り消しました。内容を直してもう一度記録できます'); break;
+    }
     case 'openRun': S.openRun = S.openRun === v ? null : v; break;
     case 'delRun':
       if (S.confirmDel !== v) { S.confirmDel = v; break; }
       { const r = db.runs.find(r => r.id === v); r.deleted = true; r.updatedAt = Date.now(); } S.confirmDel = null; S.openRun = null; toast('削除しました'); break;
     case 'sf': S.stats[t.dataset.k] = v; break;
+    case 'statsMore': (S.statsMore ||= {})[v] = true; break;
     case 'bv': S.buildView = v; break;
-    case 'newPreset': S.edit = { type: 'preset', isNew: true, open: { char: true }, data: { id: uid(), name: '', charId: null, vesselId: null, normal: [null, null, null], deep: [null, null, null] } }; window.scrollTo(0, 0); break;
+    case 'newPreset': S.edit = { type: 'preset', isNew: true, open: { char: true }, data: { id: uid(), name: '', nameAuto: true, charId: null, vesselId: null, normal: [null, null, null], deep: [null, null, null] } }; window.scrollTo(0, 0); break;
     case 'editPreset': S.edit = { type: 'preset', open: {}, data: structuredClone(presetById(v)) }; window.scrollTo(0, 0); break;
     case 'eChar': {
       const d = S.edit.data; d.charId = v; S.edit.open.char = false;
@@ -659,7 +727,10 @@ document.addEventListener('click', e => {
       if (removed) toast(`枠の色が合わない遺物を${removed}つ外しました`);
       break;
     }
-    case 'disc': S.edit.open[v] = !S.edit.open[v]; break;
+    case 'disc': S.edit.open[v] = t.dataset.open !== 'true'; break;
+    case 'nameEdit': S.edit.editingName = true; render(); document.getElementById('e-name')?.focus(); return;
+    case 'nameDone': { const d = S.edit.data; if (!d.name.trim()) d.nameAuto = true; S.edit.editingName = false; break; }
+    case 'nameAuto': { const d = S.edit.data; d.nameAuto = true; d.name = ''; S.edit.editingName = false; break; }
     case 'eStyle': { const d = S.edit.data; d.style = d.style === v ? null : v; if (d.style !== 'caster' && d.style !== 'hybrid') d.spec = []; break; }
     case 'eSpec': { const d = S.edit.data; d.spec ||= []; d.spec = d.spec.includes(v) ? d.spec.filter(x => x !== v) : [...d.spec, v]; break; }
     case 'eWeapon': { const d = S.edit.data; d.weaponType = d.weaponType === v ? null : v; S.edit.open.weapon = false; break; }
@@ -712,7 +783,7 @@ document.addEventListener('click', e => {
     case 'eSlotCancel': S.edit.slot = null; break;
     case 'eSave': {
       const d = S.edit.data;
-      if (!d.name.trim()) d.name = d.charId ? CHAR[d.charId].name + 'のビルド' : '名前なしのビルド';
+      if (d.nameAuto || !d.name.trim()) { d.nameAuto = true; d.name = autoName(d); }
       const old = presetById(d.id);
       if (old && JSON.stringify(buildSnapshot(old)) !== JSON.stringify(buildSnapshot(d)) && db.runs.some(r => r.presetId === d.id && (r.presetRev || 1) === presetRev(old))) {
         d.history = [...(old.history || []), { rev: presetRev(old), ...buildSnapshot(old) }];
@@ -741,7 +812,7 @@ document.addEventListener('input', e => {
   if (t.dataset.field) S.form[t.dataset.field] = t.value;
   // 日付を直したら、記録ボタンを押せるかどうかをすぐ反映する
   if (t.dataset.field === 'date') { render(); document.getElementById('f-date')?.focus(); }
-  if (t.dataset.edit) S.edit.data[t.dataset.edit] = t.value;
+  if (t.dataset.edit) { S.edit.data[t.dataset.edit] = t.value; if (t.dataset.edit === 'name') S.edit.data.nameAuto = !t.value.trim(); }
   if (t.hasAttribute('data-sheetq')) {
     S.sheet.q = t.value;
     const pos = t.selectionStart;
@@ -751,6 +822,7 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('toggle', e => { if (e.target.dataset?.details === 'opt') S.optOpen = e.target.open; }, true);
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && S.sheet) { S.sheet = null; renderSheet(); } });
+if (!prefs().onboarded && !db.runs.length) S.sheet = { type: 'guide' };
 render();
 
 document.addEventListener('change', e => {
