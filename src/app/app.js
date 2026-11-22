@@ -362,9 +362,9 @@ function editPreset() {
   BAR = `<button class="ghost" data-act="eCancel">キャンセル</button><button class="primary" data-act="eSave">保存する</button>`;
   return `<div class="stack-lg">
     <div class="page-title">${S.edit.isNew ? 'プリセットを作る' : 'プリセットを編集'}</div>
-    ${card('基本', `<div class="section"><div class="label">名前</div><input type="text" id="e-name" data-edit="name" value="${esc(p.name)}" placeholder="例：追跡者・出血型"></div>
-      <div class="section"><div class="label">夜渡り</div>
-      <div class="grid-btns">${CHARS.map(c => `<button class="tile-btn" data-act="eChar" data-v="${c.id}" ${pressed(p.charId === c.id)}>${c.name}</button>`).join('')}</div></div>`)}
+    ${card('名前', `<input type="text" id="e-name" data-edit="name" value="${esc(p.name)}" placeholder="例：追跡者・出血型">`)}
+    ${disc('char', '夜渡り', p.charId ? val(CHAR[p.charId].name, true) : val('未選択', false),
+      `<div class="grid-btns">${CHARS.map(c => `<button class="tile-btn" data-act="eChar" data-v="${c.id}" ${pressed(p.charId === c.id)}>${c.name}</button>`).join('')}</div>`)}
     ${disc('style', '型', styleName ? val(styleName, true) : val('未設定', false), styleBody)}
     ${disc('weapon', 'メイン武器', p.weaponType ? val(p.weaponName ? `${p.weaponName}（${p.weaponType}）` : p.weaponType, true) : val('未設定', false), weaponBody)}
     ${disc('vessel', '献器', !p.charId ? val('先に夜渡りを選択', false) : v ? { html: `<span class="txt">${esc(v.name)}</span>${vesselCols(v, 'normal')}`, set: true } : val('未選択', false), vesselBody, !p.charId)}
@@ -437,8 +437,9 @@ function renderSheet() {
   const q = (sh.q || '').trim();
   const items = fams.filter(f => (!sh.cat || f.cat === sh.cat) && (!q || f.name.includes(q) || f.levels.some(e => e.name.includes(q))));
   const head = isDem ? 'デメリットを選ぶ' : deep ? '深層の効果を選ぶ' : '効果を選ぶ';
-  const tools = `<div style="display:grid;gap:8px"><input type="search" id="eff-q" data-sheetq placeholder="効果名で探す" value="${esc(sh.q || '')}">
-    <div class="chips"><button class="chip small" data-act="sCat" data-v="" ${pressed(!sh.cat)}>すべて</button>${cats.map(c => `<button class="chip small" data-act="sCat" data-v="${c}" ${pressed(sh.cat === c)}>${c}</button>`).join('')}</div></div>`;
+  // 大項目は同じ幅のボタンを3行に並べ、3行まとめて横にスクロールする
+  const catItems = [['', 'すべて'], ...cats.map(c => [c, c])];
+  const tools = `<div class="cat-strip" style="grid-template-columns:repeat(${Math.ceil(catItems.length / 3)}, 112px)">${catItems.map(([v, l]) => `<button class="cat-btn" data-act="sCat" data-v="${v}" ${pressed((sh.cat || '') === v)}>${l}</button>`).join('')}</div>`;
   const demTag = f => !deep || isDem ? '' : f.dem === null ? '' : f.dem === 0 ? '<span class="dem-tag">デメリット有</span>' : f.dem > 0 ? `<span class="dem-tag">+${f.dem}以上でデメリット</span>` : '';
   const row = f => {
     const on = f.levels.some(e => e.id === current);
@@ -558,10 +559,10 @@ document.addEventListener('click', e => {
       { const r = db.runs.find(r => r.id === v); r.deleted = true; r.updatedAt = Date.now(); } S.confirmDel = null; S.openRun = null; toast('削除しました'); break;
     case 'sf': S.stats[t.dataset.k] = v; break;
     case 'bv': S.buildView = v; break;
-    case 'newPreset': S.edit = { type: 'preset', isNew: true, open: {}, data: { id: uid(), name: '', charId: null, vesselId: null, normal: [null, null, null], deep: [null, null, null] } }; window.scrollTo(0, 0); break;
+    case 'newPreset': S.edit = { type: 'preset', isNew: true, open: { char: true }, data: { id: uid(), name: '', charId: null, vesselId: null, normal: [null, null, null], deep: [null, null, null] } }; window.scrollTo(0, 0); break;
     case 'editPreset': S.edit = { type: 'preset', open: {}, data: structuredClone(presetById(v)) }; window.scrollTo(0, 0); break;
     case 'eChar': {
-      const d = S.edit.data; d.charId = v;
+      const d = S.edit.data; d.charId = v; S.edit.open.char = false;
       if (d.vesselId && !vesselsFor(v).some(x => x.id === d.vesselId)) { d.vesselId = null; d.normal = [null, null, null]; d.deep = [null, null, null]; }
       if (!d.vesselId) S.edit.open.vessel = true;
       break;

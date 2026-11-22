@@ -311,3 +311,12 @@ nav.tabs button[aria-current="page"]::before { content: ""; position: absolute; 
 .icon-btn svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .pick.danger b { color: var(--loss); }
 label.pick { cursor: pointer; }
+
+/* effect picker: category buttons in 3 rows that scroll sideways together */
+.cat-strip { display: grid; grid-template-rows: repeat(3, auto); grid-auto-flow: row; gap: 6px;
+  overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px 2px; scroll-padding-inline: 16px; }
+.cat-strip::-webkit-scrollbar { display: none; }
+.cat-btn { height: 38px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; padding: 0 6px; font-size: 12px; line-height: 1.25;
+  background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)), var(--surface-2);
+  display: flex; align-items: center; justify-content: center; text-align: center; overflow: hidden; }
+.cat-btn[aria-pressed="true"] { background: var(--grad-gold); color: var(--accent-ink); border-color: transparent; font-weight: 700; }
