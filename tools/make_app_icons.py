@@ -1,11 +1,11 @@
-"""アプリのアイコン（ホーム画面・ブラウザのタブ・画面左上のロゴ）を、元画像 Images/Icon.webp から作る。
+"""アプリのアイコン（ホーム画面・ブラウザのタブ・画面左上のロゴ）を、元画像 Images/Icon2.png から作る。
 使い方：python tools/make_app_icons.py
 元画像を差し替えたら、もう一度実行してください。"""
 import os
 from PIL import Image, ImageDraw
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
-SRC = os.path.join(ROOT, 'Images', 'Icon.webp')
+SRC = os.path.join(ROOT, 'Images', 'Icon2.png')  # 2026-11-23 差し替え（元：Icon.webp）
 OUT = os.path.join(ROOT, 'icons')
 
 TOP, BOTTOM = (27, 36, 102), (7, 10, 28)  # アプリの夜空と同じ色（上→下）
