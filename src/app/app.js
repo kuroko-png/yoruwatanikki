@@ -495,7 +495,32 @@ function viewEnemies() {
         <span class="enemy-hp"><small>HP</small>${hpText}</span></button>
       ${open ? enemyDetail(e, p) : ''}</div>`;
   };
+  // 夜の王は、王ごとに1行（10種類）にまとめる。タップすると常夜・形態などの違いと、選んだものの詳しい数値を出す
+  const hpOf = (h) => h[0] == null ? '–' : h[2] !== h[0] || h[3] !== h[1] ? `${fmtR(h[0], h[1])} → ${fmtR(h[2], h[3])}` : fmtR(h[0], h[1]);
+  const lordGroup = ([icon, items]) => {
+    // 見出しは王の名前（例：ハルモニア）が入っているもの。その中で場面の付かない「通常」を優先
+    const named = items.filter(([e]) => LORD[icon] && e[1].includes(LORD[icon].name));
+    const pool = named.length ? named : items;
+    const main = pool.find(([e]) => !e[2]) || pool[0];
+    const open = E.open === `g:${icon}`;
+    const sel = items.find(([, i]) => i === E.sub) || main;
+    return `<div class="enemy ${open ? 'open' : ''}">
+      <button class="enemy-head" data-act="enemyOpen" data-v="g:${icon}" aria-expanded="${open}">
+        <span class="enemy-name">${ico('lord', icon)}<span><b>${esc(main[0][1])}</b><small>${items.length}種類（常夜・形態など）</small></span></span>
+        <span class="enemy-hp"><small>HP</small>${hpOf(main[0][5][p])}</span></button>
+      ${open ? `<div class="variant-list">${items.map(([e, i]) => `<button class="variant" data-act="enemySub" data-v="${i}" ${pressed(i === sel[1])}>
+          <span>${e[1] !== main[0][1] ? `${esc(e[1])}<br>` : ''}<small>${esc(e[2] || '通常')}</small></span><b>${hpOf(e[5][p])}</b></button>`).join('')}</div>
+        ${enemyDetail(sel[0], p)}` : ''}</div>`;
+  };
+  const groupLords = !q && E.cat === 0;
+  const groups = groupLords ? [...list.reduce((m, x) => { const k = x[0][4] || x[0][1]; (m.get(k) || m.set(k, []).get(k)).push(x); return m; }, new Map())] : [];
   const chip = (act, v, label, on) => `<button class="chip small" data-act="${act}" data-v="${v}" ${pressed(on)}>${label}</button>`;
+  if (groupLords) return enemyPage(`<div class="enemy-list">${groups.map(lordGroup).join('')}</div>`, chip, q, list, true);
+  return enemyPage(`${shown.length ? `<div class="enemy-list">${shown.map(row).join('')}</div>` : `<div class="empty-state">見つかりませんでした</div>`}
+    ${list.length > shown.length ? `<button class="more-btn" data-act="enemyMore">もっと見る（残り${list.length - shown.length}件）</button>` : ''}`, chip, q, list);
+}
+function enemyPage(body, chip, q, list) {
+  const E = S.enemy;
   return `<div class="stack-lg">
     <div class="enemy-tools">
       <input type="search" id="enemy-q" data-enemyq value="${esc(E.q)}" placeholder="名前で探す（例：ガーゴイル、失地騎士）" enterkeyhint="search">
@@ -503,8 +528,7 @@ function viewEnemies() {
       <div class="party-row"><span class="flag-label">人数</span>${[['solo', 'ソロ'], ['duo', 'デュオ'], ['trio', 'トリオ']].map(([v, l]) => chip('enemyParty', v, l, E.party === v)).join('')}<span class="hint">HP・崩し値が変わります</span></div>
     </div>
     ${q ? `<p class="hint">「${esc(q)}」の検索結果：${list.length}件</p>` : ''}
-    ${shown.length ? `<div class="enemy-list">${shown.map(row).join('')}</div>` : `<div class="empty-state">見つかりませんでした</div>`}
-    ${list.length > shown.length ? `<button class="more-btn" data-act="enemyMore">もっと見る（残り${list.length - shown.length}件）</button>` : ''}
+    ${body}
     <p class="hint source-note">数値の出典：Recycle氏の解析シート「Elden Ring Nightreign - PvE Stats」（Calibrations Ver 1.02.3・2025年9月時点）。DLC（1.03）以降の調整とDLCの敵は入っていません。名前は神攻略wikiの表記に合わせています。</p>
   </div>`;
 }
@@ -643,9 +667,25 @@ function specialPicker(mode, sc, r) {
     <p class="hint">効果は固定なので、選ぶだけで登録できます。</p></div>`;
 }
 // ---------- sheets ----------
+// 下から出る画面（使い方・データ・効果選択など）を開いている間は、後ろの画面を固定してスクロールさせない
+let lockY = null;
+function lockScroll(on) {
+  const b = document.body;
+  if (on && lockY === null) {
+    lockY = window.scrollY;
+    Object.assign(b.style, { position: 'fixed', top: `-${lockY}px`, left: '0', right: '0', width: '100%' });
+  } else if (!on && lockY !== null) {
+    const y = lockY; lockY = null;
+    Object.assign(b.style, { position: '', top: '', left: '', right: '', width: '' });
+    window.scrollTo(0, y);
+  }
+}
+// 画面の一番上へ（後ろを固定している間は、閉じたときに一番上へ戻す）
+function scrollTop() { if (lockY !== null) lockY = 0; else window.scrollTo(0, 0); }
 function renderSheet() {
   const el = document.getElementById('sheet');
   const sh = S.sheet;
+  lockScroll(!!sh);
   if (!sh) { el.innerHTML = ''; return; }
   if (sh.type === 'menu') { el.innerHTML = menuSheet(); return; }
   if (sh.type === 'guide') { el.innerHTML = guideSheet(); return; }
@@ -777,6 +817,9 @@ function render() {
   const v = { record: viewRecord, history: viewHistory, stats: viewStats, builds: viewBuilds, enemies: viewEnemies }[S.tab];
   document.getElementById('view').innerHTML = v();
   document.getElementById('appsub').textContent = appSub();
+  // 右上のボタンは「（今のタブ名）の使い方」
+  const helpLabel = document.querySelector('[data-act=help] span');
+  if (helpLabel) helpLabel.textContent = `${TABS.find(t => t.id === S.tab).name}の使い方`;
   document.querySelector('[data-act=menu]')?.classList.toggle('due', backupState().due);
   document.getElementById('actionbar').innerHTML = BAR ? `<div class="action-bar"><div class="in">${BAR}</div></div>` : '';
   document.querySelector('.app').classList.toggle('has-bar', !!BAR);
@@ -797,7 +840,7 @@ document.addEventListener('click', e => {
   const a = t.dataset.act, v = t.dataset.v, f = S.form;
   if (a !== 'delRun' && a !== 'eDel' && a !== 'loadSample' && a !== 'wipe') S.confirmDel = null;
   switch (a) {
-    case 'tab': S.tab = v; S.sheet = null; window.scrollTo(0, 0); break;
+    case 'tab': S.tab = v; S.sheet = null; scrollTop(); break;
     case 'menu': S.sheet = { type: 'menu' }; break;
     case 'help': S.sheet = { type: 'help' }; break;
     case 'guide': S.sheet = { type: 'guide' }; break;
@@ -862,7 +905,7 @@ document.addEventListener('click', e => {
       S.editRun = r.id;
       S.form = { dateMode: 'pick', date: r.date || today(), lordId: r.lordId, everdark: !!r.everdark, flags: [...(r.flags || [])], shift: r.shift ?? null, mode: r.mode || 'normal', depth: r.depth ?? null,
         party: r.party || 'trio', charId: r.charId, result: r.result, lossAt: r.lossAt ?? null, presetId: r.presetId ?? null, origPresetId: r.presetId ?? null, note: r.note || '' };
-      S.recOpen = {}; S.tab = 'record'; S.openRun = null; window.scrollTo(0, 0); break;
+      S.recOpen = {}; S.tab = 'record'; S.openRun = null; scrollTop(); break;
     }
     case 'cancelEdit': S.editRun = null; S.form = blankForm(); S.recOpen = {}; S.tab = 'history'; break;
     case 'undoSave': {
@@ -878,18 +921,19 @@ document.addEventListener('click', e => {
     case 'hf': S.hist.result = v; S.openRun = null; break;
     case 'hfClear': S.hist = { result: 'all', lord: '', char: '' }; S.openRun = null; break;
     case 'sf': S.stats[t.dataset.k] = v; break;
-    case 'drill': S.stats.drill[t.dataset.k] = v; window.scrollTo(0, 0); break;
+    case 'drill': S.stats.drill[t.dataset.k] = v; scrollTop(); break;
     case 'undrill': delete S.stats.drill[v]; break;
     case 'undrillAll': S.stats.drill = {}; break;
     case 'heatBy': S.stats.heatBy = v; break;
     case 'enemyCat': S.enemy.cat = +v; S.enemy.open = null; S.enemy.limit = ENEMY_PAGE; break;
     case 'enemyParty': S.enemy.party = v; break;
-    case 'enemyOpen': S.enemy.open = S.enemy.open === +v ? null : +v; break;
+    case 'enemyOpen': { const k = v.startsWith('g:') ? v : +v; S.enemy.open = S.enemy.open === k ? null : k; S.enemy.sub = null; break; }
+    case 'enemySub': S.enemy.sub = +v; break;
     case 'enemyMore': S.enemy.limit += ENEMY_PAGE; break;
     case 'statsMore': (S.statsMore ||= {})[v] = true; break;
     case 'bv': S.buildView = v; break;
-    case 'newPreset': S.edit = { type: 'preset', isNew: true, open: { char: true }, data: { id: uid(), name: '', nameAuto: true, charId: null, vesselId: null, normal: [null, null, null], deep: [null, null, null] } }; window.scrollTo(0, 0); break;
-    case 'editPreset': S.edit = { type: 'preset', open: {}, data: structuredClone(presetById(v)) }; window.scrollTo(0, 0); break;
+    case 'newPreset': S.edit = { type: 'preset', isNew: true, open: { char: true }, data: { id: uid(), name: '', nameAuto: true, charId: null, vesselId: null, normal: [null, null, null], deep: [null, null, null] } }; scrollTop(); break;
+    case 'editPreset': S.edit = { type: 'preset', open: {}, data: structuredClone(presetById(v)) }; scrollTop(); break;
     case 'eChar': {
       const d = S.edit.data; d.charId = v; S.edit.open.char = false;
       if (d.vesselId && !vesselsFor(v).some(x => x.id === d.vesselId)) { d.vesselId = null; d.normal = [null, null, null]; d.deep = [null, null, null]; }
@@ -918,13 +962,13 @@ document.addEventListener('click', e => {
       // 空き枠・固定効果の遺物は、そのまま効果選択を開く（1タップで選べるように）
       if (!cur) S.sheet = { type: 'eff', kind: 'effects', idx: 0, cat: null, q: '', open: null };
       else if (cur.special) S.sheet = { type: 'eff', kind: 'effects', idx: 0, cat: '__' + SPECIAL[cur.special].type, q: '', open: null };
-      window.scrollTo(0, 0); break;
+      scrollTop(); break;
     }
     case 'pickSpecial': S.sheet = { type: 'eff', kind: 'effects', idx: 0, cat: '__' + SPECIAL[S.edit.slot.data.special].type, q: '', open: null }; break;
     case 'sPickSpecial': {
       const { k, i } = S.edit.slot; const sp = SPECIAL[v], sc = VESSEL[S.edit.data.vesselId][k][i];
       S.edit.data[k][i] = { special: sp.id, color: sp.color || (sc === 'any' ? 'red' : sc), kind: 'normal', effects: [null, null, null], demerits: [null, null, null], size: sp.effects.length };
-      S.edit.slot = null; S.sheet = null; toast(`${sp.name}を入れました`); window.scrollTo(0, 0); break;
+      S.edit.slot = null; S.sheet = null; toast(`${sp.name}を入れました`); scrollTop(); break;
     }
     case 'eSize': S.edit.slot.data.size = +v; break;
     case 'eColor': S.edit.slot.data.color = v; break;
@@ -943,7 +987,7 @@ document.addEventListener('click', e => {
         if (!r.special) { toast('遺物を選んでください'); break; }
         const sp = SPECIAL[r.special], sc = VESSEL[S.edit.data.vesselId][k][i];
         S.edit.data[k][i] = { special: sp.id, color: sp.color || (sc === 'any' ? 'red' : sc), kind: 'normal', effects: [null, null, null], demerits: [null, null, null], size: sp.effects.length };
-        S.edit.slot = null; window.scrollTo(0, 0); break;
+        S.edit.slot = null; scrollTop(); break;
       }
       r.special = null;
       // 効果のある行だけを詰めて保存し、大きさは効果の数から決める
@@ -953,7 +997,7 @@ document.addEventListener('click', e => {
       r.size = rows.length;
       S.edit.data[k][i] = rows.length ? r : null;
       if (!rows.length) toast('効果が空なので、枠を空にしました');
-      S.edit.slot = null; window.scrollTo(0, 0); break;
+      S.edit.slot = null; scrollTop(); break;
     }
     case 'eSlotClear': { const { k, i } = S.edit.slot; S.edit.data[k][i] = null; S.edit.slot = null; break; }
     case 'eSlotCancel': S.edit.slot = null; break;
@@ -984,7 +1028,7 @@ document.addEventListener('click', e => {
       const { rev, history, deleted, ...rest } = src;
       const named = !rest.nameAuto && rest.name?.trim();
       S.edit = { type: 'preset', isNew: true, open: {}, data: { ...rest, id: uid(), name: named ? `${rest.name}（コピー）` : '', nameAuto: !named } };
-      window.scrollTo(0, 0); toast('複製しました。直して保存すると新しいプリセットになります'); break;
+      scrollTop(); toast('複製しました。直して保存すると新しいプリセットになります'); break;
     }
     case 'eCancel': S.edit = null; break;
     default: return;
