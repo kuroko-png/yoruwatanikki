@@ -546,10 +546,13 @@ function viewEnemies() {
       + sec('f-gaol', 'gaol', '封牢', gaol), chip, q, groups);
   }
   if (E.cat === 3) {  // 拠点：拠点／砦（屋上）。型で絞り込んだときは、その型だけ
+    // 型ごとの見出し。「すべて」のときは全部の型を順に並べ、どの型にも入らないもの（ノクラテオなど）は「その他」
+    const typeSec = ([name, tags]) => sec(`b-${name}`, name.startsWith('砦(') ? 'roof' : 'base', name, rowsOf(e => tags.includes(e[2])));
     const type = BASE_TYPES.find(t => t[0] === E.base);
-    if (type) return enemyPage(sec(`b-${type[0]}`, type[0].startsWith('砦(') ? 'roof' : 'base', type[0], rowsOf(e => type[1].includes(e[2]))), chip, q, groups);
-    const isRoof = e => e[2] === '砦（屋上）';
-    return enemyPage(sec('b-base', 'base', '拠点', rowsOf(e => !isRoof(e))) + sec('b-roof', 'roof', '砦（屋上）', rowsOf(isRoof)), chip, q, groups);
+    if (type) return enemyPage(typeSec(type), chip, q, groups);
+    const known = BASE_TYPES.flatMap(t => t[1]);
+    const other = rowsOf(e => !known.includes(e[2]));
+    return enemyPage(BASE_TYPES.map(typeSec).join('') + (other.length ? sec('b-other', 'base', 'その他', other) : ''), chip, q, groups);
   }
   // 夜の強敵：1日目と2日目に分ける。夜の王で絞り込むと、その王の遠征に出るものだけ
   if (E.cat === 1) {
@@ -569,7 +572,7 @@ function viewEnemies() {
 // 種類ごとのまとめ方。modes は開いたときの切り替えスイッチ（中身があるものだけ出す）、label は小さなボタンの文字
 // 拠点の型の絞り込み（フィルタの名前 → 敵データの場所の名前）
 const BASE_TYPES = [['大教会', ['大教会のボス']], ['大野営地', ['野営地のボス']], ['大遺跡', ['遺跡のボス', '山嶺・遺跡のボス']],
-  ['小砦', ['砦のボス', '砦のボス（結晶人）']], ['砦(屋上)', ['砦（屋上）']], ['砦(地下)', ['砦（地下）']]];
+  ['小砦', ['砦のボス', '砦のボス（結晶人）']], ['砦(屋上)', ['砦（屋上）', '城の屋上']], ['砦(地下)', ['砦（地下）', '城の地下']]];  // 城の〜は前の版の表記
 // フィールドボスのうち「恐るべき強敵」（神攻略wiki フィールドボスのページより。飛竜＝丘陵の飛竜として扱う）
 const FIELD_DREAD = new Set(['黄金樹の化身', 'カーリアの親衛騎士', '丘陵の飛竜', '飛竜', '黒き剣の眷属', '死儀礼の鳥', '鈴玉狩り', '祖霊', '爛れた樹霊', 'ツリーガード', '溶岩土竜', '竜のツリーガード']);
 function enemyGroups(cat, rows) {

@@ -1,6 +1,6 @@
 // オフラインでも開けるようにするための service worker。
 // 画面やデータのファイルを直したら、下の VERSION を1つ上げてください（利用者の端末で新しい版に入れ替わります）。
-const VERSION = 'v22';
+const VERSION = 'v23';
 const CACHE = `yowatari-nikki-${VERSION}`;
 const FILES = [
   './', './index.html', './manifest.webmanifest',
@@ -14,17 +14,20 @@ const FILES = [
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
+  // ブラウザに残っている古いファイルではなく、必ずサーバーの最新を取って保存する
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES.map(f => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
 // まずネットから最新を取り、つながらないときは保存しておいた版を使う
+// 同じサイトのファイルは毎回サーバーに「新しくなったか」を確かめる（公開直後に古いファイルと新しいファイルが混ざらないように）
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
+  const same = new URL(req.url).origin === location.origin;
   e.respondWith(
-    fetch(req).then(res => {
+    (same ? fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' }) : fetch(req)).then(res => {
       if (res.ok && (new URL(req.url).origin === location.origin || req.url.includes('fonts.g'))) {
         const copy = res.clone();
         caches.open(CACHE).then(c => c.put(req, copy));
