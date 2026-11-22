@@ -559,3 +559,15 @@ nav.tabs button[aria-current="page"]::before { display: none; }
 .lord-body { display: grid; gap: 8px; padding: 10px 12px 0; border-top: 1px solid var(--line); }
 .mode-seg button { font-size: 14px; }
 .lord-body + .enemy-detail { border-top: 0; }
+/* 「敵」タブの人数（普段は畳んで、タップで選ぶ） */
+.party-toggle { justify-self: start; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: rgba(255,255,255,.03); border-radius: 999px; padding: 4px 12px; font-size: 12.5px; color: var(--dim); cursor: pointer; }
+.party-toggle b { color: var(--fg); }
+.party-toggle .chev { width: 6px; height: 6px; margin: -3px 0 0 2px; }
+/* フィールド：通常（青）と恐るべき強敵（赤）の見出し */
+.field-sec { display: grid; gap: 8px; }
+.field-sec h3 { margin: 4px 2px 0; font-size: 13px; letter-spacing: .08em; display: flex; align-items: center; gap: 8px; }
+.field-sec h3::before { content: ""; width: 4px; height: 16px; border-radius: 2px; }
+.field-sec.normal h3 { color: #7fb0ff; } .field-sec.normal h3::before { background: #4f8be0; }
+.field-sec.dread h3 { color: #ff8a7a; } .field-sec.dread h3::before { background: #d65a4a; }
+.field-sec.normal .enemy { border-left: 3px solid rgba(79, 139, 224, .7); }
+.field-sec.dread .enemy { border-left: 3px solid rgba(214, 90, 74, .75); }

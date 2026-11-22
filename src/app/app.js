@@ -141,7 +141,7 @@ const S = {
   tab: 'record', recOpen: {}, form: blankForm(), openRun: null, confirmDel: null,
   stats: { period: 'all', mode: 'all', drill: {}, heatBy: 'lord' },
   hist: { result: 'all', lord: '', char: '' },
-  enemy: { cat: 0, q: '', party: prefs().party || 'solo', open: null, limit: 60 },  // 人数は記録の「人数」と同じものから始める
+  enemy: { cat: 0, q: '', party: 'trio', partyOpen: false, open: null, limit: 60 },  // 人数はトリオから。変えたいときだけ開く
   buildView: 'presets', edit: null, sheet: null,
 };
 { // remember last character / preset as sensible defaults
@@ -526,10 +526,18 @@ function viewEnemies() {
         ${inMode.length > 1 ? `<div class="chips">${inMode.map((x, k) => `<button class="chip small" data-act="enemySub" data-v="${x[1]}" ${pressed(x[1] === sel[1])}>${esc(nth[k])}</button>`).join('')}</div>` : ''}
       </div>${enemyDetail(sel[0], p)}</div>`;
   };
+  // フィールドは「通常（青）」と「恐るべき強敵（赤）」に分けて並べる（神攻略wikiのフィールドボスの分け方）
+  if (E.cat === 2) {
+    const dread = groups.filter(g => FIELD_DREAD.has(g.title)), normal = groups.filter(g => !FIELD_DREAD.has(g.title));
+    return enemyPage(`<div class="field-sec normal"><h3>通常</h3><div class="enemy-list">${normal.map(group).join('')}</div></div>
+      <div class="field-sec dread"><h3>恐るべき強敵</h3><div class="enemy-list">${dread.map(group).join('')}</div></div>`, chip, q, groups);
+  }
   return enemyPage(`<div class="enemy-list">${shownG.map(group).join('')}</div>
     ${groups.length > shownG.length ? `<button class="more-btn" data-act="enemyMore">もっと見る（残り${groups.length - shownG.length}件）</button>` : ''}`, chip, q, groups);
 }
 // 種類ごとのまとめ方。modes は開いたときの切り替えスイッチ（中身があるものだけ出す）、label は小さなボタンの文字
+// フィールドボスのうち「恐るべき強敵」（神攻略wiki フィールドボスのページより。飛竜＝丘陵の飛竜として扱う）
+const FIELD_DREAD = new Set(['黄金樹の化身', 'カーリアの親衛騎士', '丘陵の飛竜', '飛竜', '黒き剣の眷属', '死儀礼の鳥', '鈴玉狩り', '祖霊', '爛れた樹霊', 'ツリーガード', '溶岩土竜', '竜のツリーガード']);
 function enemyGroups(cat, rows) {
   const by = (keyOf) => [...rows.reduce((m, x) => { const k = keyOf(x[0]); (m.get(k) || m.set(k, []).get(k)).push(x); return m; }, new Map())];
   // 名前の違い（見出しと同じなら空、見出しの続きならその部分だけ）と場面を「・」でつなぐ
@@ -562,7 +570,9 @@ function enemyPage(body, chip, q, list) {
     <div class="enemy-tools">
       <input type="search" id="enemy-q" data-enemyq value="${esc(E.q)}" placeholder="名前で探す（例：ガーゴイル、失地騎士）" enterkeyhint="search">
       ${q ? '' : `<div class="chips one-row">${ENEMY_CATS.map((c, i) => chip('enemyCat', i, c, E.cat === i)).join('')}</div>`}
-      <div class="party-row"><span class="flag-label">人数</span>${[['solo', 'ソロ'], ['duo', 'デュオ'], ['trio', 'トリオ']].map(([v, l]) => chip('enemyParty', v, l, E.party === v)).join('')}<span class="hint">HP・崩し値が変わります</span></div>
+      ${E.partyOpen
+        ? `<div class="party-row"><span class="flag-label">人数</span>${[['solo', 'ソロ'], ['duo', 'デュオ'], ['trio', 'トリオ']].map(([v, l]) => chip('enemyParty', v, l, E.party === v)).join('')}</div>`
+        : `<button class="party-toggle" data-act="enemyPartyOpen">人数：<b>${{ solo: 'ソロ', duo: 'デュオ', trio: 'トリオ' }[E.party]}</b><span class="chev"></span></button>`}
     </div>
     ${q ? `<p class="hint">「${esc(q)}」の検索結果：${list.length}件</p>` : ''}
     ${body}
@@ -967,7 +977,8 @@ document.addEventListener('click', e => {
     case 'undrillAll': S.stats.drill = {}; break;
     case 'heatBy': S.stats.heatBy = v; break;
     case 'enemyCat': S.enemy.cat = +v; S.enemy.open = null; S.enemy.limit = ENEMY_PAGE; break;
-    case 'enemyParty': S.enemy.party = v; break;
+    case 'enemyParty': S.enemy.party = v; S.enemy.partyOpen = false; break;
+    case 'enemyPartyOpen': S.enemy.partyOpen = true; break;
     case 'enemyOpen': { const k = v.startsWith('g:') ? v : +v; S.enemy.open = S.enemy.open === k ? null : k; S.enemy.sub = null; S.enemy.mode = 'normal'; break; }
     case 'enemySub': S.enemy.sub = +v; break;
     case 'enemyMode': S.enemy.mode = v; S.enemy.sub = null; break;
