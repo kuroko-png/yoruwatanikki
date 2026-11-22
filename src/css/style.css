@@ -415,3 +415,27 @@ body.typing .action-bar, body.typing nav.tabs { display: none; }
 .guide-step b { font-size: 15px; }
 .guide-step .hint { margin-top: 2px; }
 .guide-ok { color: var(--win); font-weight: 700; padding: 6px 0; }
+/* 夜の王・夜渡りのアイコン（名前の左） */
+.ico { width: 1.5em; height: 1.5em; object-fit: contain; flex: none; vertical-align: middle; margin-right: .3em; position: relative; top: -.08em; }
+.tile-btn.with-ico { display: flex; align-items: center; justify-content: center; gap: 4px; padding-inline: 4px; white-space: nowrap; letter-spacing: -.02em; }
+.tile-btn.with-ico .ico { width: 24px; height: 24px; margin: 0; top: 0; }
+/* 選んだボタンは金色の背景なので、白いアイコンを濃い色にして見えるようにする */
+.tile-btn[aria-pressed="true"] .ico, .drill-chip .ico { filter: brightness(0) opacity(.8); }
+.disc-head .v .ico { width: 22px; height: 22px; margin: 0; top: 0; }
+.run .who { display: flex; flex-wrap: wrap; align-items: center; column-gap: 6px; }
+.run .who .nm-ico { display: inline-flex; align-items: center; white-space: nowrap; }
+.run .who .x { color: var(--dim); font-weight: 400; }
+.bar-row .name .ico { width: 20px; height: 20px; margin-right: 6px; top: 0; }
+.match-head b { display: inline-flex; align-items: center; }
+.match-head b .ico { width: 22px; height: 22px; margin-right: 6px; top: 0; }
+.match .nm { display: flex; align-items: center; }
+.match .nm .ico { width: 15px; height: 15px; margin-right: 3px; top: 0; }
+.card .sub .ico { width: 16px; height: 16px; margin-right: 3px; }
+/* アイコン付きの3列ボタン：「グラディウス」（6文字）がアイコンと並んで収まるよう、画面幅に合わせて文字を少し小さくする */
+.grid-btns:has(.with-ico) { gap: 6px; }
+.tile-btn.with-ico { font-size: clamp(11px, calc((100vw - 165px) / 17.28), 14px); letter-spacing: -.04em; gap: 3px; }
+.tile-btn.with-ico .ico { width: 20px; height: 20px; }
+/* とても細い画面（350px未満）では、アイコンを名前の上に置く */
+@media (max-width: 349px) {
+  .tile-btn.with-ico { flex-direction: column; gap: 2px; font-size: 12.5px; padding-block: 6px; }
+}

@@ -82,6 +82,11 @@ function dateLabel(s) {
   return `${m}/${d}（${wd}）`;
 }
 const pct = p => Math.round(p * 100) + '%';
+// 夜の王・夜渡りのアイコン（名前の左に置く）。画像は icons/lords, icons/chars（tools/make_unit_icons.py で作る）
+const ICON_DIR = { lord: 'lords', char: 'chars' };
+const ico = (kind, id) => id && ICON_DIR[kind] ? `<img class="ico" src="icons/${ICON_DIR[kind]}/${id}.png" alt="" aria-hidden="true" decoding="async">` : '';
+const lordName = id => `${ico('lord', id)}${LORD[id]?.name ?? id}`;
+const charName = id => `${ico('char', id)}${CHAR[id]?.name ?? id}`;
 const pressed = b => `aria-pressed="${b ? 'true' : 'false'}"`;
 
 // ---------- sample data ----------
@@ -178,10 +183,10 @@ function viewRecord() {
       `<div class="chips">${[['today', '今日'], ['yesterday', '昨日'], ['pick', '指定']].map(([v, l]) => chip('date', v, l, f.dateMode === v, 'chip small')).join('')}</div>`)}
     ${card('夜の王の種類', '', `<div class="chips">${chip('everdark', 'no', '通常', f.everdark === false, 'chip small')}${chip('everdark', 'yes', '常夜', f.everdark === true, 'chip small')}</div>`)}
     ${recDisc('lord', '夜の王', f.lordId && LORD[f.lordId].name,
-      `<div class="grid-btns">${lords.map(l => chip('lord', l.id, l.name, f.lordId === l.id, 'tile-btn')).join('')}</div>`,
+      `<div class="grid-btns">${lords.map(l => chip('lord', l.id, lordName(l.id), f.lordId === l.id, 'tile-btn with-ico')).join('')}</div>`,
       f.lordId ? `<div class="flag-row"><span class="flag-label">あれば</span>${RUN_FLAGS.map(x => chip('flag', x.id, x.name, f.flags.includes(x.id), 'chip small')).join('')}</div>` : '')}
     ${recDisc('char', '夜渡り', f.charId && CHAR[f.charId].name,
-      `<div class="grid-btns">${CHARS.map(c => chip('char', c.id, c.name, f.charId === c.id, 'tile-btn')).join('')}</div>`)}
+      `<div class="grid-btns">${CHARS.map(c => chip('char', c.id, charName(c.id), f.charId === c.id, 'tile-btn with-ico')).join('')}</div>`)}
     ${f.charId ? card('ビルド', `<div class="chips one-line">${chip('preset', '', '記録無し', !f.presetId)}${presets.map(p => chip('preset', p.id, esc(presetLabel(p)), f.presetId === p.id)).join('')}</div>
       ${presets.length ? '' : `<p class="hint">${CHAR[f.charId].name}のプリセットはまだありません。「ビルド」タブで作れます。</p>`}`) : ''}
     ${card('結果', `<div class="result-row">
@@ -211,7 +216,7 @@ function recDisc(key, label, value, body, extra = '') {
   const open = recOpen(key, !!value);
   return `<div class="disc ${open ? 'open' : ''}">
     <button class="disc-head" data-act="rdisc" data-v="${key}" aria-expanded="${open}">
-      <span class="k">${label}</span><span class="v ${value ? 'set' : ''}"><span class="txt">${value ? esc(value) : '未選択'}</span></span><span class="chev"></span></button>
+      <span class="k">${label}</span><span class="v ${value ? 'set' : ''}">${value ? ico(key, key === 'lord' ? S.form.lordId : S.form.charId) : ''}<span class="txt">${value ? esc(value) : '未選択'}</span></span><span class="chev"></span></button>
     ${open ? `<div class="disc-body">${body}</div>` : ''}
     ${extra ? `<div class="disc-extra">${extra}</div>` : ''}</div>`;
 }
@@ -257,7 +262,7 @@ function runRow(r) {
   const pname = p ? presetLabel(p) : r.presetId ? '削除済みのプリセット' : '';
   return `<button class="run ${r.result}" data-act="openRun" data-v="${r.id}" aria-expanded="${open}">
     <span class="stripe"></span>
-    <span class="main"><span class="who">${LORD[r.lordId].name} <span style="color:var(--dim);font-weight:400">×</span> ${CHAR[r.charId].name}</span>
+    <span class="main"><span class="who"><span class="nm-ico">${lordName(r.lordId)}</span><span class="x">×</span><span class="nm-ico">${charName(r.charId)}</span></span>
       <span class="meta">${r.everdark ? '<span class="badge ever">常夜</span>' : ''}${r.mode === 'deep' ? `<span class="badge deep">深き夜${r.depth ? ' 深度' + r.depth : ''}</span>` : ''}${(r.flags || []).map(x => `<span class="badge">${RUN_FLAG[x]?.name ?? x}</span>`).join('')}<span>${PARTYM[r.party].name}</span>${pname ? `<span>${esc(pname)}</span>` : ''}</span></span>
     <span class="res">${r.result === 'win' ? '勝利' : '敗北'}${r.lossAt ? `<small>${LOSS[r.lossAt].name}</small>` : ''}</span>
     <span class="more-dots" aria-hidden="true">${open ? '×' : '⋯'}</span>
@@ -309,7 +314,7 @@ function barRows(items, getRuns, opts = {}) {
 }
 // 名前を1行目に全部出し、棒グラフは2行目に置く（長い名前が切れないように）。drill を渡すとタップで絞り込める
 function barRow(x, dim, drill) {
-  const inner = `<span class="name">${esc(x.it.name)}</span><span class="num"><b>${pct(x.p)}</b> ${x.w}/${x.n}</span>
+  const inner = `<span class="name">${ico(drill, x.it.id)}${esc(x.it.name)}</span><span class="num"><b>${pct(x.p)}</b> ${x.w}/${x.n}</span>
     <span class="bar-track"><span class="bar-fill" style="width:${x.p * 100}%;background:${x.p >= .5 ? 'var(--grad-win)' : 'var(--grad-loss)'}"></span></span>`;
   return drill
     ? `<button class="bar-row tap ${dim ? 'dim' : ''}" data-act="drill" data-k="${drill}" data-v="${esc(x.it.id)}">${inner}<span class="go" aria-hidden="true">›</span></button>`
@@ -318,7 +323,7 @@ function barRow(x, dim, drill) {
 function drillBanner() {
   const keys = Object.keys(S.stats.drill);
   if (!keys.length) return `<p class="hint">各項目の行をタップすると、その条件に絞って詳しく見られます。</p>`;
-  return `<div class="drill-banner"><b>絞り込み中</b><div class="chips">${keys.map(k => `<button class="chip small drill-chip" data-act="undrill" data-v="${k}" aria-label="${DRILL[k].label}の絞り込みを外す">${DRILL[k].label}：${esc(DRILL[k].name(S.stats.drill[k]))} <span aria-hidden="true">×</span></button>`).join('')}</div>
+  return `<div class="drill-banner"><b>絞り込み中</b><div class="chips">${keys.map(k => `<button class="chip small drill-chip" data-act="undrill" data-v="${k}" aria-label="${DRILL[k].label}の絞り込みを外す">${DRILL[k].label}：${ico(k, S.stats.drill[k])}${esc(DRILL[k].name(S.stats.drill[k]))} <span aria-hidden="true">×</span></button>`).join('')}</div>
     ${keys.length > 1 ? '<button class="ghost small" data-act="undrillAll">すべて外す</button>' : ''}</div>`;
 }
 function viewStats() {
@@ -385,10 +390,10 @@ function heat(runs) {
   const rows = groups.filter(g => runs.some(r => r[gKey] === g.id)).map(g => {
     const mine = runs.filter(r => r[gKey] === g.id);
     const cells = others.map(o => ({ o, ...rate(mine.filter(r => r[oKey] === o.id)) })).filter(x => x.n).sort((a, b) => b.n - a.n || b.p - a.p);
-    return `<div class="match-group"><div class="match-head"><b>${g.name}</b><span>${rate(mine).n}戦</span></div><div class="match-cells">${cells.map(x => {
+    return `<div class="match-group"><div class="match-head"><b>${ico(byLord ? 'lord' : 'char', g.id)}${g.name}</b><span>${rate(mine).n}戦</span></div><div class="match-cells">${cells.map(x => {
       const col = x.p >= .5 ? 'var(--win)' : 'var(--loss)';
       const strength = Math.round(18 + Math.abs(x.p - .5) * 2 * 60);
-      return `<span class="match ${x.n < STATS_MIN_RUNS ? 'few' : ''}" style="background:color-mix(in srgb, ${col} ${strength}%, var(--panel))"><span class="nm">${x.o.name}</span><b>${pct(x.p)}</b><small>${x.w}/${x.n}</small></span>`;
+      return `<span class="match ${x.n < STATS_MIN_RUNS ? 'few' : ''}" style="background:color-mix(in srgb, ${col} ${strength}%, var(--panel))"><span class="nm">${ico(byLord ? 'char' : 'lord', x.o.id)}${x.o.name}</span><b>${pct(x.p)}</b><small>${x.w}/${x.n}</small></span>`;
     }).join('')}</div></div>`;
   });
   return `<p class="hint">${byLord ? '夜の王ごとに、使った夜渡りの勝率' : '夜渡りごとに、戦った夜の王との勝率'}。緑ほど勝ち越し、赤ほど負け越し。点線の札は${STATS_MIN_RUNS}戦未満（参考）です</p><div class="match-list">${rows.join('')}</div>`;
@@ -422,7 +427,7 @@ function viewBuilds() {
     <button class="btn-add" data-act="newPreset">＋ プリセットを作る</button>
     ${activePresets().map(p => { const x = rate(liveRuns().filter(r => r.presetId === p.id)); return `<button class="card" data-act="editPreset" data-v="${p.id}">
       <span class="title"><span>${esc(p.name)}</span><span class="rate ${x.n ? '' : 'none'}">${x.n ? `${pct(x.p)}<span style="color:var(--dim);font-weight:400"> ・${x.n}戦</span>` : '未使用'}</span></span>
-      <span class="sub">${p.charId ? CHAR[p.charId].name : '夜渡り未設定'}${styleText(p) ? '・' + esc(styleText(p)) : ''}</span>${slotDots(p)}</button>`; }).join('')}
+      <span class="sub">${p.charId ? charName(p.charId) : '夜渡り未設定'}${styleText(p) ? '・' + esc(styleText(p)) : ''}</span>${slotDots(p)}</button>`; }).join('')}
   </div>`;
 }
 // タップで開閉する行。値が決まっていれば右側に表示する
@@ -469,8 +474,8 @@ function editPreset() {
   BAR = '';
   return `<div class="stack-lg">
     <div class="page-title">${S.edit.isNew ? 'プリセットを作る' : 'プリセットを編集'}</div>
-    ${disc('char', '夜渡り', p.charId ? val(CHAR[p.charId].name, true) : val('未選択', false),
-      `<div class="grid-btns">${CHARS.map(c => `<button class="tile-btn" data-act="eChar" data-v="${c.id}" ${pressed(p.charId === c.id)}>${c.name}</button>`).join('')}</div>`)}
+    ${disc('char', '夜渡り', p.charId ? { html: `${ico('char', p.charId)}<span class="txt">${CHAR[p.charId].name}</span>`, set: true } : val('未選択', false),
+      `<div class="grid-btns">${CHARS.map(c => `<button class="tile-btn with-ico" data-act="eChar" data-v="${c.id}" ${pressed(p.charId === c.id)}>${charName(c.id)}</button>`).join('')}</div>`)}
     ${disc('style', '型', styleName ? val(styleName, true) : val('未設定', false), styleBody)}
     ${disc('weapon', 'メイン武器', p.weaponType ? val(p.weaponName ? `${p.weaponName}（${p.weaponType}）` : p.weaponType, true) : val('未設定', false), weaponBody)}
     ${disc('vessel', '献器', !p.charId ? val('先に夜渡りを選択', false) : v ? { html: `<span class="txt">${esc(v.name)}</span>${vesselCols(v, 'normal')}`, set: true } : val('未選択', false), vesselBody, !p.charId)}

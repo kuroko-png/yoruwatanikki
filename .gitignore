@@ -5,3 +5,5 @@
 /data/
 # Python
 __pycache__/
+# アイコンの元画像（大きいので載せない。アイコンは tools/make_unit_icons.py で icons/ に作る）
+/Images/
