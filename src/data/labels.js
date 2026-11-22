@@ -27,7 +27,7 @@ export const PARTY = [{ id: 'solo', name: 'ソロ' }, { id: 'duo', name: 'デュ
 export const DEPTHS = [1, 2, 3, 4, 5];
 
 // 夜の王を選んだあとに付けられる印（あれば）
-// 「地変」は「地図欠損・ボス不明」とは同時に選べない（どちらか一方）
+// 「地図欠損」と「ボス不明」はどちらか一方だけ。「地変」はどちらとも一緒に選べる
 export const RUN_FLAGS = [{ id: 'mapLoss', name: '地図欠損' }, { id: 'bossUnknown', name: 'ボス不明' }, { id: 'shift', name: '地変' }];
 
 // 地変の種類（地変を選んだときだけ選べる）

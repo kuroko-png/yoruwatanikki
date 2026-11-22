@@ -454,3 +454,23 @@ body.typing .action-bar, body.typing nav.tabs { display: none; }
 .shift-row { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0 0 calc(2.5em + 8px); padding-left: 8px; border-left: 2px solid var(--line-strong); }
 .chip.mini { padding: 3px 10px; font-size: 12px; }
 .flag-alt { display: inline-flex; align-items: center; gap: 8px; }  /* 折り返すときも「or 地変」を離さない */
+.flag-sep { width: 1px; height: 18px; background: var(--line-strong); margin: 0 2px; }
+/* ダブルタップでの拡大を止める（スクロールやタップはそのまま使える） */
+html, body { touch-action: manipulation; }
+/* 右上のボタン（使い方・データ）と「このタブの使い方」 */
+.bar-btns { display: flex; gap: 6px; flex: none; }
+.help-list { gap: 14px; padding: 4px; }
+.help-points { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; font-size: 14px; line-height: 1.65; }
+.help-points li { position: relative; padding-left: 18px; }
+.help-points li::before { content: "◆"; position: absolute; left: 0; top: .1em; color: var(--accent); font-size: 10px; }
+.dev-note { border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); background: rgba(220, 184, 108, .07); border-radius: 12px; padding: 10px 12px; }
+.dev-note b { color: var(--accent); font-size: 12px; letter-spacing: .08em; }
+.dev-note p { margin: 4px 0 0; font-size: 13.5px; white-space: pre-wrap; }
+/* 画面左上のロゴ（アプリのアイコンと同じ絵） */
+.logo { width: 34px; height: 34px; flex: none; filter: drop-shadow(0 0 10px rgba(140, 150, 255, .45)); }
+/* 細い画面（360px未満）では、右上のボタンを絵だけにしてタイトルと重ならないようにする */
+.brand h1 { white-space: nowrap; }
+@media (max-width: 359px) {
+  .bar-btns .icon-btn { padding: 0 9px; }
+  .bar-btns .icon-btn span { display: none; }
+}

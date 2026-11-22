@@ -1,13 +1,13 @@
 // オフラインでも開けるようにするための service worker。
 // 画面やデータのファイルを直したら、下の VERSION を1つ上げてください（利用者の端末で新しい版に入れ替わります）。
-const VERSION = 'v10';
+const VERSION = 'v11';
 const CACHE = `yowatari-nikki-${VERSION}`;
 const FILES = [
   './', './index.html', './manifest.webmanifest',
   './src/css/style.css', './src/app/app.js', './src/app/store.js',
   './src/data/lords.js', './src/data/characters.js', './src/data/effects.js',
-  './src/data/vessels.js', './src/data/relics.js', './src/data/labels.js',
-  './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
+  './src/data/vessels.js', './src/data/relics.js', './src/data/labels.js', './src/data/help.js',
+  './icons/favicon.png', './icons/logo.png', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
   // 夜の王・夜渡りのアイコン（tools/make_unit_icons.py で作る）
   ...['gladius', 'adel', 'gnoster', 'maris', 'libra', 'fulghor', 'caligo', 'final', 'harmonia', 'strages'].map(id => `./icons/lords/${id}.png`),
   ...['wylder', 'guardian', 'ironeye', 'duchess', 'raider', 'revenant', 'recluse', 'executor', 'scholar', 'undertaker'].map(id => `./icons/chars/${id}.png`),

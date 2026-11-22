@@ -54,7 +54,7 @@
 index.html            画面の土台
 manifest.webmanifest  ホーム画面に追加したときの名前・アイコン
 sw.js                 オフラインで開くための仕組み
-icons/                アイコン（tools/make_icons.py で作り直せます）
+icons/                アイコン（アプリ：tools/make_app_icons.py、夜の王・夜渡り：tools/make_unit_icons.py で Images/ の元画像から作り直せます）
 src/css/style.css     見た目
 src/app/app.js        画面と操作
 src/app/store.js      保存・バックアップ・CSV

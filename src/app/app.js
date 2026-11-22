@@ -5,6 +5,7 @@ import { OPT, EFF_NORMAL_ROWS, EFF_DEEP_ROWS, DEMERIT_ROWS } from '../data/effec
 import { VESSEL_ROWS } from '../data/vessels.js';
 import { SPECIAL_ROWS } from '../data/relics.js';
 import { COLORS, SIZES, KINDS, STYLES, SPEC_SORC, SPEC_INC, WEAPON_TYPES, LOSS_AT, MODES, PARTY, DEPTHS, RUN_FLAGS, SHIFTS } from '../data/labels.js';
+import { HELP } from '../data/help.js';
 import { load, save, exportJson, exportCsv, readJsonFile } from './store.js';
 
 // ---------- 遺物効果の組み立て ----------
@@ -222,11 +223,11 @@ function recDisc(key, label, value, body, extra = '') {
     ${open ? `<div class="disc-body">${body}</div>` : ''}
     ${extra ? `<div class="disc-extra">${extra}</div>` : ''}</div>`;
 }
-// 夜の王の下の印：「地図欠損・ボス不明」or「地変」。地変を選んだときだけ、その下に種類を出す
+// 夜の王の下の印：「地図欠損」or「ボス不明」と、それとは別に「地変」。地変を選んだときだけ、その下に種類を出す
 function flagRow(f, chip) {
   const c = x => chip('flag', x.id, x.name, f.flags.includes(x.id), 'chip small');
   const shiftOn = f.flags.includes('shift');
-  return `<div class="flag-row"><span class="flag-label">あれば</span>${RUN_FLAGS.filter(x => x.id !== 'shift').map(c).join('')}<span class="flag-alt"><span class="flag-or">or</span>${c(RUN_FLAG.shift)}</span></div>
+  return `<div class="flag-row"><span class="flag-label">あれば</span><span class="flag-alt">${c(RUN_FLAG.mapLoss)}<span class="flag-or">or</span>${c(RUN_FLAG.bossUnknown)}</span><span class="flag-sep" aria-hidden="true"></span>${c(RUN_FLAG.shift)}</div>
     ${shiftOn ? `<div class="shift-row">${SHIFTS.map(x => chip('shift', x.id, x.name, f.shift === x.id, 'chip mini')).join('')}</div>` : ''}`;
 }
 // 常夜の王を選んだときは、常夜にいない夜の王を外す（lords.js の everdark: false）
@@ -579,6 +580,7 @@ function renderSheet() {
   if (!sh) { el.innerHTML = ''; return; }
   if (sh.type === 'menu') { el.innerHTML = menuSheet(); return; }
   if (sh.type === 'guide') { el.innerHTML = guideSheet(); return; }
+  if (sh.type === 'help') { el.innerHTML = helpSheet(); return; }
   const isDem = sh.kind === 'demerits';
   const deep = S.edit.slot.k === 'deep';
   const specialCats = !isDem && !deep ? [['__lord', '夜の王の遺物'], ['__char', '固有遺物']] : [];
@@ -651,6 +653,16 @@ function guideSheet() {
     </div>
     <button class="primary" data-act="guideClose">はじめる</button></div>`;
 }
+// 「このタブの使い方」：今いるタブでできることと、開発者からの一言（文章は src/data/help.js）
+function helpSheet() {
+  const h = HELP[S.tab];
+  return `<div class="scrim" data-act="sClose"></div><div class="sheet help" role="dialog" aria-label="「${h.title}」タブの使い方">
+    <div class="sheet-head"><h2>「${h.title}」タブの使い方</h2><button class="ghost" data-act="sClose">閉じる</button></div>
+    <div class="sheet-list help-list">
+      <ul class="help-points">${h.points.map(p => `<li>${esc(p)}</li>`).join('')}</ul>
+      ${h.dev ? `<div class="dev-note"><b>開発者より</b><p>${esc(h.dev)}</p></div>` : ''}
+    </div></div>`;
+}
 function menuSheet() {
   const n = liveRuns().length;
   const item = (act, title, sub, cls = '') => `<button class="pick ${cls}" data-act="${act}"><span><b>${title}</b><br><span class="hint">${sub}</span></span><span class="cat">›</span></button>`;
@@ -722,6 +734,7 @@ document.addEventListener('click', e => {
   switch (a) {
     case 'tab': S.tab = v; S.sheet = null; window.scrollTo(0, 0); break;
     case 'menu': S.sheet = { type: 'menu' }; break;
+    case 'help': S.sheet = { type: 'help' }; break;
     case 'guide': S.sheet = { type: 'guide' }; break;
     case 'guideClose': prefs().onboarded = true; S.sheet = null; break;
     case 'install': installPrompt?.prompt(); installPrompt = null; return;
@@ -746,8 +759,8 @@ document.addEventListener('click', e => {
     case 'everdark': f.everdark = v === 'yes'; if (f.lordId && !lordsFor(f.everdark).some(l => l.id === f.lordId)) f.lordId = null; break;
     case 'flag':
       if (f.flags.includes(v)) f.flags = f.flags.filter(x => x !== v);
-      // 地変と「地図欠損・ボス不明」はどちらか一方だけ
-      else f.flags = v === 'shift' ? ['shift'] : [...f.flags.filter(x => x !== 'shift'), v];
+      // 「地図欠損」と「ボス不明」はどちらか一方だけ。地変はどちらとも一緒に選べる
+      else { const rival = { mapLoss: 'bossUnknown', bossUnknown: 'mapLoss' }[v]; f.flags = [...f.flags.filter(x => x !== rival), v]; }
       if (!f.flags.includes('shift')) f.shift = null;
       break;
     case 'shift': f.shift = f.shift === v ? null : v; break;
@@ -934,6 +947,10 @@ document.addEventListener('change', e => {
     .then(next => { replaceDb(next); S.sheet = null; render(); toast(`復元しました（戦績 ${next.runs.filter(r => !r.deleted).length}件）`); })
     .catch(err => toast('復元できませんでした：' + err.message));
 });
+
+// iPhone の Safari は「拡大させない」設定を無視するので、2本指の拡大縮小（ピンチ）もここで止める
+['gesturestart', 'gesturechange'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));
+document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 
 // オフラインでも開けるようにする（開発サーバーでは使わない）
 if ('serviceWorker' in navigator && !window.__DEV__) {
