@@ -340,3 +340,23 @@ label.pick { cursor: pointer; }
   display: flex; align-items: center; justify-content: center; text-align: center; overflow: hidden; text-wrap: balance; }
 @supports (word-break: auto-phrase) { .cat-btn { word-break: auto-phrase; overflow-wrap: anywhere; } }
 .cat-btn[aria-pressed="true"] { background: var(--grad-gold); color: var(--accent-ink); border-color: transparent; font-weight: 700; }
+
+/* fixed bottom bar: a solid panel so nothing shows through behind its text */
+.action-bar .in { background: rgba(14, 19, 48, .88); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--line-strong); border-radius: 18px; padding: 6px; box-shadow: 0 12px 30px -14px rgba(0,0,0,.9); }
+.action-bar .in::before { display: none; }
+.action-bar .msg { display: none; }
+.action-bar .primary { padding: 13px; }
+.action-bar .ghost { padding: 13px 16px; background: transparent; border-color: var(--line); }
+.primary .need { font-size: 13px; letter-spacing: .04em; font-weight: 700; }
+body.typing .action-bar, body.typing nav.tabs { display: none; }
+.edit-banner { display: grid; gap: 2px; padding: 12px 14px; border-radius: var(--radius-lg); border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: linear-gradient(90deg, rgba(220, 184, 108, .16), rgba(220, 184, 108, .04)); }
+.edit-banner b { color: var(--accent); font-size: 15px; }
+.edit-banner span { font-size: 12px; color: var(--dim); }
+/* lord / unique relics inside the effect picker */
+.special-pick { align-items: flex-start; }
+.sp-main { display: grid; gap: 3px; min-width: 0; }
+.sp-name { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.sp-name .color-dot { width: 12px; height: 12px; }
+.special-pick small { color: var(--dim); font-size: 12px; font-weight: 400; line-height: 1.5; }

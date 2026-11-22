@@ -6,7 +6,7 @@ export const COLORS = [{ id: 'red', name: '赤', word: '燃える' }, { id: 'blu
 
 export const SIZES = [{ n: 3, name: '壮大' }, { n: 2, name: '端正' }, { n: 1, name: '繊細' }];
 
-export const KINDS = [{ id: 'normal', name: '通常', word: '景色' }, { id: 'deep', name: '深層', word: '昏景' }];
+export const KINDS = [{ id: 'normal', name: '表', word: '景色' }, { id: 'deep', name: '深層', word: '昏景' }];
 
 export const STYLES = [{ id: 'melee', name: '近接' }, { id: 'arts', name: '戦技' }, { id: 'caster', name: 'スペル特化' }];
 
