@@ -142,7 +142,7 @@ const S = {
   tab: 'record', recOpen: {}, form: blankForm(), openRun: null, confirmDel: null,
   stats: { period: 'all', mode: 'all', drill: {}, heatBy: 'lord' },
   hist: { result: 'all', lord: '', char: '' },
-  enemy: { cat: 0, q: '', party: 'trio', partyOpen: false, lord: '', lordOpen: false, base: '', baseOpen: false, closed: {}, open: null, limit: 60 },  // 人数はトリオから。変えたいときだけ開く
+  enemy: { cat: 0, q: '', party: 'trio', partyOpen: false, lord: '', lordOpen: false, base: '', baseOpen: false, field: '', fieldOpen: false, closed: {}, open: null, limit: 60 },  // 人数はトリオから。変えたいときだけ開く
   buildView: 'presets', edit: null, sheet: null,
 };
 { // remember last character / preset as sensible defaults
@@ -541,9 +541,11 @@ function viewEnemies() {
   if (E.cat === 2) {  // フィールド：通常（青）／恐るべき強敵（赤）／封牢
     const isGaol = e => e[2].includes('封牢');
     const open = rowsOf(e => !isGaol(e)), gaol = rowsOf(isGaol);
-    return enemyPage(sec('f-normal', 'normal', '通常', open.filter(g => !FIELD_DREAD.has(g.title)))
-      + sec('f-dread', 'dread', '恐るべき強敵', open.filter(g => FIELD_DREAD.has(g.title)))
-      + sec('f-gaol', 'gaol', '封牢', gaol), chip, q, groups);
+    // 絞り込み（すべて／通常／恐るべき強敵／封牢）で、出す見出しを選ぶ
+    const show = id => !E.field || E.field === id;
+    return enemyPage((show('通常') ? sec('f-normal', 'normal', '通常', open.filter(g => !FIELD_DREAD.has(g.title))) : '')
+      + (show('恐るべき強敵') ? sec('f-dread', 'dread', '恐るべき強敵', open.filter(g => FIELD_DREAD.has(g.title))) : '')
+      + (show('封牢') ? sec('f-gaol', 'gaol', '封牢', gaol) : ''), chip, q, groups);
   }
   if (E.cat === 3) {  // 拠点：拠点／砦（屋上）。型で絞り込んだときは、その型だけ
     // 型ごとの見出し。「すべて」のときは全部の型を順に並べ、どの型にも入らないもの（ノクラテオなど）は「その他」
@@ -611,9 +613,11 @@ function enemyPage(body, chip, q, list) {
         ${E.partyOpen
           ? `<div class="party-row"><span class="flag-label">人数</span>${[['solo', 'ソロ'], ['duo', 'デュオ'], ['trio', 'トリオ']].map(([v, l]) => chip('enemyParty', v, l, E.party === v)).join('')}</div>`
           : `<button class="party-toggle" data-act="enemyPartyOpen">人数：<b>${{ solo: 'ソロ', duo: 'デュオ', trio: 'トリオ' }[E.party]}</b><span class="chev"></span></button>`}
+        ${!q && E.cat === 2 && !E.fieldOpen ? `<button class="party-toggle" data-act="enemyFieldOpen">種類：<b>${E.field || 'すべて'}</b><span class="chev"></span></button>` : ''}
         ${!q && E.cat === 3 && !E.baseOpen ? `<button class="party-toggle" data-act="enemyBaseOpen">拠点：<b>${E.base || 'すべて'}</b><span class="chev"></span></button>` : ''}
         ${!q && E.cat === 1 && !E.lordOpen ? `<button class="party-toggle" data-act="enemyLordOpen">夜の王：<b>${E.lord ? ico('lord', E.lord) + LORD[E.lord].name : 'すべて'}</b><span class="chev"></span></button>` : ''}
       </div>
+      ${!q && E.cat === 2 && E.fieldOpen ? `<div class="chips lord-filter">${['', '通常', '恐るべき強敵', '封牢'].map(t => chip('enemyField', t, t || 'すべて', E.field === t)).join('')}</div>` : ''}
       ${!q && E.cat === 3 && E.baseOpen ? `<div class="chips lord-filter">${chip('enemyBase', '', 'すべて', !E.base)}${BASE_TYPES.map(([t]) => chip('enemyBase', t, t, E.base === t)).join('')}</div>` : ''}
       ${!q && E.cat === 1 && E.lordOpen ? `<div class="chips lord-filter">${chip('enemyLord', '', 'すべて', !E.lord)}${LORDS.map(l => chip('enemyLord', l.id, ico('lord', l.id) + l.name, E.lord === l.id)).join('')}</div>` : ''}
     </div>
@@ -1024,6 +1028,8 @@ document.addEventListener('click', e => {
     case 'enemyPartyOpen': S.enemy.partyOpen = true; break;
     case 'enemyLordOpen': S.enemy.lordOpen = true; break;
     case 'enemyBaseOpen': S.enemy.baseOpen = true; break;
+    case 'enemyFieldOpen': S.enemy.fieldOpen = true; break;
+    case 'enemyField': S.enemy.field = v; S.enemy.fieldOpen = false; S.enemy.open = null; break;
     case 'enemyBase': S.enemy.base = v; S.enemy.baseOpen = false; S.enemy.open = null; break;
     case 'enemyLord': S.enemy.lord = v; S.enemy.lordOpen = false; S.enemy.open = null; break;
     case 'enemySec': S.enemy.closed[v] = !S.enemy.closed[v]; break;
