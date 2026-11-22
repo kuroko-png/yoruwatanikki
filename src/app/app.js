@@ -461,7 +461,7 @@ function viewBuilds() {
 // ---------- 敵（耐性・カット率・崩し値） ----------
 // データ（src/data/enemies.js、約140KB）は「敵」タブを開いたときに初めて読み込む
 let ENEMY_DATA = null;
-const ENEMY_CATS = ['夜の王', '夜の強敵', 'フィールド・拠点', '雑魚'];
+const ENEMY_CATS = ['夜の王', '夜の強敵', 'フィールド', '拠点', '雑魚'];
 const NEG_LABELS = ['標準', '斬撃', '打撃', '刺突', '魔力', '炎', '雷', '聖'];
 const RES_LABELS = ['毒', '腐敗', '出血', '冷気', '睡眠', '発狂', '死'];
 const PARTY_IDX = { solo: 0, duo: 1, trio: 2 };
@@ -482,54 +482,79 @@ function viewEnemies() {
     return `<div class="empty-state">${E.failed ? '読み込めませんでした。通信できる所でもう一度開いてください。' : '敵のデータを読み込んでいます…'}</div>`;
   }
   const q = E.q.trim();
-  const list = ENEMY_DATA.map((e, i) => [e, i]).filter(([e]) => q ? (e[1] + e[2] + e[3]).toLowerCase().includes(q.toLowerCase()) : e[0] === E.cat);
-  const shown = list.slice(0, E.limit);
   const p = PARTY_IDX[E.party] ?? 0;
-  const row = ([e, i]) => {
-    const [cat, name, tag, en, icon, hp, neg, res, poise] = e;
-    const h = hp[p], open = E.open === i;
-    const hpText = h[0] == null ? '–' : h[2] !== h[0] || h[3] !== h[1] ? `${fmtR(h[0], h[1])} → ${fmtR(h[2], h[3])}` : fmtR(h[0], h[1]);
-    return `<div class="enemy ${open ? 'open' : ''}">
-      <button class="enemy-head" data-act="enemyOpen" data-v="${i}" aria-expanded="${open}">
-        <span class="enemy-name">${icon ? ico('lord', icon) : ''}<span><b>${esc(name)}</b>${tag ? `<small>${esc(tag)}</small>` : ''}${q ? `<small class="cat-tag">${ENEMY_CATS[cat]}</small>` : ''}</span></span>
-        <span class="enemy-hp"><small>HP</small>${hpText}</span></button>
-      ${open ? enemyDetail(e, p) : ''}</div>`;
-  };
-  // 夜の王は、王ごとに1行（10種類）にまとめる。タップすると常夜・形態などの違いと、選んだものの詳しい数値を出す
-  const hpOf = (h) => h[0] == null ? '–' : h[2] !== h[0] || h[3] !== h[1] ? `${fmtR(h[0], h[1])} → ${fmtR(h[2], h[3])}` : fmtR(h[0], h[1]);
-  const lordGroup = ([icon, items]) => {
-    // 見出しは王の名前（例：ハルモニア）が入っているもの。その中で場面の付かない「通常」を優先
-    const named = items.filter(([e]) => LORD[icon] && e[1].includes(LORD[icon].name));
-    const pool = named.length ? named : items;
-    const main = pool.find(([e]) => !e[2]) || pool[0];
-    const open = E.open === `g:${icon}`;
-    // 通常／常夜の切り替え（常夜のない王はスイッチを出さない）。常夜＝場面に「常夜」が付くもの、またはハルモニアの常夜「救いの旗手」
-    const isEver = ([e]) => e[2].includes('常夜') || e[1] === '救いの旗手';
-    const hasEver = items.some(isEver);
-    const mode = hasEver && E.mode === 'ever' ? 'ever' : 'normal';
-    const inMode = items.filter(x => isEver(x) === (mode === 'ever'));
-    // 最初に選ぶのは「通常」「常夜」、なければ「第1形態」
-    const sel = inMode.find(([, i]) => i === E.sub) || inMode.find(([e]) => !e[2] || e[2] === '常夜') || inMode.find(([e]) => e[2].includes('第1形態')) || inMode[0];
-    // 同じ切り替えの中に形態などが複数あるときは、小さなボタンで選ぶ。名前の違い（例：(影)、瓦礫の王）と場面を短く出す
-    const label = ([e]) => {
-      const who = e[1] === main[0][1] ? '' : e[1].startsWith(main[0][1]) ? e[1].slice(main[0][1].length).replace(/^\(|\)$/g, '') : e[1];
-      const scene = mode === 'ever' ? e[2].replace(/^常夜・?/, '') : e[2];
-      return [who, scene].filter(Boolean).join('・') || (mode === 'ever' ? '常夜' : '通常');
-    };
-    return `<div class="enemy ${open ? 'open' : ''}">
-      <button class="enemy-head" data-act="enemyOpen" data-v="g:${icon}" aria-expanded="${open}">
-        <span class="enemy-name">${ico('lord', icon)}<span><b>${esc(main[0][1])}</b></span></span><span class="chev"></span></button>
-      ${open ? `<div class="lord-body">
-        ${hasEver ? `<div class="seg mode-seg"><button data-act="enemyMode" data-v="normal" ${pressed(mode === 'normal')}>通常</button><button data-act="enemyMode" data-v="ever" ${pressed(mode === 'ever')}>常夜</button></div>` : ''}
-        ${inMode.length > 1 ? `<div class="chips">${inMode.map(x => `<button class="chip small" data-act="enemySub" data-v="${x[1]}" ${pressed(x[1] === sel[1])}>${esc(label(x))}</button>`).join('')}</div>` : ''}
-      </div>${enemyDetail(sel[0], p)}` : ''}</div>`;
-  };
-  const groupLords = !q && E.cat === 0;
-  const groups = groupLords ? [...list.reduce((m, x) => { const k = x[0][4] || x[0][1]; (m.get(k) || m.set(k, []).get(k)).push(x); return m; }, new Map())] : [];
   const chip = (act, v, label, on) => `<button class="chip small" data-act="${act}" data-v="${v}" ${pressed(on)}>${label}</button>`;
-  if (groupLords) return enemyPage(`<div class="enemy-list">${groups.map(lordGroup).join('')}</div>`, chip, q, list, true);
-  return enemyPage(`${shown.length ? `<div class="enemy-list">${shown.map(row).join('')}</div>` : `<div class="empty-state">見つかりませんでした</div>`}
-    ${list.length > shown.length ? `<button class="more-btn" data-act="enemyMore">もっと見る（残り${list.length - shown.length}件）</button>` : ''}`, chip, q, list);
+  const hpOf = (h) => h[0] == null ? '–' : h[2] !== h[0] || h[3] !== h[1] ? `${fmtR(h[0], h[1])} → ${fmtR(h[2], h[3])}` : fmtR(h[0], h[1]);
+  // 名前で探しているときは、これまでどおり1件ずつ並べる
+  if (q) {
+    const list = ENEMY_DATA.map((e, i) => [e, i]).filter(([e]) => (e[1] + e[2] + e[3] + (e[9] || '')).toLowerCase().includes(q.toLowerCase()));
+    const shown = list.slice(0, E.limit);
+    const row = ([e, i]) => {
+      const open = E.open === i;
+      return `<div class="enemy ${open ? 'open' : ''}">
+        <button class="enemy-head" data-act="enemyOpen" data-v="${i}" aria-expanded="${open}">
+          <span class="enemy-name">${e[4] ? ico('lord', e[4]) : ''}<span><b>${esc(e[1])}</b>${e[2] ? `<small>${esc(e[2])}</small>` : ''}<small class="cat-tag">${ENEMY_CATS[e[0]]}</small></span></span>
+          <span class="enemy-hp"><small>HP</small>${hpOf(e[5][p])}</span></button>
+        ${open ? enemyDetail(e, p) : ''}</div>`;
+    };
+    return enemyPage(`${shown.length ? `<div class="enemy-list">${shown.map(row).join('')}</div>` : `<div class="empty-state">見つかりませんでした</div>`}
+      ${list.length > shown.length ? `<button class="more-btn" data-act="enemyMore">もっと見る（残り${list.length - shown.length}件）</button>` : ''}`, chip, q, list);
+  }
+  // どの種類も「まとめた1行 → 開くと切り替えスイッチ・小さなボタン → 詳しい数値」の形
+  const groups = enemyGroups(E.cat, ENEMY_DATA.map((e, i) => [e, i]).filter(([e]) => e[0] === E.cat));
+  const shownG = groups.slice(0, E.limit);
+  const group = g => {
+    const open = E.open === `g:${g.key}`;
+    if (!open) return `<div class="enemy"><button class="enemy-head" data-act="enemyOpen" data-v="g:${esc(g.key)}" aria-expanded="false">
+      <span class="enemy-name">${g.icon ? ico('lord', g.icon) : ''}<span><b>${esc(g.title)}</b></span></span><span class="chev"></span></button></div>`;
+    const modes = g.modes.filter(m => g.items.some(m.test));
+    const mode = modes.find(m => m.id === E.mode) || modes[0];
+    const inMode = g.items.filter(mode.test);
+    const plain = ([e]) => !e[2] || e[2] === '常夜' || e[2] === '地変';
+    // 最初に選ぶのは見出しと同じ名前の「通常／常夜」→ 同じ名前の「第1形態」→ ほかの通常 → 先頭
+    const own = x => x[0][1] === g.title, first = ([e]) => e[2].includes('第1形態');
+    const sel = inMode.find(([, i]) => i === E.sub) || inMode.find(x => own(x) && plain(x)) || inMode.find(x => own(x) && first(x))
+      || inMode.find(plain) || inMode.find(first) || inMode[0];
+    // 同じ文字のボタンが並ぶとき（名前も場面も同じで数値だけ違う個体）は①②…を付ける
+    const labels = inMode.map(x => g.label(x[0], mode));
+    const nth = labels.map((l, k) => labels.filter(m => m === l).length > 1 ? l + '①②③④⑤⑥⑦⑧⑨⑩⑪⑫'[labels.slice(0, k).filter(m => m === l).length] : l);
+    return `<div class="enemy open">
+      <button class="enemy-head" data-act="enemyOpen" data-v="g:${esc(g.key)}" aria-expanded="true">
+        <span class="enemy-name">${g.icon ? ico('lord', g.icon) : ''}<span><b>${esc(g.title)}</b></span></span><span class="chev"></span></button>
+      <div class="lord-body">
+        ${modes.length > 1 ? `<div class="seg mode-seg">${modes.map(m => `<button data-act="enemyMode" data-v="${m.id}" ${pressed(m === mode)}>${m.label}</button>`).join('')}</div>` : ''}
+        ${inMode.length > 1 ? `<div class="chips">${inMode.map((x, k) => `<button class="chip small" data-act="enemySub" data-v="${x[1]}" ${pressed(x[1] === sel[1])}>${esc(nth[k])}</button>`).join('')}</div>` : ''}
+      </div>${enemyDetail(sel[0], p)}</div>`;
+  };
+  return enemyPage(`<div class="enemy-list">${shownG.map(group).join('')}</div>
+    ${groups.length > shownG.length ? `<button class="more-btn" data-act="enemyMore">もっと見る（残り${groups.length - shownG.length}件）</button>` : ''}`, chip, q, groups);
+}
+// 種類ごとのまとめ方。modes は開いたときの切り替えスイッチ（中身があるものだけ出す）、label は小さなボタンの文字
+function enemyGroups(cat, rows) {
+  const by = (keyOf) => [...rows.reduce((m, x) => { const k = keyOf(x[0]); (m.get(k) || m.set(k, []).get(k)).push(x); return m; }, new Map())];
+  // 名前の違い（見出しと同じなら空、見出しの続きならその部分だけ）と場面を「・」でつなぐ
+  const shortName = (name, title, drop) => name === title ? '' : (name.startsWith(title) ? name.slice(title.length).replace(/^\(|\)$/g, '') : name).replace(drop, '').replace(/^・|・$/g, '');
+  const labelOf = (title, dropScene, dropName = /$^/) => (e, mode) =>
+    [shortName(e[1], title, dropName), e[2].replace(dropScene, '').replace(/^・|・$/g, '')].filter(Boolean).join('・') || mode.label;
+  if (cat === 0) {  // 夜の王：王ごと。通常／常夜
+    const isEver = ([e]) => e[2].includes('常夜') || e[1] === '救いの旗手';
+    return by(e => e[4] || e[1]).map(([icon, items]) => {
+      const named = items.filter(([e]) => LORD[icon] && e[1].includes(LORD[icon].name));
+      const title = ((named.length ? named : items).find(([e]) => !e[2]) || (named.length ? named : items)[0])[0][1];
+      return { key: icon, icon: LORD[icon] ? icon : null, title, items, label: labelOf(title, /^常夜・?/),
+        modes: [{ id: 'normal', label: '通常', test: x => !isEver(x) }, { id: 'ever', label: '常夜', test: isEver }] };
+    });
+  }
+  if (cat === 1) {  // 夜の強敵：戦いごと。本体／前哨戦
+    return by(e => e[9]).map(([fight, items]) => ({ key: fight, title: fight, items, label: labelOf(fight, /.*戦$|^ティビアの呼び舟の/),
+      modes: [{ id: 'b', label: '夜の強敵', test: ([e]) => e[10] === 'b' }, { id: 'p', label: '前哨戦', test: ([e]) => e[10] === 'p' }] }))
+      .sort((a, b) => (a.key === 'その他の前哨戦') - (b.key === 'その他の前哨戦'));
+  }
+  // フィールド・拠点・雑魚：名前ごと（武器などの違いはまとめる）。通常／地変
+  const base = name => name.replace(/\(.*\)$/, '');
+  const isShift = ([e]) => /地変/.test(e[1]) || e[2].includes('地変');
+  return by(e => base(e[1])).map(([title, items]) => ({ key: title, title, items, label: labelOf(title, /地変/, /地変/),
+    modes: [{ id: 'normal', label: '通常', test: x => !isShift(x) }, { id: 'shift', label: '地変', test: isShift }] }));
 }
 function enemyPage(body, chip, q, list) {
   const E = S.enemy;

@@ -25,6 +25,7 @@ LORD_ICON = {  # 夜の王の名前 → アプリのアイコンの id
     'Fulghor - Champion of Nightglow': 'fulghor', 'Caligo - Miasma of Night': 'caligo', 'Heolstor the Nightlord': 'final',
     'The Shape of Night': 'final', 'Weapon-Bequeathed Harmonia': 'harmonia', "Salvation's Standard-Bearers": 'harmonia',
     'Traitorous Straghess': 'strages', 'Pure Impulse Straghess': 'strages', 'Dreglord': 'strages',
+    'Animus - Ascendant Light': 'gnoster',  # グノスターの常夜（Enhanced Boss）
 }
 LORD_ORDER = list(OrderedDict.fromkeys(LORD_ICON.values())) + [None]
 # 「○○ Night Boss」の ○○ → 日本語（夜の強敵の戦いの名前）
@@ -34,7 +35,27 @@ NIGHT_FIGHT = {
     'Dancer': '冷たい谷の踊り子', 'Dragonkin': 'ノクスの竜人兵', 'Dragonkin Soldier': 'ノクスの竜人兵',
     'Crucible Knight Golden Hippo': '坩堝の騎士＆黄金カバ', 'Demi-Human Queen': '亜人の女王',
 }
-CATS = ['lord', 'night', 'boss', 'mob', 'memory']
+CATS = ['lord', 'night', 'field', 'base', 'mob']
+# ボスの場所 → フィールド / 拠点（2026-11-23 確認：封牢と山嶺の氷竜はフィールド、城の屋上・地下は拠点）
+FIELD_TAGS = {'Field Boss', 'Demi-Human Queen Field Boss', 'Boss',  # Boss＝山嶺の氷竜
+              'Evergaol Boss', 'Godskin Duo Evergaol Boss', 'The Oldest Gaol'}
+BASE_TAGS = {'Fort Boss', 'Camp Boss', 'Ruins Boss', 'Cathedral Boss', 'Mountaintop Ruins Boss', 'Noklateo Boss', 'Crystalian Alliance; Fort Boss',
+             'Castle Rooftop Boss', 'Castle Basement Boss'}
+# 夜の強敵：どの戦いに属するか。本体（ボス）と前哨戦（取り巻き・雑魚）に分ける
+FIGHT_OF_MAIN = {'亜人の女王': '亜人の女王＆亜人の剣聖', '亜人の剣聖': '亜人の女王＆亜人の剣聖', '坩堝の騎士': '坩堝の騎士＆黄金カバ',
+                 '黄金カバ': '坩堝の騎士＆黄金カバ', '竜人兵': 'ノクスの竜人兵', 'ミミズ顔(大)': 'ミミズ顔'}
+FIGHT_ALIAS = {'降る星の獣': '降る星の成獣', '神肌': '神肌のふたり', 'ティビアの呼び舟の召喚': 'ティビアの呼び舟', 'ティビアの呼び舟の胴': 'ティビアの呼び舟',
+               '夜の強敵の前哨': 'その他の前哨戦'}
+BOSS_IN_FIGHT = {'神肌の使徒', '神肌の貴種', '夜の騎兵(グレイブ)', '夜の騎兵(フレイル)', '嵐の竜'}
+
+
+def fight_of(name, tag):
+    """夜の強敵の行が、どの戦いの本体('b')か前哨戦('p')か"""
+    if not tag:
+        return FIGHT_OF_MAIN.get(name, name), 'b'
+    f = tag[:-1] if tag.endswith('戦') else tag
+    f = FIGHT_ALIAS.get(f, f)
+    return f, 'b' if name in BOSS_IN_FIGHT else 'p'
 
 
 def parse(name):
@@ -81,8 +102,10 @@ def category(base, tag):
         return 'lord'
     if t.endswith('Night Boss') or t in ('Night Boss Enemy', 'Tibia Mariner Summon', 'Tibia Mariner Torso'):
         return 'night'
-    if t.endswith('Boss') or t in ('The Oldest Gaol', 'Character Unlock Fight'):
-        return 'boss'
+    if t in FIELD_TAGS:
+        return 'field'
+    if t in BASE_TAGS:
+        return 'base'
     return 'mob'
 
 
@@ -141,15 +164,17 @@ def main():
         poise = [(x[0] if x and x[0] == x[1] else x) for x in poise]
         neg = [round(v) if v is not None else None for v in g['neg']]
         res = [round(v) if v is not None else None for v in g['res']]
-        out.append([CATS.index(g['cat']), g['name'], g['tag'], g['en'], g['icon'], hp, neg, res, poise])
+        fight = fight_of(g['name'], g['tag']) if g['cat'] == 'night' else (None, None)
+        out.append([CATS.index(g['cat']), g['name'], g['tag'], g['en'], g['icon'], hp, neg, res, poise, *fight])
     # 並び：種類 → 夜の王は王の順 → 名前
     out.sort(key=lambda e: (e[0], LORD_ORDER.index(e[4]) if e[0] == 0 else 0, e[1], e[2]))
 
     js = ('// 「敵」タブのデータ。tools/make_enemies.py で作る（手で直さないでください）\n'
           '// 出典：Recycle氏「Elden Ring Nightreign - PvE Stats」Calibrations Ver 1.02.3（2025年9月）。DLC（1.03）以降の調整・DLCの敵は含まない\n'
-          '// 1行 = [種類(0夜の王 1夜の強敵 2フィールド・拠点ボス 3雑魚), 名前, 場所・場面, 英語名, 夜の王のアイコンid,\n'
+          '// 1行 = [種類(0夜の王 1夜の強敵 2フィールド 3拠点 4雑魚), 名前, 場所・場面, 英語名, 夜の王のアイコンid,\n'
           '//        HP[ソロ/デュオ/トリオ][1日目の最小,最大, 2日目の最小,最大], カット率[標準,斬撃,打撃,刺突,魔力,炎,雷,聖],\n'
-          '//        状態異常耐性[毒,腐敗,出血,冷気,睡眠,発狂,死](nullは無効), 崩し値[ソロ,デュオ,トリオ]（数値か[最小,最大]、nullは不明）]\n'
+          '//        状態異常耐性[毒,腐敗,出血,冷気,睡眠,発狂,死](nullは無効), 崩し値[ソロ,デュオ,トリオ]（数値か[最小,最大]、nullは不明）,\n'
+          '//        夜の強敵の戦いの名前, 本体b/前哨戦p]\n'
           'export const ENEMIES = ' + json.dumps(out, ensure_ascii=False, separators=(',', ':')) + ';\n')
     with open(OUT, 'w', encoding='utf-8', newline='\n') as f:
         f.write(js)
