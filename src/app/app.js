@@ -4,7 +4,7 @@ import { CHARS } from '../data/characters.js';
 import { OPT, EFF_NORMAL_ROWS, EFF_DEEP_ROWS, DEMERIT_ROWS } from '../data/effects.js';
 import { VESSEL_ROWS } from '../data/vessels.js';
 import { SPECIAL_ROWS } from '../data/relics.js';
-import { COLORS, SIZES, KINDS, STYLES, SPEC_SORC, SPEC_INC, WEAPON_TYPES, LOSS_AT, MODES, PARTY } from '../data/labels.js';
+import { COLORS, SIZES, KINDS, STYLES, SPEC_SORC, SPEC_INC, WEAPON_TYPES, LOSS_AT, MODES, PARTY, DEPTHS, RUN_FLAGS } from '../data/labels.js';
 import { load, save, exportJson, exportCsv, readJsonFile } from './store.js';
 
 // ---------- 遺物効果の組み立て ----------
@@ -63,6 +63,7 @@ const SPECIAL = byIdEarly(SPECIALS);
 const fitsSpecial = (sc, sp) => sc === 'any' || !sp.color || sp.color === sc;
 // ビルドの型・メイン武器
 const byId = arr => Object.fromEntries(arr.map(x => [x.id, x]));
+const RUN_FLAG = byId(RUN_FLAGS);
 const LORD = byId(LORDS), CHAR = byId(CHARS), LOSS = byId(LOSS_AT), MODE = byId(MODES), PARTYM = byId(PARTY);
 
 // ---------- helpers ----------
@@ -122,15 +123,19 @@ function seed() {
 
 // ---------- state ----------
 const db = load() ?? { runs: [], relics: [], presets: [] };
-const blankForm = () => ({ dateMode: 'today', date: today(), lordId: null, everdark: false, mode: 'normal', party: 'trio', charId: null, result: null, lossAt: null, presetId: null, note: '' });
+db.prefs ||= {};
+const prefs = () => db.prefs;
+const blankForm = () => ({ dateMode: 'today', date: today(), lordId: null, everdark: null, flags: [], mode: prefs().mode || 'normal', depth: prefs().depth || null,
+  party: prefs().party || 'trio', charId: null, result: null, lossAt: null, presetId: null, note: '' });
+const lastPresetFor = charId => { const id = (prefs().presetByChar || {})[charId]; return id && db.presets.some(p => p.id === id) ? id : null; };
 const S = {
-  tab: 'record', form: blankForm(), openRun: null, confirmDel: null,
+  tab: 'record', recOpen: {}, form: blankForm(), openRun: null, confirmDel: null,
   stats: { period: 'all', mode: 'all' },
   buildView: 'presets', edit: null, sheet: null,
 };
 { // remember last character / preset as sensible defaults
   const last = [...db.runs].sort((a, b) => b.updatedAt - a.updatedAt)[0];
-  if (last) { S.form.charId = last.charId; S.form.presetId = last.presetId; S.form.party = last.party; }
+  if (last) { S.form.charId = last.charId; S.form.presetId = lastPresetFor(last.charId) ?? last.presetId ?? null; }
 }
 const liveRuns = () => db.runs.filter(r => !r.deleted);
 const relicById = id => db.relics.find(r => r.id === id);
@@ -139,49 +144,62 @@ const presetById = id => db.presets.find(p => p.id === id);
 // ---------- views ----------
 let BAR = '';  // 画面下に固定するボタン（各画面が設定する）
 const card = (title, body, right = '') => `<section class="card-sec"><div class="sec-head"><h2>${title}</h2>${right}</div>${body}</section>`;
-const REQ = '<span class="req">必須</span>';
 
 function viewRecord() {
   const f = S.form;
-  const canSave = f.lordId && f.charId && f.result;
-  const presets = db.presets.filter(p => !f.charId || p.charId === f.charId);
-  const missing = [!f.lordId && '夜の王', !f.charId && '夜渡り', !f.result && '結果'].filter(Boolean);
+  const canSave = f.everdark !== null && f.lordId && f.charId && f.result;
+  const presets = db.presets.filter(p => p.charId === f.charId);
+  const lords = lordsFor(f.everdark);
+  const missing = [f.everdark === null && '常夜かどうか', !f.lordId && '夜の王', !f.charId && '夜渡り', !f.result && '結果'].filter(Boolean);
   BAR = `${canSave ? '' : `<div class="msg">${missing.join('・')}を選ぶと記録できます</div>`}<button class="primary" data-act="save" ${canSave ? '' : 'disabled'}>記録する</button>`;
+  const chip = (act, v, label, on, cls = 'chip') => `<button class="${cls}" data-act="${act}" data-v="${v}" ${pressed(on)}>${label}</button>`;
   return `<div class="stack-lg">
     ${card('日付', `${f.dateMode === 'pick' ? `<input type="date" id="f-date" data-field="date" value="${f.date}" max="${today()}">` : ''}`,
-      `<div class="chips">${[['today', '今日'], ['yesterday', '昨日'], ['pick', '指定']].map(([v, l]) => `<button class="chip small" data-act="date" data-v="${v}" ${pressed(f.dateMode === v)}>${l}</button>`).join('')}</div>`)}
-    ${card(`夜の王 ${REQ}`, `<div class="grid-btns">${LORDS.map(l => `<button class="tile-btn" data-act="lord" data-v="${l.id}" ${pressed(f.lordId === l.id)}>${l.name}</button>`).join('')}</div>`,
-      `<button class="chip small toggle" data-act="everdark" ${pressed(f.everdark)}><span class="dot"></span>常夜</button>`)}
-    ${card(`夜渡り ${REQ}`, `<div class="grid-btns">${CHARS.map(c => `<button class="tile-btn" data-act="char" data-v="${c.id}" ${pressed(f.charId === c.id)}>${c.name}</button>`).join('')}</div>`)}
-    ${card(`結果 ${REQ}`, `<div class="result-row">
+      `<div class="chips">${[['today', '今日'], ['yesterday', '昨日'], ['pick', '指定']].map(([v, l]) => chip('date', v, l, f.dateMode === v, 'chip small')).join('')}</div>`)}
+    ${card('夜の王の種類', '', `<div class="chips">${chip('everdark', 'no', '通常', f.everdark === false, 'chip small')}${chip('everdark', 'yes', '常夜', f.everdark === true, 'chip small')}</div>`)}
+    ${recDisc('lord', '夜の王', f.lordId && LORD[f.lordId].name,
+      `<div class="grid-btns">${lords.map(l => chip('lord', l.id, l.name, f.lordId === l.id, 'tile-btn')).join('')}</div>`,
+      f.lordId ? `<div class="flag-row"><span class="flag-label">あれば</span>${RUN_FLAGS.map(x => chip('flag', x.id, x.name, f.flags.includes(x.id), 'chip small')).join('')}</div>` : '')}
+    ${recDisc('char', '夜渡り', f.charId && CHAR[f.charId].name,
+      `<div class="grid-btns">${CHARS.map(c => chip('char', c.id, c.name, f.charId === c.id, 'tile-btn')).join('')}</div>`)}
+    ${f.charId ? card('ビルド', `<div class="chips one-line">${chip('preset', '', '記録無し', !f.presetId)}${presets.map(p => chip('preset', p.id, esc(p.name), f.presetId === p.id)).join('')}</div>
+      ${presets.length ? '' : `<p class="hint">${CHAR[f.charId].name}のプリセットはまだありません。「ビルド」タブで作れます。</p>`}`) : ''}
+    ${card('結果', `<div class="result-row">
         <button class="result-btn win" data-act="result" data-v="win" ${pressed(f.result === 'win')}>勝利</button>
         <button class="result-btn loss" data-act="result" data-v="loss" ${pressed(f.result === 'loss')}>敗北</button></div>
       ${f.result === 'loss' ? `<div class="subpanel"><div class="label">どこで倒れた？</div>
-        <div class="chips">${LOSS_AT.map(x => `<button class="chip" data-act="lossAt" data-v="${x.id}" ${pressed(f.lossAt === x.id)}>${x.name}</button>`).join('')}</div></div>` : ''}`)}
+        <div class="chips">${LOSS_AT.map(x => chip('lossAt', x.id, x.name, f.lossAt === x.id)).join('')}</div></div>` : ''}`)}
     <details class="opt" ${S.optOpen ? 'open' : ''} data-details="opt">
       <summary><span>詳細</span><span class="tag">${esc(optSummary())}</span></summary>
       <div class="inner">
         <div class="section"><div class="label">モード</div>
-          <div class="chips">${MODES.map(m => `<button class="chip" data-act="mode" data-v="${m.id}" ${pressed(f.mode === m.id)}>${m.name}</button>`).join('')}</div></div>
+          <div class="chips">${MODES.map(m => chip('mode', m.id, m.name, f.mode === m.id)).join('')}</div>
+          ${f.mode === 'deep' ? `<div class="subpanel"><div class="label">深度</div>
+            <div class="depth-row">${DEPTHS.map(d => chip('depth', d, d, f.depth === d, 'chip depth')).join('')}</div></div>` : ''}</div>
         <div class="section"><div class="label">人数</div>
-          <div class="chips">${PARTY.map(m => `<button class="chip" data-act="party" data-v="${m.id}" ${pressed(f.party === m.id)}>${m.name}</button>`).join('')}</div></div>
-        <div class="section"><div class="label">ビルド（任意）</div>
-          <div class="chips">
-            <button class="chip" data-act="preset" data-v="" ${pressed(!f.presetId)}>記録しない</button>
-            ${presets.map(p => `<button class="chip" data-act="preset" data-v="${p.id}" ${pressed(f.presetId === p.id)}>${esc(p.name)}</button>`).join('')}
-          </div>
-          ${presets.length ? '' : `<p class="hint">この夜渡りのプリセットはまだありません。「ビルド」タブで作れます。</p>`}
-        </div>
+          <div class="chips">${PARTY.map(m => chip('party', m.id, m.name, f.party === m.id)).join('')}</div></div>
         <div class="section"><div class="label">メモ（任意）</div>
           <textarea id="f-note" data-field="note" placeholder="例：最終戦で回復が足りなかった">${esc(f.note)}</textarea></div>
+        <p class="hint">モード・深度・人数は、次の記録でもそのまま使われます。</p>
       </div>
     </details>
   </div>`;
 }
+// 記録画面の開閉する行。未選択なら開き、選んだら畳む（行をタップで開き直せる）
+const recOpen = (key, hasValue) => S.recOpen[key] ?? !hasValue;
+function recDisc(key, label, value, body, extra = '') {
+  const open = recOpen(key, !!value);
+  return `<div class="disc ${open ? 'open' : ''}">
+    <button class="disc-head" data-act="rdisc" data-v="${key}" aria-expanded="${open}">
+      <span class="k">${label}</span><span class="v ${value ? 'set' : ''}"><span class="txt">${value ? esc(value) : '未選択'}</span></span><span class="chev"></span></button>
+    ${open ? `<div class="disc-body">${body}</div>` : ''}
+    ${extra ? `<div class="disc-extra">${extra}</div>` : ''}</div>`;
+}
+// 常夜の王を選んだときは、常夜にいない夜の王を外す（lords.js の everdark: false）
+const lordsFor = everdark => LORDS.filter(l => everdark !== true || l.everdark !== false);
 function optSummary() {
   const f = S.form;
-  const parts = [MODE[f.mode].name, PARTYM[f.party].name];
-  if (f.presetId && presetById(f.presetId)) parts.push(presetById(f.presetId).name);
+  const parts = [f.mode === 'deep' && f.depth ? `深き夜 深度${f.depth}` : MODE[f.mode].name, PARTYM[f.party].name];
   return parts.join('・');
 }
 
@@ -202,7 +220,7 @@ function runRow(r) {
   return `<button class="run ${r.result}" data-act="openRun" data-v="${r.id}" aria-expanded="${open}">
     <span class="stripe"></span>
     <span class="main"><span class="who">${LORD[r.lordId].name} <span style="color:var(--dim);font-weight:400">×</span> ${CHAR[r.charId].name}</span>
-      <span class="meta">${r.everdark ? '<span class="badge ever">常夜</span>' : ''}${r.mode === 'deep' ? '<span class="badge deep">深き夜</span>' : ''}<span>${PARTYM[r.party].name}</span>${p ? `<span>${esc(p.name)}</span>` : ''}</span></span>
+      <span class="meta">${r.everdark ? '<span class="badge ever">常夜</span>' : ''}${r.mode === 'deep' ? `<span class="badge deep">深き夜${r.depth ? ' 深度' + r.depth : ''}</span>` : ''}${(r.flags || []).map(x => `<span class="badge">${RUN_FLAG[x]?.name ?? x}</span>`).join('')}<span>${PARTYM[r.party].name}</span>${p ? `<span>${esc(p.name)}</span>` : ''}</span></span>
     <span class="res">${r.result === 'win' ? '勝利' : '敗北'}${r.lossAt ? `<small>${LOSS[r.lossAt].name}</small>` : ''}</span>
   </button>
   ${open ? `<div class="run-detail">
@@ -437,9 +455,9 @@ function renderSheet() {
   const q = (sh.q || '').trim();
   const items = fams.filter(f => (!sh.cat || f.cat === sh.cat) && (!q || f.name.includes(q) || f.levels.some(e => e.name.includes(q))));
   const head = isDem ? 'デメリットを選ぶ' : deep ? '深層の効果を選ぶ' : '効果を選ぶ';
-  // 大項目は同じ幅のボタンを3行に並べ、3行まとめて横にスクロールする
+  // 大項目は同じ幅のボタンを5列で並べる（スクロールなし）
   const catItems = [['', 'すべて'], ...cats.map(c => [c, c])];
-  const tools = `<div class="cat-strip" style="grid-template-columns:repeat(${Math.ceil(catItems.length / 3)}, 112px)">${catItems.map(([v, l]) => `<button class="cat-btn" data-act="sCat" data-v="${v}" ${pressed((sh.cat || '') === v)}>${l}</button>`).join('')}</div>`;
+  const tools = `<div class="cat-grid">${catItems.map(([v, l]) => `<button class="cat-btn" data-act="sCat" data-v="${v}" ${pressed((sh.cat || '') === v)}>${l.replace('/', '/<wbr>')}</button>`).join('')}</div>`;
   const demTag = f => !deep || isDem ? '' : f.dem === null ? '' : f.dem === 0 ? '<span class="dem-tag">デメリット有</span>' : f.dem > 0 ? `<span class="dem-tag">+${f.dem}以上でデメリット</span>` : '';
   const row = f => {
     const on = f.levels.some(e => e.id === current);
@@ -477,13 +495,13 @@ function menuSheet() {
     </div></div>`;
 }
 function replaceDb(next) {
-  db.runs = next.runs; db.relics = next.relics; db.presets = next.presets;
+  db.runs = next.runs; db.relics = next.relics; db.presets = next.presets; db.prefs = next.prefs || {};
   S.edit = null; S.openRun = null; S.form = blankForm();
 }
 function csvRows() {
-  const rows = [['日付', '夜の王', '常夜', 'モード', '人数', '夜渡り', '結果', '倒れた場所', 'ビルド', 'メモ']];
+  const rows = [['日付', '夜の王', '常夜', '地図欠損など', 'モード', '深度', '人数', '夜渡り', '結果', '倒れた場所', 'ビルド', 'メモ']];
   liveRuns().sort((a, b) => a.date.localeCompare(b.date) || a.updatedAt - b.updatedAt).forEach(r => rows.push([
-    r.date, LORD[r.lordId]?.name ?? r.lordId, r.everdark ? '常夜' : '', MODE[r.mode]?.name ?? r.mode, PARTYM[r.party]?.name ?? r.party,
+    r.date, LORD[r.lordId]?.name ?? r.lordId, r.everdark ? '常夜' : '', (r.flags || []).map(x => RUN_FLAG[x]?.name ?? x).join('/'), MODE[r.mode]?.name ?? r.mode, r.depth ?? '', PARTYM[r.party]?.name ?? r.party,
     CHAR[r.charId]?.name ?? r.charId, r.result === 'win' ? '勝利' : '敗北', r.lossAt ? LOSS[r.lossAt].name : '', presetById(r.presetId)?.name ?? '', r.note]));
   return rows;
 }
@@ -538,19 +556,22 @@ document.addEventListener('click', e => {
       if (S.confirmDel !== 'wipe') { S.confirmDel = 'wipe'; break; }
       replaceDb({ runs: [], relics: [], presets: [] }); S.confirmDel = null; S.sheet = null; toast('すべてのデータを削除しました'); break;
     case 'date': f.dateMode = v; if (v === 'today') f.date = today(); if (v === 'yesterday') f.date = daysAgo(1); break;
-    case 'lord': f.lordId = f.lordId === v ? null : v; break;
-    case 'everdark': f.everdark = !f.everdark; break;
-    case 'char': f.charId = v; if (f.presetId && presetById(f.presetId)?.charId !== v) f.presetId = null; break;
+    case 'lord': f.lordId = f.lordId === v ? null : v; if (!f.lordId) f.flags = []; S.recOpen.lord = !f.lordId; break;
+    case 'rdisc': S.recOpen[v] = !recOpen(v, !!(v === 'lord' ? f.lordId : f.charId)); break;
+    case 'everdark': f.everdark = v === 'yes'; if (f.lordId && !lordsFor(f.everdark).some(l => l.id === f.lordId)) f.lordId = null; break;
+    case 'flag': f.flags = f.flags.includes(v) ? f.flags.filter(x => x !== v) : [...f.flags, v]; break;
+    case 'char': f.charId = v; f.presetId = lastPresetFor(v); S.recOpen.char = false; break;
     case 'result': f.result = v; if (v === 'win') f.lossAt = null; break;
     case 'lossAt': f.lossAt = f.lossAt === v ? null : v; break;
-    case 'mode': f.mode = v; break;
-    case 'party': f.party = v; break;
-    case 'preset': f.presetId = v || null; break;
+    case 'mode': f.mode = v; prefs().mode = v; if (v !== 'deep') { f.depth = null; prefs().depth = null; } break;
+    case 'depth': f.depth = f.depth === +v ? null : +v; prefs().depth = f.depth; break;
+    case 'party': f.party = v; prefs().party = v; break;
+    case 'preset': f.presetId = v || null; (prefs().presetByChar ||= {})[f.charId] = f.presetId; break;
     case 'save': {
-      if (!(f.lordId && f.charId && f.result)) return;
-      db.runs.push({ id: uid(), date: f.dateMode === 'pick' ? f.date : f.dateMode === 'yesterday' ? daysAgo(1) : today(), lordId: f.lordId, everdark: f.everdark, mode: f.mode, party: f.party, charId: f.charId, result: f.result, lossAt: f.lossAt, presetId: f.presetId, note: f.note.trim(), updatedAt: Date.now(), deleted: false });
+      if (!(f.everdark !== null && f.lordId && f.charId && f.result)) return;
+      db.runs.push({ id: uid(), date: f.dateMode === 'pick' ? f.date : f.dateMode === 'yesterday' ? daysAgo(1) : today(), lordId: f.lordId, everdark: f.everdark, flags: f.flags, mode: f.mode, depth: f.mode === 'deep' ? f.depth : null, party: f.party, charId: f.charId, result: f.result, lossAt: f.lossAt, presetId: f.presetId, note: f.note.trim(), updatedAt: Date.now(), deleted: false });
       toast(`${LORD[f.lordId].name}戦の${f.result === 'win' ? '勝利' : '敗北'}を記録しました`);
-      Object.assign(f, { lordId: null, everdark: false, result: null, lossAt: null, note: '' });
+      Object.assign(f, { lordId: null, everdark: null, flags: [], result: null, lossAt: null, note: '' }); S.recOpen = {};
       break;
     }
     case 'openRun': S.openRun = S.openRun === v ? null : v; break;

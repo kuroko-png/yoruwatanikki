@@ -22,3 +22,9 @@ export const LOSS_AT = [{ id: 'd1', name: '1日目' }, { id: 'd2', name: '2日�
 export const MODES = [{ id: 'normal', name: '通常' }, { id: 'deep', name: '深き夜' }];
 
 export const PARTY = [{ id: 'solo', name: 'ソロ' }, { id: 'duo', name: 'デュオ' }, { id: 'trio', name: 'トリオ' }];
+
+// 深き夜の深度
+export const DEPTHS = [1, 2, 3, 4, 5];
+
+// 夜の王を選んだあとに付けられる印（あれば）
+export const RUN_FLAGS = [{ id: 'mapLoss', name: '地図欠損' }, { id: 'bossUnknown', name: 'ボス不明' }];

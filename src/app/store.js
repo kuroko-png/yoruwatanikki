@@ -33,7 +33,7 @@ export function save(data) {
 navigator.storage?.persist?.().catch(() => {});
 
 function normalize(d) {
-  return { runs: Array.isArray(d.runs) ? d.runs : [], relics: Array.isArray(d.relics) ? d.relics : [], presets: Array.isArray(d.presets) ? d.presets : [] };
+  return { runs: Array.isArray(d.runs) ? d.runs : [], relics: Array.isArray(d.relics) ? d.relics : [], presets: Array.isArray(d.presets) ? d.presets : [], prefs: d.prefs && typeof d.prefs === 'object' ? d.prefs : {} };
 }
 
 function download(filename, blob) {
