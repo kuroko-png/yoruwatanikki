@@ -41,7 +41,7 @@ def on_night(src, n, scale):
 
 
 # 画面下のタブのアイコン（元画像のファイル名 → タブの id）
-TABS = {'記録.webp': 'record', '履歴.webp': 'history', '統計.webp': 'stats', 'ビルド2.webp': 'builds'}
+TABS = {'記録.webp': 'record', '履歴.webp': 'history', '統計.webp': 'stats', 'ビルド2.webp': 'builds', '敵.webp': 'enemies'}
 
 
 def tab_icon(path):
@@ -50,7 +50,7 @@ def tab_icon(path):
     gray = im.convert('L')
     alpha = im.getchannel('A').point(lambda v: 0 if v < 40 else v)  # 周りの細かい点を消す
     shape = Image.composite(gray, Image.new('L', im.size, 0), alpha)  # 白いほど濃く、黒い線は抜ける
-    box = alpha.point(lambda v: 255 if v > 40 else 0).getbbox()
+    box = shape.point(lambda v: 255 if v > 40 else 0).getbbox()  # 背景が黒く塗られた絵でも、絵のある所だけを切り出す
     c0, r0, c1, r1 = box
     side = max(c1 - c0, r1 - r0)
     sq = Image.new('L', (side, side), 0)

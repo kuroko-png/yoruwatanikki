@@ -141,6 +141,7 @@ const S = {
   tab: 'record', recOpen: {}, form: blankForm(), openRun: null, confirmDel: null,
   stats: { period: 'all', mode: 'all', drill: {}, heatBy: 'lord' },
   hist: { result: 'all', lord: '', char: '' },
+  enemy: { cat: 0, q: '', party: prefs().party || 'solo', open: null, limit: 60 },  // 人数は記録の「人数」と同じものから始める
   buildView: 'presets', edit: null, sheet: null,
 };
 { // remember last character / preset as sensible defaults
@@ -457,6 +458,74 @@ function viewBuilds() {
       <span class="sub">${p.charId ? charName(p.charId) : '夜渡り未設定'}${styleText(p) ? '・' + esc(styleText(p)) : ''}</span>${slotDots(p)}</button>`; }).join('')}
   </div>`;
 }
+// ---------- 敵（耐性・カット率・崩し値） ----------
+// データ（src/data/enemies.js、約140KB）は「敵」タブを開いたときに初めて読み込む
+let ENEMY_DATA = null;
+const ENEMY_CATS = ['夜の王', '夜の強敵', 'フィールド・拠点', '雑魚'];
+const NEG_LABELS = ['標準', '斬撃', '打撃', '刺突', '魔力', '炎', '雷', '聖'];
+const RES_LABELS = ['毒', '腐敗', '出血', '冷気', '睡眠', '発狂', '死'];
+const PARTY_IDX = { solo: 0, duo: 1, trio: 2 };
+const ENEMY_PAGE = 60;  // 一度に並べる数（多いと重くなるので「もっと見る」で増やす）
+function loadEnemies() {
+  if (S.enemy.loading) return;
+  S.enemy.loading = true;
+  import('../data/enemies.js').then(m => { ENEMY_DATA = m.ENEMIES; render(); })
+    .catch(() => { S.enemy.loading = false; S.enemy.failed = true; render(); });
+}
+const fmtN = n => n == null ? '–' : n.toLocaleString('ja-JP');
+const fmtR = (a, b) => a == null ? '–' : a === b ? fmtN(a) : `${fmtN(a)}〜${fmtN(b)}`;
+const fmtPoise = p => p == null ? '–' : Array.isArray(p) ? `${p[0]}〜${p[1]}` : String(p);
+function viewEnemies() {
+  const E = S.enemy;
+  if (!ENEMY_DATA) {
+    if (!E.failed) loadEnemies();
+    return `<div class="empty-state">${E.failed ? '読み込めませんでした。通信できる所でもう一度開いてください。' : '敵のデータを読み込んでいます…'}</div>`;
+  }
+  const q = E.q.trim();
+  const list = ENEMY_DATA.map((e, i) => [e, i]).filter(([e]) => q ? (e[1] + e[2] + e[3]).toLowerCase().includes(q.toLowerCase()) : e[0] === E.cat);
+  const shown = list.slice(0, E.limit);
+  const p = PARTY_IDX[E.party] ?? 0;
+  const row = ([e, i]) => {
+    const [cat, name, tag, en, icon, hp, neg, res, poise] = e;
+    const h = hp[p], open = E.open === i;
+    const hpText = h[0] == null ? '–' : h[2] !== h[0] || h[3] !== h[1] ? `${fmtR(h[0], h[1])} → ${fmtR(h[2], h[3])}` : fmtR(h[0], h[1]);
+    return `<div class="enemy ${open ? 'open' : ''}">
+      <button class="enemy-head" data-act="enemyOpen" data-v="${i}" aria-expanded="${open}">
+        <span class="enemy-name">${icon ? ico('lord', icon) : ''}<span><b>${esc(name)}</b>${tag ? `<small>${esc(tag)}</small>` : ''}${q ? `<small class="cat-tag">${ENEMY_CATS[cat]}</small>` : ''}</span></span>
+        <span class="enemy-hp"><small>HP</small>${hpText}</span></button>
+      ${open ? enemyDetail(e, p) : ''}</div>`;
+  };
+  const chip = (act, v, label, on) => `<button class="chip small" data-act="${act}" data-v="${v}" ${pressed(on)}>${label}</button>`;
+  return `<div class="stack-lg">
+    <div class="enemy-tools">
+      <input type="search" id="enemy-q" data-enemyq value="${esc(E.q)}" placeholder="名前で探す（例：ガーゴイル、失地騎士）" enterkeyhint="search">
+      ${q ? '' : `<div class="chips one-row">${ENEMY_CATS.map((c, i) => chip('enemyCat', i, c, E.cat === i)).join('')}</div>`}
+      <div class="party-row"><span class="flag-label">人数</span>${[['solo', 'ソロ'], ['duo', 'デュオ'], ['trio', 'トリオ']].map(([v, l]) => chip('enemyParty', v, l, E.party === v)).join('')}<span class="hint">HP・崩し値が変わります</span></div>
+    </div>
+    ${q ? `<p class="hint">「${esc(q)}」の検索結果：${list.length}件</p>` : ''}
+    ${shown.length ? `<div class="enemy-list">${shown.map(row).join('')}</div>` : `<div class="empty-state">見つかりませんでした</div>`}
+    ${list.length > shown.length ? `<button class="more-btn" data-act="enemyMore">もっと見る（残り${list.length - shown.length}件）</button>` : ''}
+    <p class="hint source-note">数値の出典：Recycle氏の解析シート「Elden Ring Nightreign - PvE Stats」（Calibrations Ver 1.02.3・2025年9月時点）。DLC（1.03）以降の調整とDLCの敵は入っていません。名前は神攻略wikiの表記に合わせています。</p>
+  </div>`;
+}
+function enemyDetail(e, p) {
+  const [, , , en, , hp, neg, res, poise] = e;
+  const h = hp[p];
+  // カット率：マイナスは弱点（よく効く）、高いほど効きにくい
+  const negCell = (v, i) => `<div class="stat ${v == null ? '' : v < 0 ? 'weak' : v >= 30 ? 'strong' : ''}"><span>${NEG_LABELS[i]}</span><b>${v == null ? '–' : v + '%'}</b></div>`;
+  // 状態異常耐性：低いほど早くかかる。null は無効
+  const lowest = Math.min(...res.filter(v => v != null));
+  const resCell = (v, i) => `<div class="stat ${v == null ? 'immune' : v === lowest && v < 500 ? 'weak' : ''}"><span>${RES_LABELS[i]}</span><b>${v == null ? '無効' : v}</b></div>`;
+  return `<div class="enemy-detail">
+    <div class="enemy-kv"><span>HP</span><b>1日目 ${fmtR(h[0], h[1])}${h[2] != null && (h[2] !== h[0] || h[3] !== h[1]) ? `／2日目 ${fmtR(h[2], h[3])}` : ''}</b></div>
+    <div class="enemy-kv"><span>崩し値</span><b>${fmtPoise(poise[p])}</b></div>
+    <div class="label">カット率<span class="hint">低いほど通りやすい（マイナスは弱点）</span></div>
+    <div class="stat-grid g4">${neg.map(negCell).join('')}</div>
+    <div class="label">状態異常の耐性<span class="hint">低いほどかかりやすい</span></div>
+    <div class="stat-grid g4">${res.map(resCell).join('')}</div>
+    <p class="hint en-name">英語名：${esc(en)}</p></div>`;
+}
+
 // タップで開閉する行。値が決まっていれば右側に表示する
 function disc(key, label, value, body, disabled = false, defOpen = false) {
   const open = !disabled && (S.edit.open[key] ?? defOpen);
@@ -693,9 +762,10 @@ function csvRows() {
 
 // ---------- render ----------
 // タブのアイコンは icons/tabs/<id>.png（tools/make_app_icons.py で Images/ の絵から作る）
-const TABS = [{ id: 'record', name: '記録' }, { id: 'history', name: '履歴' }, { id: 'stats', name: '統計' }, { id: 'builds', name: 'ビルド' }];
+const TABS = [{ id: 'record', name: '記録' }, { id: 'history', name: '履歴' }, { id: 'stats', name: '統計' }, { id: 'builds', name: 'ビルド' }, { id: 'enemies', name: '敵' }];
 function appSub() {
   const runs = liveRuns();
+  if (S.tab === 'enemies') return '敵のデータを調べる';
   if (S.tab === 'record') { const t = rate(runs.filter(r => r.date === today())); return t.n ? `今日 ${t.n}戦 ${t.w}勝 ${t.n - t.w}敗` : '今日の夜を記録する'; }
   if (S.tab === 'history') return `${runs.length}戦の記録`;
   if (S.tab === 'stats') { const a = rate(runs); return `通算 ${a.n}戦・勝率 ${pct(a.p)}`; }
@@ -704,7 +774,7 @@ function appSub() {
 function render() {
   document.getElementById('tabs').innerHTML = TABS.map(t => `<button data-act="tab" data-v="${t.id}" ${S.tab === t.id ? 'aria-current="page"' : ''}><span class="tab-ico" style="-webkit-mask-image:url('icons/tabs/${t.id}.png');mask-image:url('icons/tabs/${t.id}.png')" aria-hidden="true"></span>${t.name}</button>`).join('');
   BAR = '';
-  const v = { record: viewRecord, history: viewHistory, stats: viewStats, builds: viewBuilds }[S.tab];
+  const v = { record: viewRecord, history: viewHistory, stats: viewStats, builds: viewBuilds, enemies: viewEnemies }[S.tab];
   document.getElementById('view').innerHTML = v();
   document.getElementById('appsub').textContent = appSub();
   document.querySelector('[data-act=menu]')?.classList.toggle('due', backupState().due);
@@ -812,6 +882,10 @@ document.addEventListener('click', e => {
     case 'undrill': delete S.stats.drill[v]; break;
     case 'undrillAll': S.stats.drill = {}; break;
     case 'heatBy': S.stats.heatBy = v; break;
+    case 'enemyCat': S.enemy.cat = +v; S.enemy.open = null; S.enemy.limit = ENEMY_PAGE; break;
+    case 'enemyParty': S.enemy.party = v; break;
+    case 'enemyOpen': S.enemy.open = S.enemy.open === +v ? null : +v; break;
+    case 'enemyMore': S.enemy.limit += ENEMY_PAGE; break;
     case 'statsMore': (S.statsMore ||= {})[v] = true; break;
     case 'bv': S.buildView = v; break;
     case 'newPreset': S.edit = { type: 'preset', isNew: true, open: { char: true }, data: { id: uid(), name: '', nameAuto: true, charId: null, vesselId: null, normal: [null, null, null], deep: [null, null, null] } }; window.scrollTo(0, 0); break;
@@ -923,6 +997,13 @@ document.addEventListener('input', e => {
   // 日付を直したら、記録ボタンを押せるかどうかをすぐ反映する
   if (t.dataset.field === 'date') { render(); document.getElementById('f-date')?.focus(); }
   if (t.dataset.edit) { S.edit.data[t.dataset.edit] = t.value; if (t.dataset.edit === 'name') S.edit.data.nameAuto = !t.value.trim(); }
+  if (t.hasAttribute('data-enemyq')) {
+    // 名前で探す：入力のたびに一覧を作り直し、入力欄のカーソルはそのまま
+    S.enemy.q = t.value; S.enemy.open = null; S.enemy.limit = ENEMY_PAGE;
+    const pos = t.selectionStart;
+    render();
+    const el = document.getElementById('enemy-q'); el.focus(); el.setSelectionRange(pos, pos);
+  }
   if (t.hasAttribute('data-sheetq')) {
     S.sheet.q = t.value;
     const pos = t.selectionStart;
@@ -952,5 +1033,5 @@ if ('serviceWorker' in navigator && !window.__DEV__) {
   navigator.serviceWorker.register('./sw.js').catch(e => console.warn('service worker', e));
 }
 
-document.addEventListener('focusin', e => { if (e.target.matches('input[type=text], input[type=date], textarea')) document.body.classList.add('typing'); });
-document.addEventListener('focusout', () => setTimeout(() => { if (!document.activeElement?.matches('input[type=text], input[type=date], textarea')) document.body.classList.remove('typing'); }, 50));
+document.addEventListener('focusin', e => { if (e.target.matches('input[type=text], input[type=search], input[type=date], textarea')) document.body.classList.add('typing'); });
+document.addEventListener('focusout', () => setTimeout(() => { if (!document.activeElement?.matches('input[type=text], input[type=search], input[type=date], textarea')) document.body.classList.remove('typing'); }, 50));
