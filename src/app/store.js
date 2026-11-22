@@ -62,20 +62,20 @@ async function saveFile(filename, blob, title) {
 
 export function exportJson(data) {
   const text = JSON.stringify({ app: 'yowatari-nikki', version: VERSION, exportedAt: new Date().toISOString(), data }, null, 2);
-  return saveFile(`夜渡日記_バックアップ_${stamp()}.json`, new Blob([text], { type: 'application/json' }), '夜渡日記のバックアップ');
+  return saveFile(`夜の痕跡_バックアップ_${stamp()}.json`, new Blob([text], { type: 'application/json' }), '夜の痕跡のバックアップ');
 }
 
 // rows: 見出し行を含む2次元配列。Excelで文字化けしないよう BOM を付ける
 export function exportCsv(rows) {
   const cell = v => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const text = '﻿' + rows.map(r => r.map(cell).join(',')).join('\r\n');
-  return saveFile(`夜渡日記_戦績_${stamp()}.csv`, new Blob([text], { type: 'text/csv' }), '夜渡日記の戦績');
+  return saveFile(`夜の痕跡_戦績_${stamp()}.csv`, new Blob([text], { type: 'text/csv' }), '夜の痕跡の戦績');
 }
 
 export function readJsonFile(file) {
   return file.text().then(t => {
     const j = JSON.parse(t);
-    if (!j || (j.app !== 'yowatari-nikki' && !j.data && !j.runs)) throw new Error('夜渡日記のバックアップではありません');
+    if (!j || (j.app !== 'yowatari-nikki' && !j.data && !j.runs)) throw new Error('夜の痕跡のバックアップではありません');
     return normalize(j.data ?? j);
   });
 }

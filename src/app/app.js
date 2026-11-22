@@ -1,4 +1,4 @@
-// 夜渡日記 アプリ本体
+// 夜の痕跡 アプリ本体
 import { LORDS } from '../data/lords.js';
 import { CHARS } from '../data/characters.js';
 import { OPT, EFF_NORMAL_ROWS, EFF_DEEP_ROWS, DEMERIT_ROWS } from '../data/effects.js';
@@ -644,7 +644,7 @@ function guideSheet() {
       ? step(1, 'ホーム画面に追加する', 'Safariの下にある共有ボタン（□に↑）→「ホーム画面に追加」。<br><b>追加しないと、しばらく開かなかったときに記録が消えることがあります。</b>Safariとホーム画面のアプリは記録が別々なので、追加したあとはホーム画面から開いてください。')
       : step(1, 'ホーム画面に追加する', `ブラウザのメニュー →「ホーム画面に追加」または「アプリをインストール」。アプリのように全画面で使えます。${installPrompt ? '<br><button class="ghost" data-act="install" style="margin-top:6px">今すぐ追加する</button>' : ''}`);
   return `<div class="scrim" data-act="guideClose"></div><div class="sheet guide" role="dialog" aria-label="はじめに">
-    <div class="sheet-head"><h2>夜渡日記へようこそ</h2></div>
+    <div class="sheet-head"><h2>夜の痕跡へようこそ</h2></div>
     <div class="sheet-list guide-list">
       <p class="hint">ナイトレインの戦績を記録して、夜の王・夜渡り・ビルドごとの勝率を振り返るアプリです。</p>
       ${install}
@@ -692,12 +692,7 @@ function csvRows() {
 }
 
 // ---------- render ----------
-const ICONS = {
-  record: '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
-  history: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>',
-  stats: '<path d="M5 20V11M12 20V5M19 20v-6"/><path d="M3 20h18"/>',
-  builds: '<path d="M7 3h10l4 6-9 12L3 9z"/><path d="M3 9h18M12 21 8.5 9 12 3l3.5 6z"/>',
-};
+// タブのアイコンは icons/tabs/<id>.png（tools/make_app_icons.py で Images/ の絵から作る）
 const TABS = [{ id: 'record', name: '記録' }, { id: 'history', name: '履歴' }, { id: 'stats', name: '統計' }, { id: 'builds', name: 'ビルド' }];
 function appSub() {
   const runs = liveRuns();
@@ -707,7 +702,7 @@ function appSub() {
   return `プリセット ${activePresets().length}件`;
 }
 function render() {
-  document.getElementById('tabs').innerHTML = TABS.map(t => `<button data-act="tab" data-v="${t.id}" ${S.tab === t.id ? 'aria-current="page"' : ''}><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[t.id]}</svg>${t.name}</button>`).join('');
+  document.getElementById('tabs').innerHTML = TABS.map(t => `<button data-act="tab" data-v="${t.id}" ${S.tab === t.id ? 'aria-current="page"' : ''}><span class="tab-ico" style="-webkit-mask-image:url('icons/tabs/${t.id}.png');mask-image:url('icons/tabs/${t.id}.png')" aria-hidden="true"></span>${t.name}</button>`).join('');
   BAR = '';
   const v = { record: viewRecord, history: viewHistory, stats: viewStats, builds: viewBuilds }[S.tab];
   document.getElementById('view').innerHTML = v();

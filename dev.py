@@ -82,7 +82,7 @@ class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
 
 if __name__ == '__main__':
     httpd = Server(('0.0.0.0', PORT), Handler)
-    print(f'夜渡日記 開発サーバー')
+    print(f'夜の痕跡 開発サーバー')
     print(f'  パソコン: http://localhost:{PORT}')
     ip = lan_ip()
     if ip: print(f'  スマホ:   http://{ip}:{PORT}  （同じWi-Fiにつないでください）')

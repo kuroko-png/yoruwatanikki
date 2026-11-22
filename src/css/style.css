@@ -474,3 +474,11 @@ html, body { touch-action: manipulation; }
   .bar-btns .icon-btn { padding: 0 9px; }
   .bar-btns .icon-btn span { display: none; }
 }
+/* 画面下のタブのアイコン（絵の形に色を流し込む：普段は淡い色、選ぶと金色） */
+nav.tabs .tab-ico { width: 26px; height: 26px; background: currentColor;
+  -webkit-mask-position: center; mask-position: center; -webkit-mask-size: contain; mask-size: contain; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; }  /* 絵は app.js で指定 */
+nav.tabs button[aria-current="page"] .tab-ico { background: var(--grad-gold); filter: drop-shadow(0 0 6px rgba(220, 184, 108, .6)); }
+/* タイトル「夜の痕跡」：明朝体＋金のグラデーション＋淡い光 */
+.brand h1 { font-family: "Shippori Mincho B1", "Hiragino Mincho ProN", "Yu Mincho", serif; font-weight: 800; font-size: 21px; letter-spacing: .2em; line-height: 1.15;
+  background: linear-gradient(180deg, #fff3cf 0%, #e8c77e 45%, #b8893d 100%); -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 0 8px rgba(232, 199, 126, .35)) drop-shadow(0 1px 0 rgba(0, 0, 0, .6)); }

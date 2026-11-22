@@ -40,7 +40,30 @@ def on_night(src, n, scale):
     return bg.convert('RGB')
 
 
+# 画面下のタブのアイコン（元画像のファイル名 → タブの id）
+TABS = {'記録.webp': 'record', '履歴.webp': 'history', '統計.webp': 'stats', 'ビルド.webp': 'builds'}
+
+
+def tab_icon(path):
+    """白黒の線画を、白い部分だけが形になる「型」にする（色はアプリ側で付ける：普段は淡い色、選ぶと金色）"""
+    im = Image.open(path).convert('RGBA')
+    gray = im.convert('L')
+    alpha = im.getchannel('A').point(lambda v: 0 if v < 40 else v)  # 周りの細かい点を消す
+    shape = Image.composite(gray, Image.new('L', im.size, 0), alpha)  # 白いほど濃く、黒い線は抜ける
+    box = alpha.point(lambda v: 255 if v > 40 else 0).getbbox()
+    c0, r0, c1, r1 = box
+    side = max(c1 - c0, r1 - r0)
+    sq = Image.new('L', (side, side), 0)
+    sq.paste(shape.crop(box), ((side - (c1 - c0)) // 2, (side - (r1 - r0)) // 2))
+    out = Image.new('RGBA', (side, side), (255, 255, 255, 0))
+    out.putalpha(sq)
+    return out.resize((96, 96), Image.LANCZOS)
+
+
 def main():
+    os.makedirs(os.path.join(OUT, 'tabs'), exist_ok=True)
+    for name, id_ in TABS.items():
+        tab_icon(os.path.join(ROOT, 'Images', name)).save(os.path.join(OUT, 'tabs', f'{id_}.png'), optimize=True)
     src = orb()
     on_night(src, 512, .86).save(os.path.join(OUT, 'icon-512.png'), optimize=True)
     on_night(src, 192, .86).save(os.path.join(OUT, 'icon-192.png'), optimize=True)
