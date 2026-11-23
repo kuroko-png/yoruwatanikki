@@ -8,6 +8,7 @@ import openpyxl
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from enemy_names_ja import BASE, SPECIAL, VARIANT, TAG
 from enemy_kinds import KINDS, NAMES as KIND_NAMES
+from enemy_overrides import OVERRIDES
 KIND_OF = {n: KINDS.index(k) for k, ns in KIND_NAMES.items() for n in ns}
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
@@ -38,6 +39,25 @@ NIGHT_FIGHT = {
     'Crucible Knight Golden Hippo': '坩堝の騎士＆黄金カバ', 'Demi-Human Queen': '亜人の女王',
 }
 CATS = ['lord', 'night', 'field', 'base', 'mob']
+CAT_JA = ['夜の王', '夜の強敵', 'フィールド', '拠点', '雑魚']
+# フィールドのうち「恐るべき強敵」（神攻略wiki フィールドボスのページより。飛竜＝丘陵の飛竜として扱う）
+FIELD_DREAD = {'黄金樹の化身', 'カーリアの親衛騎士', '丘陵の飛竜', '飛竜', '黒き剣の眷属', '死儀礼の鳥', '鈴玉狩り', '祖霊', '爛れた樹霊', 'ツリーガード', '溶岩土竜', '竜のツリーガード'}
+# 拠点の見出し → 場所・場面の表記
+BASE_TYPES = [('大教会', ['大教会']), ('大野営地', ['大野営地']), ('大遺跡', ['大遺跡', '大遺跡（山嶺）']), ('小砦', ['小砦', '小砦（結晶人）']),
+              ('砦(屋上)', ['砦（屋上）']), ('砦(地下)', ['砦（地下）'])]
+SIZE = {'Large', 'Medium', 'Small'}  # ( ) の中の大きさは、場所ではなく名前の違いとして扱う
+
+
+def places(cat, ja, tag, kind):
+    """フィールド・拠点・雑魚で、どの見出しに出すか [[種類の番号, 見出し], ...]（tools/enemy_overrides.py で上書きできる）"""
+    base = re.sub(r'[(（].*[)）]$', '', ja)
+    if cat == 'field':
+        return [[2, '封牢' if '封牢' in tag else '恐るべき強敵' if base in FIELD_DREAD else '通常']]
+    if cat == 'base':
+        return [[3, next((h for h, tags in BASE_TYPES if tag in tags), 'その他')]]
+    if cat == 'mob':
+        return [[4, KINDS[kind]]]
+    return []
 # ボスの場所 → フィールド / 拠点（2026-11-23 確認：封牢と山嶺の氷竜はフィールド、城の屋上・地下は拠点）
 FIELD_TAGS = {'Field Boss', 'Demi-Human Queen Field Boss', 'Boss',  # Boss＝山嶺の氷竜
               'Evergaol Boss', 'Godskin Duo Evergaol Boss', 'The Oldest Gaol'}
@@ -137,6 +157,13 @@ def main():
     missing = set()
     for (name, id_), rows in data['solo'].items():
         base, ja, var, tag = parse(name)
+        ov = OVERRIDES.get(name, {})
+        if ov.get('delete'):
+            continue
+        # 「(Large)」「(Small; Crater)」の大きさは名前の側へ（例：腐った亡者(大・災域)、飛竜(小)｜火口）
+        if tag in SIZE or (tag or '').startswith('Small; '):
+            size, tag = (tag, None) if tag in SIZE else ('Small', tag[len('Small; '):])
+            var = size + (', ' + var if var else '')
         cat = category(base, tag)
         if not cat:
             continue
@@ -149,8 +176,8 @@ def main():
             ja += '(' + '・'.join(VARIANT.get(v.strip(), v.strip()) for v in var.split(',')) + ')'
         for i, s in enumerate(rows):
             others = {p: (data[p].get((name, id_)) or [None] * (i + 1))[min(i, len(data[p].get((name, id_)) or [None]) - 1)] for p in ('duo', 'trio')}
-            key = (cat, ja, tag_ja(base, tag), json.dumps(s['neg']), json.dumps(s['res']), round(s['poise'] or -1))
-            g = groups.setdefault(key, dict(cat=cat, name=ja, tag=key[2], en=name, icon=LORD_ICON.get(base), neg=s['neg'], res=s['res'],
+            key = (cat, ja, ov.get('scene', tag_ja(base, tag)), name if ov.get('place') else '', json.dumps(s['neg']), json.dumps(s['res']), round(s['poise'] or -1))
+            g = groups.setdefault(key, dict(cat=cat, name=ja, tag=key[2], en=name, place=ov.get('place'), icon=LORD_ICON.get(base), neg=s['neg'], res=s['res'],
                                             hp={p: [] for p in PARTY}, poise={p: [] for p in PARTY}))
             for p, row in (('solo', s), ('duo', others['duo']), ('trio', others['trio'])):
                 if row:
@@ -168,7 +195,9 @@ def main():
         res = [round(v) if v is not None else None for v in g['res']]
         fight = fight_of(g['name'], g['tag']) if g['cat'] == 'night' else (None, None)
         kind = KIND_OF.get(re.sub(r'[(（].*[)）]$', '', g['name']), len(KINDS) - 1)  # 雑魚の種類（見出し用）
-        out.append([CATS.index(g['cat']), g['name'], g['tag'], g['en'], g['icon'], hp, neg, res, poise, *fight, kind])
+        pl = [[CAT_JA.index(c), h] for c, h in g['place']] if g['place'] else places(g['cat'], g['name'], g['tag'], kind)
+        cat = pl[0][0] if pl else CATS.index(g['cat'])  # 手直しで別のカテゴリに移したものは、移した先を主にする
+        out.append([cat, g['name'], g['tag'], g['en'], g['icon'], hp, neg, res, poise, *fight, kind, pl])
     # 並び：種類 → 夜の王は王の順 → 名前
     out.sort(key=lambda e: (e[0], LORD_ORDER.index(e[4]) if e[0] == 0 else 0, e[1], e[2]))
 
@@ -177,7 +206,7 @@ def main():
           '// 1行 = [種類(0夜の王 1夜の強敵 2フィールド 3拠点 4雑魚), 名前, 場所・場面, 英語名, 夜の王のアイコンid,\n'
           '//        HP[ソロ/デュオ/トリオ][1日目の最小,最大, 2日目の最小,最大], カット率[標準,斬撃,打撃,刺突,魔力,炎,雷,聖],\n'
           '//        状態異常耐性[毒,腐敗,出血,冷気,睡眠,発狂,死](nullは無効), 崩し値[ソロ,デュオ,トリオ]（数値か[最小,最大]、nullは不明）,\n'
-          '//        夜の強敵の戦いの名前, 本体b/前哨戦p]\n'
+          '//        夜の強敵の戦いの名前, 本体b/前哨戦p, 雑魚の種類, 出す見出し[[種類, 見出し], ...]（フィールド・拠点・雑魚）]\n'
           'export const ENEMIES = ' + json.dumps(out, ensure_ascii=False, separators=(',', ':')) + ';\n')
     with open(OUT, 'w', encoding='utf-8', newline='\n') as f:
         f.write(js)

@@ -244,7 +244,7 @@ SPECIAL = {
 
 # [ ] の中（個体の違い）
 VARIANT = {
-    'Cataclysm': '地変', 'Large': '大', 'Elite': '精鋭', 'Ghost': '霊体', 'Shrouded': '影',
+    'Cataclysm': '災域', 'Large': '大', 'Medium': '中', 'Small': '小', 'Elite': '精鋭', 'Ghost': '霊体', 'Shrouded': '影',
     'Greatsword': '大剣', 'Greatswords': '大剣', 'Halberd': '斧槍', 'Shield': '盾', 'Spear': '槍', 'Sword': '剣',
     'Staff': '杖', 'Flail': 'フレイル', 'Glaive': 'グレイブ', 'Curved Sword': '曲剣', 'Cleaver': '大曲剣',
     'Great Bow': '大弓', 'Partisan': 'パルチザン', 'Ringblade': '輪刃', 'Royal Cavalry': '王都の騎兵',
@@ -267,11 +267,11 @@ TAG = {
     'Troll & Banished Knight Castle Enemy': '砦（トロルと失地騎士）', 'Banished Knights, Elder Lion Camp': '大野営地（失地騎士・老獅子）',
     'Crater': '火口', 'Crater by fog gate': '火口（霧の門）', 'Small; Crater': '小・火口', 'Mountaintop': '山嶺', 'Mountaintop- Duo': '山嶺・2体',
     'Small; Mountaintop': '小・山嶺', 'Noklateo': 'ノクラテオ', 'Noklateo- Flaming Sword': 'ノクラテオ・炎の剣', 'Rotted Woods': '腐れ森',
-    'Cataclysm': '地変', 'Caraclysm': '地変',
+    'Cataclysm': '災域', 'Caraclysm': '災域',  # 2026-11-23 地変→災域に訂正（Cataclysm は拠点の敵が強化される「災域」）
     'Night Horde': '夜の群れ', 'Night Horde- Large': '夜の群れ・大', 'Night Horde- Small': '夜の群れ・小',
     'Night Horde- Skull Plate': '夜の群れ・髑髏', 'Night Horde- Winged': '夜の群れ・翼', 'Invader': '夜の侵入者', 'Night Raider': '夜の侵入者',
     'Large': '大', 'Medium': '中', 'Small': '小', 'Small Sack': '小・袋', 'Skull Plate': '髑髏', 'Winged': '翼', 'Single Dog': '1匹（分裂後）',
-    'Enhanced, Single Dog': '常夜・1匹（分裂後）', 'Small; Nameless King Entourage': '小・無名の王の取り巻き',
+    'Enhanced, Single Dog': '常夜・1匹（分裂後）', 'Small; Nameless King Entourage': '小・無名の王の取り巻き', 'Nameless King Entourage': '無名の王の取り巻き',
     'Random Encounter': '襲撃イベント', 'Seed Encounter': '襲撃イベント', 'Limveld Event': '襲撃イベント', 'Limveld but maybe unused?': 'リムベルド（未使用かも）',
     'Silly Worm': 'ミミズ', 'Tibia Mariner Summon': 'ティビアの呼び舟の召喚', 'Tibia Mariner Torso': 'ティビアの呼び舟の胴',
     'Ulcerated Tree Spirit': '爛れた樹霊',
