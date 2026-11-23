@@ -17,9 +17,11 @@
  *  - 自動バックアップ：端末の記録を、アプリ側で暗号化したもの。鍵（引き継ぎコード）は送られてこないので、ここでは中身を読めない
  *  - みんなに公開したビルド（builds）：不適切な言葉を含むものは受け付けない。問題のある行は消してよい
  *  - 機能の実装リクエスト（requests）
- *  - みんなのビルドへの「いいね／よくないね」（votes：1人1つのビルドに1票。押し直すと変わる・取り消せる。1端末1日20票まで）
+ *  - みんなのビルドへのリアクション（votes：👍😂🔥💡🤯。1人が何種類でも付けられ、押し直すと取り消し。新しく付けるのは1端末1日20回まで。前の「いいね」も👍として数える）
  *  - みんなのビルドの通報（build_reports：3つ以上の端末から通報されたビルドは、自動で一覧から外す。行を消せば戻る）
  * 不正対策：1つの端末が同じ日に30戦を超えて送ってきた日の戦績は、集計に入れない（人が遊べる数を超えるため）
+ * 受信箱（type=inbox）：機能リクエストと誤りの報告を、合言葉つきで読み出す（持ち主の毎朝の確認用）。
+ *   合言葉は「プロジェクトの設定（歯車）→ スクリプト プロパティ」に INBOX_KEY という名前で入れる。合言葉が未設定なら誰にも返さない
  * シートは自動で作られる（runs＝戦績、reports＝誤植の報告、backups＝自動バックアップ）。runs・reports の行は消してよい。
  * backups の行を消すと、その人は引き継ぎコードで戻せなくなるので消さないこと。
  */
@@ -32,6 +34,8 @@ const REQUEST_COLS = ['receivedAt', 'clientId', 'text', 'appVersion'];
 const VOTE_COLS = ['key', 'presetId', 'value', 'updatedAt'];
 const BREPORT_COLS = ['key', 'presetId', 'reason', 'at'];
 const MAX_RUNS_PER_DAY = 30, MAX_VOTES_PER_DAY = 20, HIDE_REPORTS = 3;
+// みんなのビルドのリアクションの種類（アプリの REACTIONS と同じ順・同じ名前）。前の「いいね」は like として数える
+const REACTIONS = ['like', 'lol', 'strong', 'tips', 'wow'];
 
 // 不適切な言葉（アプリ側の src/data/ngwords.js と同じ考え方。ここでも念のため確かめる）
 const NG_ANY = ['しね', 'ころす', 'ころせ', 'ぶっころ', 'きえろ', 'きちがい', 'がいじ', 'ちんこ', 'ちんぽ', 'まんこ', 'うんこ', 'せっくす', 'れいぷ', 'くそ',
@@ -136,6 +140,23 @@ function doPost(e) {
       CacheService.getScriptCache().remove('builds');
       return json_({ ok: true });
     }
+    // リアクション（1つのビルドに、1人が何種類でも付けられる。同じものをもう一度押すと取り消し。新しく付けるのは1日20回まで）
+    if (body.type === 'react') {
+      const presetId = str_(body.id, 60), r = str_(body.r, 20), on = body.on === true;
+      if (!presetId || REACTIONS.indexOf(r) < 0) return json_({ ok: false, error: 'bad react' });
+      const key = clientId + '/' + presetId + '/' + r;
+      const sh = sheet_('votes', VOTE_COLS);
+      const hit = sh.getRange('A:A').createTextFinder(key).matchEntireCell(true).findNext();
+      if (on && !hit) {
+        const today = now.toISOString().slice(0, 10);
+        const mine = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 4).getDisplayValues().filter(v => v[0].startsWith(clientId + '/') && v[3].startsWith(today)).length : 0;
+        if (mine >= MAX_VOTES_PER_DAY) return json_({ ok: false, error: 'limit' });
+        sh.getRange(sh.getLastRow() + 1, 1, 1, 4).setNumberFormat('@').setValues([[key, presetId, 'r:' + r, now.toISOString()]]);
+      }
+      if (!on && hit) sh.deleteRow(hit.getRow());
+      CacheService.getScriptCache().remove('builds');
+      return json_({ ok: true });
+    }
     if (body.type === 'build_report') {
       const presetId = str_(body.id, 60);
       if (!presetId) return json_({ ok: false, error: 'no id' });
@@ -168,6 +189,7 @@ function doGet(e) {
   const prm = e.parameter || {};
   const type = prm.type;
   if (type === 'builds') return builds_();
+  if (type === 'inbox') return inbox_(prm);
   if (type !== 'stats') return json_({ ok: true, app: 'yoru-no-konseki' });
   const ymd = x => (/^\d{4}-\d{2}-\d{2}$/.test(String(x || '')) ? String(x) : '');
   const from = ymd(prm.from), to = ymd(prm.to);
@@ -182,7 +204,12 @@ function doGet(e) {
   values.forEach(v => { const k = v[1] + '/' + v[2]; if (!latest[k] || v[13] >= latest[k][13]) latest[k] = v; });
   const add = (map, key, win) => { const x = map[key] || (map[key] = { n: 0, w: 0 }); x.n++; if (win) x.w++; };
   const out = { ok: true, updatedAt: Date.now(), range: { from: from, to: to }, players: 0, total: { n: 0, w: 0 }, lord: {}, char: {}, lordChar: {}, style: {}, weapon: {}, depth: {}, party: {},
-    byDate: {}, charDepth: {}, charWeapon: {}, charStyle: {} };
+    byDate: {}, charDepth: {}, charWeapon: {}, charStyle: {},
+    // 分析用（勝敗つき）：型・武器・深度・人数ごと、敗北した場所、夜の王／夜渡りごとの深度・人数・武器、日ごとの推移
+    styleW: {}, weaponW: {}, depthW: {}, partyW: {}, loss: {}, lordLoss: {}, lordDepth: {}, charDepthW: {}, charWeaponW: {}, charParty: {}, lordParty: {}, trend: {} };
+  const add2 = (map, a, b, win) => add(map[a] || (map[a] = {}), b, win);
+  // 日ごとの推移：期間を指定したらその期間すべて、全期間なら直近60日
+  const trendSince = from || Utilities.formatDate(new Date(Date.now() - 59 * 864e5), 'Asia/Tokyo', 'yyyy-MM-dd');
   const since = Utilities.formatDate(new Date(Date.now() - 14 * 864e5), 'Asia/Tokyo', 'yyyy-MM-dd');
   const inc = (map, a, b) => { const m = map[a] || (map[a] = {}); m[b] = (m[b] || 0) + 1; };
   const players = {};
@@ -213,11 +240,37 @@ function doGet(e) {
     // 日付ごと（直近14日。「今日の出撃数」用）
     const date = v[3] instanceof Date ? Utilities.formatDate(v[3], 'Asia/Tokyo', 'yyyy-MM-dd') : String(v[3]).slice(0, 10);
     if (date >= since) add(out.byDate, date, win);
+    // 分析用
+    if (v[14]) add(out.styleW, v[14], win);
+    if (v[15]) add(out.weaponW, v[15], win);
+    add(out.depthW, dk, win);
+    if (v[8]) add(out.partyW, v[8], win);
+    if (!win) { const la = v[11] || 'unknown'; out.loss[la] = (out.loss[la] || 0) + 1; inc(out.lordLoss, lord, la); }
+    add2(out.lordDepth, lord, dk, win);
+    add2(out.charDepthW, v[9], dk, win);
+    if (v[15]) add2(out.charWeaponW, v[9], v[15], win);
+    if (v[8]) { add2(out.charParty, v[9], v[8], win); add2(out.lordParty, lord, v[8], win); }
+    if (day >= trendSince) add(out.trend, day, win);
   });
   out.players = Object.keys(players).length;
   const text = JSON.stringify(out);
   cache.put(cacheKey, text, 180);  // 3分ごとに数え直す
   return ContentService.createTextOutput(text).setMimeType(ContentService.MimeType.JSON);
+}
+
+// 受信箱：機能リクエストと誤りの報告を読み出す（持ち主の毎朝の確認用）。
+// 合言葉（key）が「プロジェクトの設定 → スクリプト プロパティ」の INBOX_KEY と同じときだけ返す。合言葉はこのファイルに書かない（GitHubで誰でも見られるため）。
+// since（ミリ秒）より後に届いたものだけ。端末の番号は返さない
+function inbox_(prm) {
+  const key = PropertiesService.getScriptProperties().getProperty('INBOX_KEY');
+  if (!key || String(prm.key || '') !== key) return json_({ ok: false, error: 'forbidden' });
+  const since = Number(prm.since) || 0;
+  const t = v => (v instanceof Date ? v.getTime() : Date.parse(v) || 0);
+  const rows = (name, cols) => { const sh = sheet_(name, cols); const n = sh.getLastRow() - 1; return n > 0 ? sh.getRange(2, 1, n, cols.length).getValues() : []; };
+  const iso = v => new Date(t(v)).toISOString();
+  const requests = rows('requests', REQUEST_COLS).filter(v => t(v[0]) > since).slice(-200).map(v => ({ at: iso(v[0]), text: String(v[2]), appVersion: String(v[3] || '') }));
+  const reports = rows('reports', REPORT_COLS).filter(v => t(v[0]) > since).slice(-200).map(v => ({ at: iso(v[0]), enemy: String(v[2]), text: String(v[3]), appVersion: String(v[4] || '') }));
+  return json_({ ok: true, now: Date.now(), requests: requests, reports: reports });
 }
 
 // みんなに公開されたビルド（新しい順に最大300件。2分ごとに読み直す）
@@ -227,15 +280,18 @@ function builds_() {
   if (hit) return ContentService.createTextOutput(hit).setMimeType(ContentService.MimeType.JSON);
   const sh = sheet_('builds', BUILD_COLS);
   const values = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, BUILD_COLS.length).getDisplayValues() : [];
-  // いいね・よくないねの数
+  // リアクションの数（前の「いいね」(1) は like に入れる。「よくないね」(-1) はもう数えない）。古いアプリのために likes・dislikes も残す
   const vs = sheet_('votes', VOTE_COLS);
   const votes = vs.getLastRow() > 1 ? vs.getRange(2, 1, vs.getLastRow() - 1, 3).getDisplayValues() : [];
   const tally = {};
-  votes.forEach(v => { const t = tally[v[1]] || (tally[v[1]] = { likes: 0, dislikes: 0 }); if (v[2] === '1') t.likes++; else if (v[2] === '-1') t.dislikes++; });
+  votes.forEach(v => { const t = tally[v[1]] || (tally[v[1]] = { likes: 0, dislikes: 0, reactions: {} });
+    const r = v[2] === '1' ? 'like' : v[2].indexOf('r:') === 0 ? v[2].slice(2) : '';
+    if (v[2] === '-1') t.dislikes++;
+    if (r && REACTIONS.indexOf(r) >= 0) { t.reactions[r] = (t.reactions[r] || 0) + 1; if (r === 'like') t.likes++; } });
   const rs = sheet_('build_reports', BREPORT_COLS);
   const reps = {};
   (rs.getLastRow() > 1 ? rs.getRange(2, 2, rs.getLastRow() - 1, 1).getDisplayValues() : []).forEach(v => { reps[v[0]] = (reps[v[0]] || 0) + 1; });
-  const list = values.filter(v => v[0] && !ngHit_(v[4]) && (reps[v[1]] || 0) < HIDE_REPORTS).map(v => ({ presetId: v[1], updatedAt: v[2], charId: v[3], name: v[4], data: v[5], ...(tally[v[1]] || { likes: 0, dislikes: 0 }) }))
+  const list = values.filter(v => v[0] && !ngHit_(v[4]) && (reps[v[1]] || 0) < HIDE_REPORTS).map(v => ({ presetId: v[1], updatedAt: v[2], charId: v[3], name: v[4], data: v[5], ...(tally[v[1]] || { likes: 0, dislikes: 0, reactions: {} }) }))
     .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)).slice(0, 300);
   const text = JSON.stringify({ ok: true, builds: list });
   try { cache.put('builds', text, 120); } catch (err) { /* 大きすぎるときは作り置きしない */ }
