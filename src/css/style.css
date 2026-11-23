@@ -792,3 +792,21 @@ body { min-height: calc(100vh + 1px); min-height: calc(100lvh + 1px); }
 .privacy section { display: grid; gap: 4px; margin-bottom: 10px; }
 .privacy h3 { margin: 0; font-size: 14px; color: var(--accent); }
 .privacy p { margin: 0; font-size: 13px; line-height: 1.65; }
+
+/* 2026-11-23 読みやすさ：薄い文字を明るく、小さい文字を大きく */
+:root { --dim: #b3b7dc; }
+.hint { font-size: 13.5px; line-height: 1.65; }
+.label, .sub-group, .eyebrow, .day-head, .legend, .run .meta, .card .sub, .bar-row .num, .sec-head .val { font-size: 13px; }
+.badge, .tile .k, .tile .s, .pick .cat, .match .nm, .match-head span, .run .res small, .slot-btn .n { font-size: 12px; }
+.slot-btn .rname small, .preset-use, .vote-count { font-size: 13px; }
+.scan-note, .source-note, .cloud-foot .hint, .depth-legend { font-size: 12.5px; }
+nav.tabs button { font-size: 12px; }
+.tiles.dash .k { font-size: 12px; }
+/* データ管理：予備のバックアップ（たたんでおく） */
+details.spare { border: 1px dashed var(--line-strong); border-radius: 12px; padding: 4px 10px; }
+details.spare summary { cursor: pointer; padding: 6px 0; font-weight: 700; font-size: 14px; }
+details.spare[open] { padding-bottom: 8px; }
+.hint.caution { border: 1px solid color-mix(in srgb, #f0b46a 45%, transparent); background: rgba(240, 180, 106, .08); border-radius: 10px; padding: 8px 10px; color: #f3d9b1; }
+.report-link { justify-self: center; font-size: 12.5px; margin-top: 2px; }
+.report-link[disabled] { opacity: .6; text-decoration: none; }
+.data-src { font-size: 12.5px; margin: -4px 2px 0; }

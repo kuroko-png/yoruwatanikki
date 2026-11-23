@@ -6,8 +6,13 @@ export const NG_ANY = ['しね', 'ころす', 'ころせ', 'ぶっころ', 'き�
   '死ね', '氏ね', '殺す', '殺せ', '殺害', '池沼', '基地外', '糞', 'fuck', 'shit', 'bitch', 'nigger', 'nigga', 'sex'];
 export const NG_KATA = ['カス', 'クズ', 'ゴミ', 'ブス', 'デブ', 'ハゲ', 'ガイジ'];
 
+// ゲーム用語として普通に使われる言い回し（判定の前に取り除く）
+export const NG_ALLOW = ['カス当たり', 'カスあたり', 'かすあたり'];
+
 export function ngHit(text) {
-  const t = String(text || '').normalize('NFKC').toLowerCase().replace(/[\s・、。,.!?！？ー〜~_\-]/g, '');
+  let t = String(text || '').normalize('NFKC').toLowerCase();
+  NG_ALLOW.forEach(w => { t = t.split(w.toLowerCase()).join(''); });
+  t = t.replace(/[^\p{L}]/gu, '');  // 文字以外（記号・伏せ字の○×＊・数字・空白）を取り除いてから照らし合わせる
   const hira = t.replace(/[ァ-ヶ]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0x60));
   return NG_ANY.some(w => hira.includes(w)) || NG_KATA.some(w => t.includes(w.toLowerCase()));
 }

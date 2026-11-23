@@ -49,6 +49,15 @@ function cropLine(src, y, h) {
   g.putImageData(d, 0, 0);
   return { c, n: n / (scale * scale), blue: n ? (bs - rs) / n : 0 };
 }
+// 左上の見出し（「遺物儀式」）の部分
+function cropTitle(src) {
+  const f = src.f, c = document.createElement('canvas'); c.width = 260; c.height = 76;
+  const g = c.getContext('2d'); g.drawImage(src, 140 * f, 48 * f, 130 * f, 38 * f, 0, 0, 260, 76);
+  const d = g.getImageData(0, 0, 260, 76);
+  for (let i = 0; i < d.data.length; i += 4) { const v = Math.max(d.data[i], d.data[i + 1], d.data[i + 2]); d.data[i] = d.data[i + 1] = d.data[i + 2] = 255 - v; }
+  g.putImageData(d, 0, 0);
+  return c;
+}
 // アイコンの色：彩度のある点の色合いから判断。ほとんど色がなければ「銀色」（固定効果の遺物）
 function iconColor(src, idx) {
   const f = src.f, s = Math.round(44 * f);
@@ -110,6 +119,9 @@ export function matchEffect(raw, pool) {
 export async function scanRelics(file, kind, { effects, demerits, specials }) {
   const src = await toCanvas(file);
   const w = await getWorker();
+  // 画面の確認：左上の見出し「遺物儀式」が読めなければ、違う画面として止める（読み間違いを避けるため、1文字でも合えば通す）
+  const head = norm((await w.recognize(cropTitle(src))).data.text);
+  if (![...'遺物儀式'].some(ch => head.includes(ch))) throw new Error('screen');
   const relics = [];
   for (let j = 0; j < 3; j++) {
     const lines = [];
