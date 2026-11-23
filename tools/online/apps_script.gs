@@ -18,6 +18,7 @@
  *  - みんなに公開したビルド（builds）：不適切な言葉を含むものは受け付けない。問題のある行は消してよい
  *  - 機能の実装リクエスト（requests）
  *  - みんなのビルドへのリアクション（votes：👍😂🔥💡🤯。1人が何種類でも付けられ、押し直すと取り消し。新しく付けるのは1端末1日20回まで。前の「いいね」も👍として数える）
+ *  - みんなのビルドへの定型文コメント（comments：決まった文の型と言葉の番号だけ。1人が1つのビルドに1つ・送り直すと置き換え・1端末1日20件まで）
  *  - みんなのビルドの通報（build_reports：3つ以上の端末から通報されたビルドは、自動で一覧から外す。行を消せば戻る）
  * 不正対策：1つの端末が同じ日に30戦を超えて送ってきた日の戦績は、集計に入れない（人が遊べる数を超えるため）
  * 受信箱（type=inbox）：機能リクエストと誤りの報告を、合言葉つきで読み出す（持ち主の毎朝の確認用）。
@@ -36,6 +37,10 @@ const BREPORT_COLS = ['key', 'presetId', 'reason', 'at'];
 const MAX_RUNS_PER_DAY = 30, MAX_VOTES_PER_DAY = 20, HIDE_REPORTS = 3;
 // みんなのビルドのリアクションの種類（アプリの REACTIONS と同じ順・同じ名前）。前の「いいね」は like として数える
 const REACTIONS = ['like', 'lol', 'strong', 'tips', 'wow'];
+// 定型文コメント（comments：1人が1つのビルドに1つ。送り直すと置き換え）。文の型と言葉はアプリ側の src/data/comments.js の「何番目か」だけを受け取る
+// （自由な文章は受け付けない）。番号の上限は余裕をもたせてあるので、アプリ側で言葉を足しても、ここは直さなくてよい
+const COMMENT_COLS = ['key', 'presetId', 't', 'w', 'at'];
+const MAX_COMMENT_T = 100, MAX_COMMENT_W = 1000, MAX_COMMENTS_PER_DAY = 20;
 
 // 不適切な言葉（アプリ側の src/data/ngwords.js と同じ考え方。ここでも念のため確かめる）
 const NG_ANY = ['しね', 'ころす', 'ころせ', 'ぶっころ', 'きえろ', 'きちがい', 'がいじ', 'ちんこ', 'ちんぽ', 'まんこ', 'うんこ', 'せっくす', 'れいぷ', 'くそ',
@@ -154,6 +159,24 @@ function doPost(e) {
         sh.getRange(sh.getLastRow() + 1, 1, 1, 4).setNumberFormat('@').setValues([[key, presetId, 'r:' + r, now.toISOString()]]);
       }
       if (!on && hit) sh.deleteRow(hit.getRow());
+      CacheService.getScriptCache().remove('builds');
+      return json_({ ok: true });
+    }
+    // 定型文コメント：t＝文の型の番号、w＝言葉の番号。t が -1 なら取り消し
+    if (body.type === 'comment') {
+      const presetId = str_(body.id, 60), t = Number(body.t), w = Number(body.w);
+      const del = t === -1;
+      if (!presetId || (!del && !(Number.isInteger(t) && t >= 0 && t < MAX_COMMENT_T && Number.isInteger(w) && w >= 0 && w < MAX_COMMENT_W))) return json_({ ok: false, error: 'bad comment' });
+      const key = clientId + '/' + presetId;
+      const sh = sheet_('comments', COMMENT_COLS);
+      const hit = sh.getRange('A:A').createTextFinder(key).matchEntireCell(true).findNext();
+      if (del) { if (hit) sh.deleteRow(hit.getRow()); }
+      else {
+        const today = now.toISOString().slice(0, 10);
+        const mine = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 5).getDisplayValues().filter(v => v[0].startsWith(clientId + '/') && v[4].startsWith(today)).length : 0;
+        if (!hit && mine >= MAX_COMMENTS_PER_DAY) return json_({ ok: false, error: 'limit' });
+        sh.getRange(hit ? hit.getRow() : sh.getLastRow() + 1, 1, 1, 5).setNumberFormat('@').setValues([[key, presetId, String(t), String(w), now.toISOString()]]);
+      }
       CacheService.getScriptCache().remove('builds');
       return json_({ ok: true });
     }
@@ -288,10 +311,15 @@ function builds_() {
     const r = v[2] === '1' ? 'like' : v[2].indexOf('r:') === 0 ? v[2].slice(2) : '';
     if (v[2] === '-1') t.dislikes++;
     if (r && REACTIONS.indexOf(r) >= 0) { t.reactions[r] = (t.reactions[r] || 0) + 1; if (r === 'like') t.likes++; } });
+  // 定型文コメントの数（同じ文はまとめて数える。多い順に12個まで）
+  const cs = sheet_('comments', COMMENT_COLS);
+  const cm = {};
+  (cs.getLastRow() > 1 ? cs.getRange(2, 2, cs.getLastRow() - 1, 3).getDisplayValues() : []).forEach(v => { const m = cm[v[0]] || (cm[v[0]] = {}); const k = v[1] + '/' + v[2]; m[k] = (m[k] || 0) + 1; });
+  const commentsOf = id => Object.keys(cm[id] || {}).map(k => { const tw = k.split('/'); return [Number(tw[0]), Number(tw[1]), cm[id][k]]; }).sort((a, b) => b[2] - a[2]).slice(0, 12);
   const rs = sheet_('build_reports', BREPORT_COLS);
   const reps = {};
   (rs.getLastRow() > 1 ? rs.getRange(2, 2, rs.getLastRow() - 1, 1).getDisplayValues() : []).forEach(v => { reps[v[0]] = (reps[v[0]] || 0) + 1; });
-  const list = values.filter(v => v[0] && !ngHit_(v[4]) && (reps[v[1]] || 0) < HIDE_REPORTS).map(v => ({ presetId: v[1], updatedAt: v[2], charId: v[3], name: v[4], data: v[5], ...(tally[v[1]] || { likes: 0, dislikes: 0, reactions: {} }) }))
+  const list = values.filter(v => v[0] && !ngHit_(v[4]) && (reps[v[1]] || 0) < HIDE_REPORTS).map(v => ({ presetId: v[1], updatedAt: v[2], charId: v[3], name: v[4], data: v[5], ...(tally[v[1]] || { likes: 0, dislikes: 0, reactions: {} }), comments: commentsOf(v[1]) }))
     .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)).slice(0, 300);
   const text = JSON.stringify({ ok: true, builds: list });
   try { cache.put('builds', text, 120); } catch (err) { /* 大きすぎるときは作り置きしない */ }
