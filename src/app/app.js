@@ -10,6 +10,7 @@ import { NIGHT_BOSSES } from '../data/night_bosses.js';
 import { load, save, exportJson, exportCsv, readJsonFile } from './store.js';
 import { scanRelics } from './scan.js';
 import { ngHit } from '../data/ngwords.js';
+import { PRIVACY, PRIVACY_UPDATED } from '../data/privacy.js';
 
 // ---------- 遺物効果の組み立て ----------
 function optsFor(name) {
@@ -617,6 +618,15 @@ function globalCard() {
     : `<div class="online-join"><p class="hint">参加すると、あなたの戦績（夜の王・夜渡り・勝敗など）を名前なしで送り、みんなの勝率に加えます。メモやビルドは送りません。これまでの戦績も送ります。</p>
        <button class="primary" data-act="onlineJoin">参加する</button></div>`;
   return card('みんなの戦績', `${body}${join}`);
+}
+// 「プライバシーについて」（文章は src/data/privacy.js）
+function privacySheet() {
+  return `<div class="scrim" data-act="sClose"></div><div class="sheet help" role="dialog" aria-label="プライバシーについて">
+    <div class="sheet-head"><h2>プライバシーについて</h2><button class="ghost" data-act="sClose">閉じる</button></div>
+    <div class="sheet-list help-list privacy">
+      ${PRIVACY.map(sec => `<section><h3>${esc(sec.title)}</h3>${sec.body.map(t => `<p>${esc(t)}</p>`).join('')}</section>`).join('')}
+      <p class="hint">最終更新：${PRIVACY_UPDATED}</p>
+    </div></div>`;
 }
 function requestSheet() {
   const sh = S.sheet;
@@ -1267,6 +1277,7 @@ function renderSheet() {
   if (sh.type === 'import') { el.innerHTML = importSheet(); return; }
   if (sh.type === 'report') { el.innerHTML = reportSheet(); return; }
   if (sh.type === 'request') { el.innerHTML = requestSheet(); return; }
+  if (sh.type === 'privacy') { el.innerHTML = privacySheet(); return; }
   if (sh.type === 'restore') { el.innerHTML = restoreSheet(); return; }
   // 隠しの夜の王の画像を画面いっぱいに出す（どこをタップしても閉じる）
   if (sh.type === 'scanSample') { el.innerHTML = `<div class="img-view sample-view" data-act="sClose" role="dialog" aria-label="スクショの見本">
@@ -1377,8 +1388,10 @@ function menuSheet() {
     <div class="sheet-list">
       ${cloudBox()}
       ${item('restoreOpen', '引き継ぎコードで戻す', '機種変更した・アプリを入れ直したときに、前のデータを戻します')}
+      ${item('shareApp', '夜渡り日記を共有する', 'アプリのURLをコピーして、友だちに送れます')}
       ${item('requestOpen', '機能の実装リクエスト', '「こんな機能がほしい」を開発者に送れます')}
       ${item('guide', '使い方・ホーム画面に追加', 'はじめに出た案内をもう一度見る')}
+      ${item('privacyOpen', 'プライバシーについて', '何を保存・送信しているか、消し方など')}
       <div class="sub-group">その他</div>
       <p class="hint" style="padding:0 4px">この端末の記録：戦績 ${n}件・プリセット ${activePresets().length}件</p>
       ${item('exportCsv', 'CSVで書き出す', '戦績をExcelなどで開ける形にします')}
@@ -1763,6 +1776,16 @@ document.addEventListener('click', e => {
       return;
     }
     case 'requestOpen': S.sheet = { type: 'request' }; break;
+    case 'privacyOpen': S.sheet = { type: 'privacy' }; break;
+    case 'shareApp': {
+      // アプリのURL（開いているページのアドレスから # などを除いたもの）をコピーする
+      const url = location.origin + location.pathname;
+      const done = () => toast('URLをコピーしました。LINEなどに貼り付けて送ってください');
+      const fallback = () => { const ta = document.createElement('textarea'); ta.value = url; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:-100px;opacity:0';
+        document.body.appendChild(ta); ta.select(); let ok = false; try { ok = document.execCommand('copy'); } catch { ok = false; } ta.remove(); ok ? done() : toast(`コピーできませんでした。このURLを送ってください：${url}`); };
+      if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(done, fallback); else fallback();
+      return;
+    }
     case 'requestSend': {
       const sh = S.sheet, text = document.getElementById('request-text')?.value.trim();
       if (!text) { toast('内容を書いてください'); return; }
