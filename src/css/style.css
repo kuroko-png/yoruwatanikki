@@ -760,3 +760,31 @@ body { min-height: calc(100vh + 1px); min-height: calc(100lvh + 1px); }
 .gcard.closed .sec-fold .chev { transform: rotate(45deg); margin-top: -4px; }
 .gcard.closed .sec-head { margin-bottom: 0; }
 .bar-row .none { color: var(--dim); font-size: 12px; }
+
+/* みんなのビルド：遺物の中身・メモ・いいね・2行のフィルタ */
+.relic-detail { display: grid; gap: 6px; margin-top: 4px; }
+.relic-detail .label { font-size: 12px; }
+.rd-row { display: flex; gap: 8px; align-items: flex-start; }
+.rd-row .color-dot { flex: none; margin-top: 6px; }
+.rd-row b { font-size: 13px; display: block; }
+.rd-row small { color: var(--dim); font-size: 12px; line-height: 1.5; }
+.rd-row .dem { color: var(--loss); }
+.pub-note { margin: 2px 0; font-size: 13px; line-height: 1.5; background: rgba(0,0,0,.2); border-left: 3px solid var(--accent); padding: 6px 8px; border-radius: 6px; white-space: pre-wrap; }
+.pub-note.one { display: block; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vote-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.vote { border: 1px solid var(--line-strong); background: rgba(0,0,0,.25); color: var(--fg); border-radius: 12px; padding: 9px 6px; font: inherit; font-size: 14px; cursor: pointer; }
+.vote.like.on { border-color: var(--win); background: color-mix(in srgb, var(--win) 22%, transparent); }
+.vote.dislike.on { border-color: var(--loss); background: color-mix(in srgb, var(--loss) 22%, transparent); }
+.vote-count { font-size: 12px; color: var(--dim); }
+.pub-filter { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.pub-filter .chip { padding: 6px 2px; font-size: 12px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 359px) { .pub-filter .chip { font-size: 11px; letter-spacing: -.03em; } }
+.import-preview { gap: 6px; }
+/* 記録：モード欄をコンパクトに */
+.mode-card { padding-block: 10px; }
+.mode-card .sec-head { margin-bottom: 0; }
+.mode-toggle { flex-wrap: nowrap; gap: 6px; }
+.depth-line { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.depth-line .label { flex: none; font-size: 12px; margin: 0; }
+.depth-row.compact { flex: 1; gap: 5px; }
+.depth-row.compact .chip.depth { padding: 5px 0; font-size: 13px; min-height: 0; }

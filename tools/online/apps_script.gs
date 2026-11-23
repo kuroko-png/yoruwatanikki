@@ -17,6 +17,7 @@
  *  - 自動バックアップ：端末の記録を、アプリ側で暗号化したもの。鍵（引き継ぎコード）は送られてこないので、ここでは中身を読めない
  *  - みんなに公開したビルド（builds）：不適切な言葉を含むものは受け付けない。問題のある行は消してよい
  *  - 機能の実装リクエスト（requests）
+ *  - みんなのビルドへの「いいね／よくないね」（votes：1人1つのビルドに1票。押し直すと変わる・取り消せる）
  * シートは自動で作られる（runs＝戦績、reports＝誤植の報告、backups＝自動バックアップ）。runs・reports の行は消してよい。
  * backups の行を消すと、その人は引き継ぎコードで戻せなくなるので消さないこと。
  */
@@ -26,6 +27,7 @@ const REPORT_COLS = ['receivedAt', 'clientId', 'enemy', 'text', 'appVersion'];
 const MAX_RUNS_PER_POST = 500;
 const BUILD_COLS = ['key', 'presetId', 'updatedAt', 'charId', 'name', 'data'];
 const REQUEST_COLS = ['receivedAt', 'clientId', 'text', 'appVersion'];
+const VOTE_COLS = ['key', 'presetId', 'value', 'updatedAt'];
 
 // 不適切な言葉（アプリ側の src/data/ngwords.js と同じ考え方。ここでも念のため確かめる）
 const NG_ANY = ['しね', 'ころす', 'ころせ', 'ぶっころ', 'きえろ', 'きちがい', 'がいじ', 'ちんこ', 'ちんぽ', 'まんこ', 'うんこ', 'せっくす', 'れいぷ', 'くそ',
@@ -104,10 +106,21 @@ function doPost(e) {
       const data = typeof body.data === 'string' ? body.data.slice(0, 30000) : '';
       let parsed; try { parsed = JSON.parse(data); } catch (err) { return json_({ ok: false, error: 'bad data' }); }
       const name = str_(body.name, 60);
-      if (ngHit_(name) || ngHit_(parsed.name) || ngHit_(parsed.weaponName)) return json_({ ok: false, error: 'ng' });
+      if (ngHit_(name) || ngHit_(parsed.name) || ngHit_(parsed.weaponName) || ngHit_(parsed.pubNote)) return json_({ ok: false, error: 'ng' });
       const row = [key, presetId, now.toISOString(), str_(body.charId, 20), name, data];
       const r = hit ? hit.getRow() : sh.getLastRow() + 1;
       sh.getRange(r, 1, 1, row.length).setNumberFormat('@').setValues([row]);
+      CacheService.getScriptCache().remove('builds');
+      return json_({ ok: true });
+    }
+    if (body.type === 'vote') {
+      const presetId = str_(body.id, 60), value = Number(body.value);
+      if (!presetId || ![-1, 0, 1].includes(value)) return json_({ ok: false, error: 'bad vote' });
+      const key = clientId + '/' + presetId;
+      const sh = sheet_('votes', VOTE_COLS);
+      const hit = sh.getRange('A:A').createTextFinder(key).matchEntireCell(true).findNext();
+      if (!value) { if (hit) sh.deleteRow(hit.getRow()); }
+      else sh.getRange(hit ? hit.getRow() : sh.getLastRow() + 1, 1, 1, 4).setNumberFormat('@').setValues([[key, presetId, String(value), now.toISOString()]]);
       CacheService.getScriptCache().remove('builds');
       return json_({ ok: true });
     }
@@ -181,7 +194,12 @@ function builds_() {
   if (hit) return ContentService.createTextOutput(hit).setMimeType(ContentService.MimeType.JSON);
   const sh = sheet_('builds', BUILD_COLS);
   const values = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, BUILD_COLS.length).getDisplayValues() : [];
-  const list = values.filter(v => v[0] && !ngHit_(v[4])).map(v => ({ presetId: v[1], updatedAt: v[2], charId: v[3], name: v[4], data: v[5] }))
+  // いいね・よくないねの数
+  const vs = sheet_('votes', VOTE_COLS);
+  const votes = vs.getLastRow() > 1 ? vs.getRange(2, 1, vs.getLastRow() - 1, 3).getDisplayValues() : [];
+  const tally = {};
+  votes.forEach(v => { const t = tally[v[1]] || (tally[v[1]] = { likes: 0, dislikes: 0 }); if (v[2] === '1') t.likes++; else if (v[2] === '-1') t.dislikes++; });
+  const list = values.filter(v => v[0] && !ngHit_(v[4])).map(v => ({ presetId: v[1], updatedAt: v[2], charId: v[3], name: v[4], data: v[5], ...(tally[v[1]] || { likes: 0, dislikes: 0 }) }))
     .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)).slice(0, 300);
   const text = JSON.stringify({ ok: true, builds: list });
   try { cache.put('builds', text, 120); } catch (err) { /* 大きすぎるときは作り置きしない */ }

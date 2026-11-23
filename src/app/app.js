@@ -207,10 +207,9 @@ function viewRecord() {
       f.lordId ? flagRow(f, chip) : '')}
     ${recDisc('char', '夜渡り', f.charId && CHAR[f.charId].name,
       `<div class="grid-btns">${CHARS.map(c => chip('char', c.id, charName(c.id), f.charId === c.id, 'tile-btn with-ico')).join('')}</div>`)}
-    ${card('モード', f.mode === 'deep' ? `<div class="subpanel"><div class="label">深度${f.depth ? '' : '<span class="need-mark">（選んでください）</span>'}</div>
-        <div class="depth-row">${DEPTHS.map(d => chip('depth', d, d, f.depth === d, 'chip depth')).join('')}</div></div>
-        <p class="hint">モードと深度は、次の記録でもそのまま選ばれます。</p>` : '',
-      `<div class="chips ever-toggle">${MODES.map(m => chip('mode', m.id, m.name, f.mode === m.id, 'chip')).join('')}</div>`)}
+    <section class="card-sec mode-card"><div class="sec-head"><h2>モード</h2><div class="chips mode-toggle">${MODES.map(m => chip('mode', m.id, m.name, f.mode === m.id, 'chip small')).join('')}</div></div>
+      ${f.mode === 'deep' ? `<div class="depth-line"><span class="label">深度${f.depth ? '' : '<span class="need-mark">（選んでください）</span>'}</span>
+        <div class="depth-row compact">${DEPTHS.map(d => chip('depth', d, d, f.depth === d, 'chip depth')).join('')}</div></div>` : ''}</section>
     ${f.charId ? card('ビルド', `<div class="chips one-line">${chip('preset', '', '記録無し', !f.presetId)}${presets.map(p => chip('preset', p.id, esc(presetLabel(p)), f.presetId === p.id)).join('')}</div>
       ${presets.length ? '' : `<p class="hint">${CHAR[f.charId].name}のプリセットはまだありません。「ビルド」タブで作れます。</p>`}`) : ''}
     ${card('結果', `<div class="result-row">
@@ -747,7 +746,7 @@ function usedEffects(runs) {
 }
 // ---------- ビルドの共有（サーバーなし）：プリセットの中身を文字にしてリンクに入れる ----------
 // リンクの形：（アプリのURL）#build=（中身）。受け取った人はリンクを開くか、アプリの「共有されたビルドを取り込む」に貼り付ける
-const SHARE_FIELDS = ['name', 'nameAuto', ...BUILD_FIELDS];
+const SHARE_FIELDS = ['name', 'nameAuto', ...BUILD_FIELDS, 'pubNote'];
 const b64u = str => { let bin = ''; new TextEncoder().encode(str).forEach(b => { bin += String.fromCharCode(b); }); return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
 const unb64u = str => new TextDecoder().decode(Uint8Array.from(atob(str.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0)));
 const shareUrl = p => `${location.origin}${location.pathname}#build=${b64u(JSON.stringify({ v: 1, ...Object.fromEntries(SHARE_FIELDS.map(k => [k, p[k] ?? null])) }))}`;
@@ -765,14 +764,30 @@ function parseShare(text) {
     return { name: str(o.name) || '', nameAuto: o.nameAuto !== false || !str(o.name), charId, vesselId,
       style: STYLES.some(x => x.id === o.style) ? o.style : null, spec: Array.isArray(o.spec) ? o.spec.filter(x => typeof x === 'string') : [],
       weaponType: WEAPON_TYPES.includes(o.weaponType) ? o.weaponType : null, weaponName: str(o.weaponName) || '',
-      normal: vesselId ? slots(o.normal) : [null, null, null], deep: vesselId ? slots(o.deep) : [null, null, null] };
+      normal: vesselId ? slots(o.normal) : [null, null, null], deep: vesselId ? slots(o.deep) : [null, null, null],
+      pubNote: typeof o.pubNote === 'string' ? o.pubNote.slice(0, 200) : '' };
   } catch { return null; }
+}
+// 遺物の中身（表・深層それぞれの遺物の名前と効果）
+function relicDetail(d) {
+  const part = (kind, label) => { const rs = d[kind].filter(Boolean);
+    return rs.length ? `<div class="relic-detail"><div class="label">${label}</div>${rs.map(r => `<div class="rd-row"><span class="color-dot c-${r.color}"></span><div><b>${esc(relicName(r))}</b><small>${esc(relicSub(r))}${r.demerits?.some(Boolean) ? `<br><span class="dem">デメリット：${r.demerits.filter(Boolean).map(e => esc(ALL_EFF[e]?.name || '')).join('・')}</span>` : ''}</small></div></div>`).join('')}</div>` : ''; };
+  return part('normal', '表の遺物') + part('deep', '深層の遺物') || '<p class="hint">遺物の登録はありません。</p>';
+}
+// いいね・よくないね（1つのビルドに1票。もう一度押すと取り消し、反対を押すと切り替え）
+function voteRow(pub) {
+  const mine = (prefs().votes || {})[pub.presetId] || 0;
+  return `<div class="vote-row"><button class="vote like ${mine === 1 ? 'on' : ''}" data-act="vote" data-v="1">👍 いいね <b>${pub.likes || 0}</b></button>
+    <button class="vote dislike ${mine === -1 ? 'on' : ''}" data-act="vote" data-v="-1">👎 よくないね <b>${pub.dislikes || 0}</b></button></div>`;
 }
 function importSheet() {
   const sh = S.sheet, d = sh.data;
   const body = d
     ? `<div class="card import-preview"><span class="title"><span>${esc(presetName(d))}</span></span>
-        <span class="sub">${d.charId ? charName(d.charId) : '夜渡り未設定'}${styleText(d) ? '・' + esc(styleText(d)) : ''}</span>${slotDots(d)}</div>
+        <span class="sub">${d.charId ? charName(d.charId) : '夜渡り未設定'}${styleText(d) ? '・' + esc(styleText(d)) : ''}</span>
+        ${d.pubNote ? `<p class="pub-note">${esc(d.pubNote)}</p>` : ''}
+        ${relicDetail(d)}</div>
+       ${sh.pub ? voteRow(sh.pub) : ''}
        <p class="hint">取り込むと、あなたのプリセットに新しく追加されます（今あるプリセットはそのままです）。</p>
        <div class="form-actions"><button class="ghost" data-act="sClose">やめる</button><button class="primary" data-act="importDo">取り込む</button></div>`
     : `<textarea id="import-text" placeholder="共有されたリンクを貼り付け"></textarea>
@@ -821,12 +836,14 @@ function publicBuilds() {
   const f = S.pubChar || '';
   const mine = new Set(db.presets.map(p => p.id));
   const items = (PUB.list || []).map(b => ({ ...b, p: parsePublic(b.data) })).filter(b => b.p && (!f || b.p.charId === f));
-  const chips = `<div class="chips one-line">${[['', 'すべて'], ...CHARS.map(c => [c.id, c.name])].map(([v, l]) => `<button class="chip small" data-act="pubChar" data-v="${v}" ${pressed(f === v)}>${v ? ico('char', v) : ''}${l}</button>`).join('')}</div>`;
+  const chips = `<div class="pub-filter">${[['', 'すべて'], ...CHARS.map(c => [c.id, c.name])].map(([v, l]) => `<button class="chip small" data-act="pubChar" data-v="${v}" ${pressed(f === v)}>${l}</button>`).join('')}</div>`;
   const body = !PUB.list ? `<div class="empty-state">${PUB.failed ? '読み込めませんでした。通信できる所でもう一度開いてください。' : '読み込んでいます…'}</div>`
     : items.length ? items.map((b, i) => `<button class="card" data-act="pubPick" data-v="${(PUB.list || []).indexOf(PUB.list.find(x => x.data === b.data))}">
         <span class="title"><span>${esc(presetName(b.p))}${mine.has(b.presetId) ? '<span class="badge pub">あなた</span>' : ''}</span><span class="rate none">取り込む ›</span></span>
         <span class="sub">${b.p.charId ? charName(b.p.charId) : '夜渡り未設定'}${styleText(b.p) ? '・' + esc(styleText(b.p)) : ''}</span>
-        <span class="preset-use">${[...b.p.normal, ...b.p.deep].filter(Boolean).map(r => esc(relicName(r))).join('・') || '遺物の登録なし'}</span></button>`).join('')
+        <span class="preset-use">${[...b.p.normal, ...b.p.deep].filter(Boolean).map(r => esc(relicName(r))).join('・') || '遺物の登録なし'}</span>
+        ${b.p.pubNote ? `<span class="pub-note one">${esc(b.p.pubNote)}</span>` : ''}
+        <span class="vote-count">👍 ${b.likes || 0}　👎 ${b.dislikes || 0}${(prefs().votes || {})[b.presetId] ? '（投票済み）' : ''}</span></button>`).join('')
     : `<div class="empty-state">${f ? 'この夜渡りの' : ''}公開されたビルドはまだありません。</div>`;
   return `<div class="stack-lg">
     <button class="ghost back-btn" data-act="pubClose">‹ 自分のビルドに戻る</button>
@@ -1156,7 +1173,9 @@ function editPreset() {
     ${disc('weapon', 'メイン武器', p.weaponType ? val(p.weaponName ? `${p.weaponName}（${p.weaponType}）` : p.weaponType, true) : val('未設定', false), weaponBody)}
     ${nameRow}
     <section class="card-sec pub-card"><div class="sec-head"><h2>みんなに公開</h2><button class="ever-switch ${p.public ? 'on' : ''}" data-act="ePublic" aria-pressed="${!!p.public}">${p.public ? '公開する' : '公開しない'}</button></div>
-      <p class="hint">公開すると、保存したときに「みんなのビルド」に載り、ほかの人が取り込めるようになります。作った人の名前などは出ません。不適切な言葉を含む名前は公開できません。</p></section>
+      <p class="hint">公開すると、保存したときに「みんなのビルド」に載り、ほかの人が取り込めるようになります。作った人の名前などは出ません。不適切な言葉を含む名前・メモは公開できません。</p>
+      ${p.public ? `<label class="label" for="e-pubnote">公開用のメモ（任意・200文字まで）</label>
+        <textarea id="e-pubnote" data-edit="pubNote" maxlength="200" placeholder="例：出血で押し切る近接ビルド。深度3くらいまで安定">${esc(p.pubNote || '')}</textarea>` : ''}</section>
     <div class="form-actions"><button class="ghost" data-act="eCancel">キャンセル</button><button class="primary" data-act="eSave">保存する</button></div>
     ${S.edit.isNew ? '' : `<div class="row-actions" style="justify-content:center"><button class="ghost" data-act="eShare">共有する</button><button class="ghost" data-act="eDup">複製して新しく作る</button><button class="ghost danger" data-act="eDel">${S.confirmDel === 'edit' ? 'もう一度押すと削除' : 'このプリセットを削除'}</button></div>`}
   </div>`;
@@ -1644,7 +1663,7 @@ document.addEventListener('click', e => {
     case 'eSlotCancel': S.edit.slot = null; break;
     case 'eSave': {
       const d = S.edit.data;
-      if (d.public && (ngHit(d.nameAuto ? '' : d.name) || ngHit(d.weaponName))) { toast('名前や武器名に不適切な言葉が含まれているため、公開できません。直してから保存してください'); return; }
+      if (d.public && (ngHit(d.nameAuto ? '' : d.name) || ngHit(d.weaponName) || ngHit(d.pubNote))) { toast('名前・武器名・メモに不適切な言葉が含まれているため、公開できません。直してから保存してください'); return; }
       if (d.nameAuto || !d.name.trim()) { d.nameAuto = true; d.name = autoName(d); }
       const wasPublic = !!presetById(d.id)?.public;
       const old = presetById(d.id);
@@ -1695,7 +1714,15 @@ document.addEventListener('click', e => {
     case 'publicOpen': S.buildView = 'public'; loadPublic(true); scrollTop(); break;
     case 'pubClose': S.buildView = 'presets'; scrollTop(); break;
     case 'pubChar': S.pubChar = v; break;
-    case 'pubPick': { const b = PUB.list?.[+v], d = b && parsePublic(b.data); if (!d) return; S.sheet = { type: 'import', data: d }; break; }
+    case 'pubPick': { const b = PUB.list?.[+v], d = b && parsePublic(b.data); if (!d) return; S.sheet = { type: 'import', data: d, pub: b }; break; }
+    case 'vote': {
+      const b = S.sheet?.pub; if (!b) return;
+      const votes = (prefs().votes ||= {}), was = votes[b.presetId] || 0, val = +v === was ? 0 : +v;
+      const apply = (from, to) => { if (from === 1) b.likes--; if (from === -1) b.dislikes--; if (to === 1) b.likes = (b.likes || 0) + 1; if (to === -1) b.dislikes = (b.dislikes || 0) + 1; if (to) votes[b.presetId] = to; else delete votes[b.presetId]; };
+      apply(was, val); renderSheet(); render();
+      postOnline({ type: 'vote', id: b.presetId, value: val }).then(res => { if (!res?.ok) throw new Error(); }).catch(() => { apply(val, was); renderSheet(); render(); toast('送れませんでした。通信できる所でもう一度お試しください'); });
+      return;
+    }
     case 'ePublic': { const d = S.edit.data; d.public = !d.public; break; }
     case 'restoreOpen': prefs().onboarded = true; S.sheet = { type: 'restore' }; break;
     case 'restoreFind': {
@@ -1761,7 +1788,8 @@ document.addEventListener('click', e => {
     case 'importRead': { const d = parseShare(document.getElementById('import-text')?.value); S.sheet = d ? { type: 'import', data: d } : { type: 'import', err: true }; break; }
     case 'importDo': {
       const d = S.sheet?.data; if (!d) return;
-      db.presets.push({ id: uid(), ...d });
+      const { pubNote, ...rest } = d;
+      db.presets.push({ id: uid(), ...rest, public: false });
       S.sheet = null; S.edit = null; S.tab = 'builds'; scrollTop(); toast(`「${presetName(d)}」を取り込みました`); break;
     }
     default: return;
