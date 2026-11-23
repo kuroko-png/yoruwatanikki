@@ -362,15 +362,18 @@ const scheduleSync = () => { clearTimeout(syncTimer); syncTimer = setTimeout(syn
 async function syncRuns() {
   const o = onlinePrefs();
   if (!o.join || syncing || !navigator.onLine) return;
-  const todo = db.runs.filter(r => !r.sample && o.sent[r.id] !== runSig(r) && !(r.deleted && !o.sent[r.id]));
+  // サンプルの戦績は送らない。前に送ってしまったサンプルは「消した」扱いで送り直して、集計から外す
+  const SAMPLE_GONE = 'sample-removed';
+  const todo = db.runs.filter(r => r.sample ? o.sent[r.id] && o.sent[r.id] !== SAMPLE_GONE
+    : o.sent[r.id] !== runSig(r) && !(r.deleted && !o.sent[r.id]));
   if (!todo.length) return;
   syncing = true;
   try {
     for (let i = 0; i < todo.length; i += 200) {
       const part = todo.slice(i, i + 200);
-      const res = await postOnline({ type: 'runs', runs: part.map(runForOnline) });
+      const res = await postOnline({ type: 'runs', runs: part.map(r => r.sample ? { id: r.id, deleted: true, updatedAt: Date.now() } : runForOnline(r)) });
       if (!res?.ok) break;
-      part.forEach(r => { o.sent[r.id] = runSig(r); });
+      part.forEach(r => { o.sent[r.id] = r.sample ? SAMPLE_GONE : runSig(r); });
       save(db);
     }
     GLOBAL.at = 0;  // 次に統計を開いたときは取り直す
@@ -1427,6 +1430,15 @@ document.addEventListener('input', e => {
 document.addEventListener('toggle', e => { if (e.target.dataset?.details === 'opt') S.optOpen = e.target.open; }, true);
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && S.sheet) { S.sheet = null; renderSheet(); } });
 if (!prefs().onboarded && !db.runs.length) S.sheet = { type: 'guide' };
+// v32 より前に入れたサンプルデータには印がないので、見分けて印を付け直す。
+// サンプルの戦績は一度に作るので、記録時刻の「ミリ秒の端数」が全部そろう（本物の記録はばらばら）。サンプルのプリセット（p1〜p3）がある端末だけ調べる
+(function markOldSample() {
+  if (!db.presets.some(p => ['p1', 'p2', 'p3'].includes(p.id))) return;
+  const count = {};
+  db.runs.forEach(r => { if (!r.sample && !r.editedAt) { const k = r.updatedAt % 1000; count[k] = (count[k] || 0) + 1; } });
+  const [ms, n] = Object.entries(count).sort((a, b) => b[1] - a[1])[0] || [];
+  if (n >= 30) db.runs.forEach(r => { if (!r.sample && !r.editedAt && r.updatedAt % 1000 === +ms) r.sample = true; });
+})();
 // 共有リンク（#build=…）で開いたときは、ビルドの取り込み画面を出す。アドレスの #build=… は消しておく
 if (location.hash.startsWith('#build=')) {
   const d = parseShare(location.hash);
