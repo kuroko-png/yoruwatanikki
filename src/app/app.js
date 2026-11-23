@@ -150,10 +150,10 @@ function seed() {
 const db = load() ?? { runs: [], relics: [], presets: [] };
 db.prefs ||= {};
 const prefs = () => db.prefs;
-// 夜の王と夜渡りは「未選択」にしない。最初はグラディウスと追跡者（ビルドは追跡者で前回使ったもの）
-const DEFAULT_LORD = 'gladius', DEFAULT_CHAR = 'wylder';
+// 夜の王は「未選択」にせず、最初はグラディウス。夜渡りは毎回選んでもらうので、最初は「未選択」
+const DEFAULT_LORD = 'gladius';
 const blankForm = () => ({ dateMode: 'today', date: today(), lordId: DEFAULT_LORD, everdark: null, flags: [], shift: null, mode: prefs().mode || 'normal', depth: prefs().depth || null,
-  party: prefs().party || 'trio', charId: DEFAULT_CHAR, result: null, lossAt: null, presetId: lastPresetFor(DEFAULT_CHAR), note: '' });
+  party: prefs().party || 'trio', charId: null, result: null, lossAt: null, presetId: null, note: '' });
 const lastPresetFor = charId => { const id = (prefs().presetByChar || {})[charId]; return id && db.presets.some(p => p.id === id && !p.deleted) ? id : null; };
 const S = {
   tab: 'record', form: blankForm(), openRun: null, confirmDel: null,
@@ -199,12 +199,11 @@ function viewRecord() {
   const chip = (act, v, label, on, cls = 'chip') => `<button class="${cls}" data-act="${act}" data-v="${v}" ${pressed(on)}>${label}</button>`;
   return `<div class="stack-lg">
     ${S.editRun ? `<div class="edit-banner"><b>戦績を編集中</b><span>直したら「更新する」を押してください</span></div>` : ''}
-    ${card('日付', `${f.dateMode === 'pick' ? `<input type="date" id="f-date" data-field="date" value="${f.date}" max="${today()}">` : ''}`,
-      `<div class="chips ever-toggle date-toggle">${[['today', '今日'], ['yesterday', '昨日'], ['pick', '指定']].map(([v, l]) => chip('date', v, l, f.dateMode === v, 'chip')).join('')}</div>`)}
+    ${card('日付', dateStrip(f), `<span class="date-now">${dateLabel(recDate(f))}${recDate(f) !== today() ? '<button class="link-btn" data-act="pickDate" data-v="today">今日に戻す</button>' : ''}</span>`)}
     <section class="card-sec pick-card">
       <div class="wheels">
         <div class="wheel-col"><div class="wheel-label">夜の王</div>${wheel('lord', lords, f.lordId, lordName)}</div>
-        <div class="wheel-col"><div class="wheel-label">夜渡り</div>${wheel('char', CHARS, f.charId, charName)}</div>
+        <div class="wheel-col"><div class="wheel-label">夜渡り</div>${wheel('char', CHARS, f.charId, charName, true)}</div>
       </div>
       <p class="hint wheel-hint">上下にスクロールして、真ん中の枠に合わせたものが選ばれます（タップでも選べます）</p>
       <div class="pick-build"><div class="label">ビルド</div>
@@ -233,13 +232,43 @@ function viewRecord() {
         <div class="chips">${LOSS_AT.map(x => chip('lossAt', x.id, x.name, f.lossAt === x.id)).join('')}</div></div>` : ''}`)}
   </div>`;
 }
+// 日付：横にスクロールする日付の列（左端が今日、右へ行くほど前の日）。右端のカレンダーから、もっと前の日も選べる
+// dateMode が 'today' のときは、記録した時点の今日になる（日をまたいで開きっぱなしでもずれない）。過去の日は記録したあともそのまま残る
+const DATE_DAYS = 30;
+const recDate = f => f.dateMode === 'today' ? today() : f.date;
+function dateStrip(f) {
+  const sel = recDate(f), days = Array.from({ length: DATE_DAYS }, (_, i) => daysAgo(i));
+  if (!days.includes(sel)) days.push(sel);  // カレンダーで選んだもっと前の日は、列の最後に足す
+  const thisYear = new Date().getFullYear();
+  const chipD = d => { const [y, m, dd] = d.split('-').map(Number), wd = '日月火水木金土'[new Date(y, m - 1, dd).getDay()];
+    const tag = d === today() ? '今日' : d === daysAgo(1) ? '昨日' : y !== thisYear ? `${y}年` : '';
+    return `<button class="day-chip ${wd === '日' ? 'sun' : wd === '土' ? 'sat' : ''}" data-act="pickDate" data-v="${d}" ${pressed(d === sel)}><small>${tag || '&nbsp;'}</small><b>${m}/${dd}</b><span>${wd}</span></button>`; };
+  return `<div class="date-line"><div class="day-strip" id="day-strip">${days.map(chipD).join('')}</div>
+    <label class="cal-btn" title="カレンダーから選ぶ"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg><span>一覧</span>
+      <input type="date" id="f-date-pick" value="${sel}" max="${today()}" aria-label="カレンダーから日付を選ぶ"></label></div>`;
+}
+// 日付の列の位置：作り直しても、スクロールした位置のまま。選んだ日が見えないとき（カレンダーで選んだ・編集を開いた）は、その日が見える所へ
+function initDateStrip() {
+  const el = document.getElementById('day-strip'); if (!el) return;
+  const on = el.querySelector('[aria-pressed="true"]');
+  if (S.dayStripX != null) el.scrollLeft = S.dayStripX;
+  if (!on) return;
+  // 列の中での位置（右端は薄く消えていくので、見えている幅は8割ほどとして考える）
+  const x = on.getBoundingClientRect().left - el.getBoundingClientRect().left + el.scrollLeft, seen = el.clientWidth * .82;
+  if (x < el.scrollLeft || x + on.offsetWidth > el.scrollLeft + seen) el.scrollLeft = x - (seen - on.offsetWidth) / 2;
+}
+document.addEventListener('scroll', e => { if (e.target?.id === 'day-strip') S.dayStripX = e.target.scrollLeft; }, true);
+// パソコンのブラウザでも、ボタンのどこを押してもカレンダーが開くように
+document.addEventListener('click', e => { if (e.target.id === 'f-date-pick') try { e.target.showPicker?.(); } catch { /* 開けない端末はそのまま */ } });
 // 夜の王・夜渡りの縦スクロールの選択欄（ドラム式）。真ん中の枠に止まったものが選ばれる
 const WHEEL_H = 40;  // 1行の高さ（style.css の .wheel-item と同じ）
-function wheel(kind, items, cur, label) {
-  const idx = Math.max(0, items.findIndex(x => x.id === cur));
+// none＝先頭に「未選択」の行を置く（夜渡りだけ）
+function wheel(kind, items, cur, label, none = false) {
+  const off = none ? 1 : 0, at = items.findIndex(x => x.id === cur);
+  const idx = at < 0 ? 0 : at + off;
   const item = (i, v, html) => `<button class="wheel-item ${i === idx ? 'center' : ''} ${v ? '' : 'none'}" data-act="wheelPick" data-i="${i}" data-v="${v}" role="option" aria-selected="${i === idx}">${html}</button>`;
   return `<div class="wheel-wrap"><div class="wheel" data-wheel="${kind}" data-idx="${idx}" role="listbox" aria-label="${kind === 'lord' ? '夜の王' : '夜渡り'}を選ぶ">
-    <div class="wheel-pad"></div>${items.map((x, i) => item(i, x.id, label(x.id))).join('')}<div class="wheel-pad"></div>
+    <div class="wheel-pad"></div>${none ? item(0, '', '未選択') : ''}${items.map((x, i) => item(i + off, x.id, label(x.id))).join('')}<div class="wheel-pad"></div>
   </div><span class="wheel-band" aria-hidden="true"></span></div>`;
 }
 // 画面を作り直したあと、選んでいるものが真ん中に来るように位置を戻す
@@ -251,9 +280,10 @@ function commitWheel(w) {
   if (wheelTouch || !w.isConnected) return;
   w._moving = false; w._target = undefined;
   const i = Math.round(w.scrollTop / WHEEL_H), v = w.querySelectorAll('.wheel-item')[i]?.dataset.v, f = S.form;
-  if (!v) return;
-  if (w.dataset.wheel === 'lord') { if (f.lordId === v) return; f.lordId = v; }
-  else { if (f.charId === v) return; f.presetId = v ? lastPresetFor(v) : null; f.charId = v; }
+  if (v === undefined || (!v && w.dataset.wheel === 'lord')) return;  // 夜の王に「未選択」はない
+  // 常夜にいない夜の王（ナメレス・ストラゲス）を選んだら、夜の王の種類は自動で「通常」にする
+  if (w.dataset.wheel === 'lord') { if (f.lordId === v) return; f.lordId = v; if (LORD[v]?.everdark === false) f.everdark = false; }
+  else { const c = v || null; if (f.charId === c) return; f.presetId = c ? lastPresetFor(c) : null; f.charId = c; }
   render();
 }
 document.addEventListener('scroll', e => {
@@ -1376,7 +1406,7 @@ function guideSheet() {
     <div class="sheet-list guide-list">
       <p class="hint">ナイトレインの戦績を記録して、夜の王・夜渡り・ビルドごとの勝率を振り返るアプリです。<b>まずは「記録」タブだけ使えばOK</b>。ビルド・敵・みんなの統計は、気になったときにどうぞ。</p>
       ${install}
-      ${step(installed ? 1 : 2, '戦績を記録する', '「記録」タブで、夜の王と夜渡り（スクロールして真ん中に合わせる。最初はグラディウスと追跡者）・通常か常夜か・結果を選んで「記録する」。ビルドは、夜渡りごとに前回使ったものが自動で選ばれます。')}
+      ${step(installed ? 1 : 2, '戦績を記録する', '「記録」タブで、夜の王と夜渡り（スクロールして真ん中に合わせる。夜の王は最初グラディウス）・通常か常夜か・結果を選んで「記録する」。ビルドは、夜渡りごとに前回使ったものが自動で選ばれます。')}
       ${step(installed ? 2 : 3, '記録は自動でバックアップ', '記録は自動で暗号化して、ネット上にも保存されます。機種変更のときは、右上の円柱の絵のボタン（データ）に出ている「引き継ぎコード」で戻せます。')}
       <button class="ghost" data-act="restoreOpen">機種変更した方：引き継ぎコードで戻す</button>
     </div>
@@ -1490,7 +1520,7 @@ function render(keepId) {
   const v = { record: viewRecord, history: viewHistory, stats: viewStats, builds: viewBuilds, enemies: viewEnemies }[S.tab];
   if (keepId) patchKeeping(document.getElementById('view'), v(), keepId);
   else document.getElementById('view').innerHTML = v();
-  if (S.tab === 'record') initWheels(moving);
+  if (S.tab === 'record') { initWheels(moving); initDateStrip(); }
   document.getElementById('appsub').textContent = appSub();
   // 右上のボタンは「（今のタブ名）の使い方」
   const helpLabel = document.querySelector('[data-act=help] span');
@@ -1551,7 +1581,7 @@ document.addEventListener('click', e => {
     case 'wipe':
       if (S.confirmDel !== 'wipe') { S.confirmDel = 'wipe'; break; }
       replaceDb({ runs: [], relics: [], presets: [] }); S.confirmDel = null; S.sheet = null; toast('すべてのデータを削除しました'); break;
-    case 'date': f.dateMode = v; if (v === 'today') f.date = today(); if (v === 'yesterday') f.date = daysAgo(1); break;
+    case 'pickDate': { const d = v === 'today' ? today() : v; f.date = d; f.dateMode = d === today() ? 'today' : 'pick'; if (v === 'today') S.dayStripX = 0; break; }
     case 'wheelPick': { const w = t.closest('.wheel'); if (w) w._target = +t.dataset.i * WHEEL_H; if (w) w.scrollTo({ top: +t.dataset.i * WHEEL_H, behavior: 'smooth' }); return; }  // タップしたものを真ん中へ（止まったら選ばれる）
     case 'everdark': f.everdark = v === 'yes'; if (!lordsFor(f.everdark).some(l => l.id === f.lordId)) f.lordId = DEFAULT_LORD; break;  // 常夜にいない夜の王を選んでいたら、グラディウスに戻す
     case 'flag':
@@ -1570,7 +1600,7 @@ document.addEventListener('click', e => {
     case 'save': {
       const dateOk = f.dateMode !== 'pick' || (/^\d{4}-\d{2}-\d{2}$/.test(f.date) && f.date <= today());
       if (!(dateOk && f.everdark !== null && f.lordId && f.charId && f.result && (f.mode !== 'deep' || f.depth || S.editRun))) return;
-      const date = f.dateMode === 'pick' ? f.date : f.dateMode === 'yesterday' ? daysAgo(1) : today();
+      const date = recDate(f);
       const p = f.presetId && presetById(f.presetId);
       const fields = { date, lordId: f.lordId, everdark: f.everdark, flags: f.flags, shift: f.flags.includes('shift') ? f.shift : null, mode: f.mode, depth: f.mode === 'deep' ? f.depth : null, party: f.party,
         charId: f.charId, result: f.result, lossAt: f.result === 'loss' ? f.lossAt : null, presetId: f.presetId, note: f.note.trim() };
@@ -1586,9 +1616,9 @@ document.addEventListener('click', e => {
       db.runs.push({ id: newId, ...fields, presetRev: p ? presetRev(p) : null, updatedAt: Date.now(), deleted: false });
       S.undo = { type: 'add', id: newId };
       toast(`${LORD[f.lordId].name}戦の${f.result === 'win' ? '勝利' : '敗北'}を記録しました`, { act: 'undo', label: '取り消す' });
-      // 日付は「今日」以外（昨日・指定）を選んでいたら、続けて記録しやすいようにそのまま残す
-      // 夜の王・夜渡りは最初の形（グラディウス・追跡者）に戻す（前回のまま記録してしまわないように）。ビルドは追跡者で前回使ったもの
-      Object.assign(f, { lordId: DEFAULT_LORD, everdark: null, flags: [], shift: null, charId: DEFAULT_CHAR, presetId: lastPresetFor(DEFAULT_CHAR), result: null, lossAt: null, note: '' });
+      // 日付は、過去の日を選んでいたら、続けて記録しやすいようにそのまま残す（「今日」のままなら次も今日）
+      // 夜の王はグラディウス、夜渡りは「未選択」に戻す（前回のまま記録してしまわないように）。ビルドは夜渡りを選ぶと、その夜渡りで前回使ったものが入る
+      Object.assign(f, { lordId: DEFAULT_LORD, everdark: null, flags: [], shift: null, charId: null, presetId: null, result: null, lossAt: null, note: '' });
       break;
     }
     case 'editRun': {
@@ -1596,7 +1626,7 @@ document.addEventListener('click', e => {
       S.editRun = r.id;
       S.form = { dateMode: 'pick', date: r.date || today(), lordId: r.lordId, everdark: !!r.everdark, flags: [...(r.flags || [])], shift: r.shift ?? null, mode: r.mode || 'normal', depth: r.depth ?? null,
         party: r.party || 'trio', charId: r.charId, result: r.result, lossAt: r.lossAt ?? null, presetId: r.presetId ?? null, origPresetId: r.presetId ?? null, note: r.note || '' };
-      S.tab = 'record'; S.openRun = null; scrollTop(); break;
+      S.tab = 'record'; S.openRun = null; S.dayStripX = null; scrollTop(); break;
     }
     case 'cancelEdit': S.editRun = null; S.form = blankForm(); S.tab = 'history'; break;
     case 'openRun': S.openRun = S.openRun === v ? null : v; break;
@@ -1896,7 +1926,6 @@ document.addEventListener('input', e => {
   const t = e.target;
   if (t.dataset.field) S.form[t.dataset.field] = t.value;
   // 日付を直したら、記録ボタンを押せるかどうかをすぐ反映する
-  if (t.dataset.field === 'date') { render(); document.getElementById('f-date')?.focus(); }
   if (t.dataset.edit) { S.edit.data[t.dataset.edit] = t.value; if (t.dataset.edit === 'name') S.edit.data.nameAuto = !t.value.trim(); syncDraft(); save(db); }
   if (t.hasAttribute('data-enemyq')) {
     // 名前で探す：入力のたびに一覧を作り直す。入力欄そのものは入れ替えない（変換中の文字を壊さないため）
@@ -1931,6 +1960,8 @@ if (location.hash.startsWith('#build=')) {
 render();
 
 document.addEventListener('change', e => {
+  // 日付をカレンダー（一覧）から選んだとき。未来の日は選べない
+  if (e.target.id === 'f-date-pick') { const d = e.target.value; if (/^\d{4}-\d{2}-\d{2}$/.test(d) && d <= today()) { S.form.date = d; S.form.dateMode = d === today() ? 'today' : 'pick'; S.dayStripX = null; render(); } return; }
   if (e.target.dataset?.gsel) { S.stats[e.target.dataset.gsel] = e.target.value; render(); return; }
   if (e.target.dataset?.scan && e.target.files[0] && S.edit?.type === 'preset') { runScan(e.target.dataset.scan, e.target.files[0]); return; }
   if (e.target.dataset?.hf) { S.hist[e.target.dataset.hf] = e.target.value; S.openRun = null; render(); return; }

@@ -846,3 +846,27 @@ details.spare[open] { padding-bottom: 8px; }
 /* 中の横スクロール（ビルドの一列など）が長くても、画面の幅より広がらないようにする（プリセットが多いと記録画面が横に伸びていた） */
 .stack-lg { grid-template-columns: minmax(0, 1fr); }
 .pick-card, .pick-build { min-width: 0; }
+.wheel-item.none { font-size: 13px; }
+.wheel-item.none.center { color: var(--dim); }
+
+/* 記録：日付。横にスクロールする日付の列（左端が今日）と、右端のカレンダー（一覧）ボタン */
+.date-now { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; font-size: 15px; }
+.date-now .link-btn { font-size: 12.5px; font-weight: 700; }
+.date-line { display: flex; align-items: stretch; gap: 8px; margin-top: 10px; min-width: 0; }
+.day-strip { flex: 1; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; padding-bottom: 2px;
+  -webkit-mask-image: linear-gradient(to right, #000 85%, transparent); mask-image: linear-gradient(to right, #000 85%, transparent); }
+.day-strip::-webkit-scrollbar { display: none; }
+.day-chip { flex: none; width: 52px; display: grid; justify-items: center; gap: 1px; padding: 6px 0 7px; border-radius: 12px; border: 1px solid var(--line-strong);
+  background: rgba(255,255,255,.04); color: var(--fg); font: inherit; cursor: pointer; }
+.day-chip small { font-size: 10.5px; color: var(--accent); font-weight: 700; line-height: 1.2; }
+.day-chip b { font-size: 15px; line-height: 1.2; }
+.day-chip span { font-size: 11px; color: var(--dim); line-height: 1.2; }
+.day-chip.sun span { color: #e8857a; }
+.day-chip.sat span { color: #7fa8ea; }
+.day-chip[aria-pressed="true"] { background: var(--grad-gold); color: var(--accent-ink); border-color: transparent; }
+.day-chip[aria-pressed="true"] small, .day-chip[aria-pressed="true"] span { color: var(--accent-ink); }
+.cal-btn { position: relative; flex: none; width: 52px; display: grid; place-items: center; align-content: center; gap: 2px; border-radius: 12px; border: 1px solid var(--line-strong);
+  background: rgba(255,255,255,.06); color: var(--fg); cursor: pointer; font-size: 11px; font-weight: 700; }
+.cal-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+/* 本物の日付の入力欄をボタンの上に透明で重ねる（タップするとスマホの日付選択が開く） */
+.cal-btn input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: 0; padding: 0; margin: 0; }
