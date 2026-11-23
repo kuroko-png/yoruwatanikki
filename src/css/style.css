@@ -625,3 +625,17 @@ body { min-height: calc(100vh + 1px); min-height: calc(100lvh + 1px); }
 .draft-card .draft-main { flex: 1; min-width: 0; display: grid; gap: 8px; background: none; border: 0; padding: 0; color: inherit; text-align: left; cursor: pointer; font: inherit; }
 .draft-card .draft-del { flex: none; padding: 6px 10px; font-size: 12px; }
 .badge.draft { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, transparent); margin-right: 6px; }
+/* 敵タブ下の注意書き：段落の間を少しあける */
+.source-note p { margin: 0 0 4px; }
+/* ビルドの共有：取り込みボタンと取り込み画面 */
+.import-btn { width: 100%; }
+.import-list { display: grid; gap: 10px; }
+.import-list textarea { min-height: 84px; font-size: 16px; }
+.import-preview { cursor: default; }
+.import-err { color: var(--loss); }
+/* オンライン：みんなの勝率の参加ボタン、誤植の報告 */
+.online-join { display: grid; gap: 8px; margin-top: 6px; }
+.online-join.on { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--dim); }
+.online-join .small-btn { flex: none; padding: 6px 10px; font-size: 12px; }
+.link-btn { background: none; border: 0; padding: 0 2px; color: var(--accent); text-decoration: underline; font: inherit; cursor: pointer; }
+.import-list input[type=text] { font-size: 16px; }

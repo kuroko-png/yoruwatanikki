@@ -342,6 +342,80 @@ function barRows(items, getRuns, opts = {}) {
     ${hidden ? `<button class="more-btn" data-act="statsMore" data-v="${opts.key}">すべて表示（残り${hidden}件）</button>` : ''}`;
 }
 // 名前を1行目に全部出し、棒グラフは2行目に置く（長い名前が切れないように）。drill を渡すとタップで絞り込める
+// ---------- オンライン（みんなの勝率・誤植の報告） ----------
+// 受け取り口は持ち主の Google スプレッドシート（tools/online/apps_script.gs をウェブアプリとして公開したもの）
+const ONLINE_URL = 'https://script.google.com/macros/s/AKfycbwj1IcWjrrl-Jc12G3IPYp8TTYUJTMeYiZurQqs0eBfib_ltNz1nKZTZB3-FoUJ59ICog/exec';
+// join＝みんなの勝率に参加しているか、id＝端末ごとのランダムな番号（名前などは送らない）、sent＝送った戦績とその時点の版
+const onlinePrefs = () => (prefs().online ||= { join: false, id: uid(), sent: {} });
+const runSig = r => `${r.editedAt || r.updatedAt}|${r.deleted ? 1 : 0}`;
+async function postOnline(body) {
+  const res = await fetch(ONLINE_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ ...body, clientId: onlinePrefs().id }) });
+  return res.json();
+}
+// 送るのは勝率に使う項目だけ（メモ・ビルドは送らない）。サンプルデータは送らない
+const runForOnline = r => ({ id: r.id, date: r.date, lordId: r.lordId, everdark: !!r.everdark, mode: r.mode, depth: r.depth, party: r.party, charId: r.charId,
+  result: r.result, lossAt: r.lossAt, deleted: !!r.deleted, updatedAt: r.editedAt || r.updatedAt });
+let syncing = false, syncTimer = null;
+const scheduleSync = () => { clearTimeout(syncTimer); syncTimer = setTimeout(syncRuns, 1500); };
+async function syncRuns() {
+  const o = onlinePrefs();
+  if (!o.join || syncing || !navigator.onLine) return;
+  const todo = db.runs.filter(r => !r.sample && o.sent[r.id] !== runSig(r) && !(r.deleted && !o.sent[r.id]));
+  if (!todo.length) return;
+  syncing = true;
+  try {
+    for (let i = 0; i < todo.length; i += 200) {
+      const part = todo.slice(i, i + 200);
+      const res = await postOnline({ type: 'runs', runs: part.map(runForOnline) });
+      if (!res?.ok) break;
+      part.forEach(r => { o.sent[r.id] = runSig(r); });
+      save(db);
+    }
+    GLOBAL.at = 0;  // 次に統計を開いたときは取り直す
+  } catch (e) { /* 通信できなければ、次に開いたときにまた送る */ } finally { syncing = false; }
+}
+// みんなの勝率（受け取り口で10分ごとに数え直したもの）
+const GLOBAL = { data: null, at: 0, loading: false, failed: false };
+function loadGlobal() {
+  if (GLOBAL.loading || Date.now() - GLOBAL.at < 5 * 60e3) return;
+  GLOBAL.loading = true;
+  fetch(`${ONLINE_URL}?type=stats`).then(r => r.json()).then(d => { if (!d.ok) throw new Error('bad'); GLOBAL.data = d; GLOBAL.failed = false; GLOBAL.at = Date.now(); },
+    () => { GLOBAL.failed = true; GLOBAL.at = Date.now() - 4 * 60e3; })
+    .finally(() => { GLOBAL.loading = false; if (S.tab === 'stats') render(); });
+}
+function globalCard() {
+  const o = onlinePrefs(), g = GLOBAL.data;
+  loadGlobal();
+  const row = (kind, id, name, x) => { const p = x.n ? x.w / x.n : 0;
+    return `<div class="bar-row ${x.n < STATS_MIN_RUNS ? 'dim' : ''}"><span class="name">${ico(kind, id)}${esc(name)}</span><span class="num"><b>${pct(p)}</b> ${x.w}/${x.n}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:${p * 100}%;background:${p >= .5 ? 'var(--grad-win)' : 'var(--grad-loss)'}"></span></span></div>`; };
+  const sorted = obj => Object.entries(obj || {}).sort((a, b) => (b[1].n >= STATS_MIN_RUNS) - (a[1].n >= STATS_MIN_RUNS) || b[1].w / b[1].n - a[1].w / a[1].n || b[1].n - a[1].n);
+  const lordRows = sorted(g?.lord).filter(([k]) => LORD[k.split(':')[0]]).map(([k, x]) => { const [id, ev] = k.split(':'); return row('lord', id, LORD[id].name + (ev ? '（常夜）' : ''), x); }).join('');
+  const charRows = sorted(g?.char).filter(([k]) => CHAR[k]).map(([k, x]) => row('char', k, CHAR[k].name, x)).join('');
+  const body = g && g.total.n
+    ? `<p class="hint">${g.players}人・${g.total.n}戦の合計（勝率 ${pct(g.total.w / g.total.n)}）。数分ごとに更新されます。</p>
+       <div class="label">夜の王別</div><div class="bars">${lordRows}</div>
+       <div class="label">夜渡り別</div><div class="bars">${charRows}</div>`
+    : `<p class="hint">${GLOBAL.loading || !GLOBAL.at ? '読み込んでいます…' : GLOBAL.failed ? '読み込めませんでした。通信できる所でもう一度開いてください。' : 'まだ集まった戦績がありません。'}</p>`;
+  const join = o.join
+    ? `<div class="online-join on"><span>参加中：あなたの戦績も集計に入っています</span><button class="ghost small-btn ${S.confirmDel === 'onlineLeave' ? 'danger' : ''}" data-act="onlineLeave">${S.confirmDel === 'onlineLeave' ? 'もう一度押すとやめる' : 'やめる'}</button></div>`
+    : `<div class="online-join"><p class="hint">参加すると、あなたの戦績（夜の王・夜渡り・勝敗など）を名前なしで送り、みんなの勝率に加えます。メモやビルドは送りません。これまでの戦績も送ります。</p>
+       <button class="primary" data-act="onlineJoin">参加する</button></div>`;
+  return card('みんなの勝率', `${body}${join}`);
+}
+function reportSheet() {
+  const sh = S.sheet;
+  return `<div class="scrim" data-act="sClose"></div><div class="sheet" role="dialog" aria-label="誤植を知らせる">
+    <div class="sheet-head"><h2>誤植を知らせる</h2><button class="ghost" data-act="sClose">閉じる</button></div>
+    <div class="sheet-list import-list">
+      <label class="label" for="report-enemy">敵の名前</label>
+      <input type="text" id="report-enemy" value="${esc(sh.enemy || '')}" placeholder="例：夜の獣、グラディウス" maxlength="100">
+      <label class="label" for="report-text">内容</label>
+      <textarea id="report-text" placeholder="例：トリオのHPが違う。正しくは〇〇（どこで確かめたかも書いてもらえると助かります）" maxlength="1000"></textarea>
+      <p class="hint">名前などは送られません。返事はできないので、ご了承ください。</p>
+      <div class="form-actions"><button class="ghost" data-act="sClose">やめる</button><button class="primary" data-act="reportSend" ${sh.sending ? 'disabled' : ''}>${sh.sending ? '送っています…' : '送る'}</button></div>
+    </div></div>`;
+}
 function barRow(x, dim, drill) {
   const inner = `<span class="name">${ico(drill, x.it.id)}${esc(x.it.name)}</span><span class="num"><b>${pct(x.p)}</b> ${x.w}/${x.n}</span>
     <span class="bar-track"><span class="bar-fill" style="width:${x.p * 100}%;background:${x.p >= .5 ? 'var(--grad-win)' : 'var(--grad-loss)'}"></span></span>`;
@@ -368,6 +442,7 @@ function viewStats() {
   const lossTotal = lossCounts.reduce((s, x) => s + x.n, 0);
   const filterChips = (key, opts) => opts.map(([v, l]) => `<button class="chip small" data-act="sf" data-k="${key}" data-v="${v}" ${pressed(S.stats[key] === v)}>${l}</button>`).join('');
   return `<div class="stack-lg">
+    ${globalCard()}
     <div class="filters">
       <div class="chips">${filterChips('period', [['all', '全期間'], ['30', '30日'], ['7', '7日']])}</div>
       <div class="chips">${filterChips('mode', [['all', 'すべて'], ['normal', '通常'], ['deep', '深き夜'], ['ever', '常夜の王']])}</div>
@@ -440,6 +515,44 @@ function usedEffects(runs) {
   new Set(runs.map(runBuild).filter(Boolean)).forEach(p => presetRelics(p).forEach(r => r.special ? ids.add('sp:' + r.special) : [...r.effects, ...r.demerits].forEach(e => e && ids.add(e))));
   return [...ids].map(id => id.startsWith('sp:') ? { id, name: `《${SPECIAL[id.slice(3)].name}》` } : { id, name: ALL_EFF[id].label });
 }
+// ---------- ビルドの共有（サーバーなし）：プリセットの中身を文字にしてリンクに入れる ----------
+// リンクの形：（アプリのURL）#build=（中身）。受け取った人はリンクを開くか、アプリの「共有されたビルドを取り込む」に貼り付ける
+const SHARE_FIELDS = ['name', 'nameAuto', ...BUILD_FIELDS];
+const b64u = str => { let bin = ''; new TextEncoder().encode(str).forEach(b => { bin += String.fromCharCode(b); }); return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+const unb64u = str => new TextDecoder().decode(Uint8Array.from(atob(str.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0)));
+const shareUrl = p => `${location.origin}${location.pathname}#build=${b64u(JSON.stringify({ v: 1, ...Object.fromEntries(SHARE_FIELDS.map(k => [k, p[k] ?? null])) }))}`;
+// 貼り付けられた文字（リンクでも中身だけでも可）からプリセットの中身を取り出す。読めなければ null
+function parseShare(text) {
+  const m = String(text || '').match(/build=([A-Za-z0-9_-]+)/) || String(text || '').trim().match(/^([A-Za-z0-9_-]{16,})$/);
+  if (!m) return null;
+  try {
+    const o = JSON.parse(unb64u(m[1]));
+    if (!o || o.v !== 1) return null;
+    const slots = a => Array.isArray(a) && a.length === 3 ? a.map(r => (r && typeof r === 'object' ? r : null)) : [null, null, null];
+    const str = x => (typeof x === 'string' ? x.slice(0, 60) : null);
+    const charId = CHAR[o.charId] ? o.charId : null;
+    const vesselId = VESSEL[o.vesselId] && charId ? o.vesselId : null;
+    return { name: str(o.name) || '', nameAuto: o.nameAuto !== false || !str(o.name), charId, vesselId,
+      style: STYLES.some(x => x.id === o.style) ? o.style : null, spec: Array.isArray(o.spec) ? o.spec.filter(x => typeof x === 'string') : [],
+      weaponType: WEAPON_TYPES.includes(o.weaponType) ? o.weaponType : null, weaponName: str(o.weaponName) || '',
+      normal: vesselId ? slots(o.normal) : [null, null, null], deep: vesselId ? slots(o.deep) : [null, null, null] };
+  } catch { return null; }
+}
+function importSheet() {
+  const sh = S.sheet, d = sh.data;
+  const body = d
+    ? `<div class="card import-preview"><span class="title"><span>${esc(presetName(d))}</span></span>
+        <span class="sub">${d.charId ? charName(d.charId) : '夜渡り未設定'}${styleText(d) ? '・' + esc(styleText(d)) : ''}</span>${slotDots(d)}</div>
+       <p class="hint">取り込むと、あなたのプリセットに新しく追加されます（今あるプリセットはそのままです）。</p>
+       <div class="form-actions"><button class="ghost" data-act="sClose">やめる</button><button class="primary" data-act="importDo">取り込む</button></div>`
+    : `<textarea id="import-text" placeholder="共有されたリンクを貼り付け"></textarea>
+       ${sh.err ? '<p class="hint import-err">読み込めませんでした。リンクを最後までコピーできているか確かめてください。</p>' : ''}
+       <p class="hint">ホーム画面のアプリで使っている場合、リンクを開くとSafariなど別の場所で開いてしまいます。リンクをコピーして、ここに貼り付けてください。</p>
+       <div class="form-actions"><button class="ghost" data-act="sClose">やめる</button><button class="primary" data-act="importRead">読み込む</button></div>`;
+  return `<div class="scrim" data-act="sClose"></div><div class="sheet" role="dialog" aria-label="ビルドを取り込む">
+    <div class="sheet-head"><h2>ビルドを取り込む</h2><button class="ghost" data-act="sClose">閉じる</button></div>
+    <div class="sheet-list import-list">${body}</div></div>`;
+}
 function slotDots(p) {
   const v = p.vesselId && VESSEL[p.vesselId];
   const d = (r, deep, i) => {
@@ -460,6 +573,7 @@ function viewBuilds() {
     <p class="hint">ビルドの登録は任意です。登録しなくても戦績は記録できます。遺物の効果まで入れておくと、ビルドや効果ごとの勝率が見られます。</p>
     ${draftCard}
     <button class="btn-add ${S.confirmDel === 'newPreset' ? 'danger' : ''}" data-act="newPreset">${S.confirmDel === 'newPreset' ? 'もう一度押すと、未完成のものを破棄して新しく作ります' : '＋ プリセットを作る'}</button>
+    <button class="ghost import-btn" data-act="importOpen">共有されたビルドを取り込む</button>
     ${activePresets().map(p => { const x = rate(liveRuns().filter(r => r.presetId === p.id)); return `<button class="card" data-act="editPreset" data-v="${p.id}">
       <span class="title"><span>${esc(p.name)}</span><span class="rate ${x.n ? '' : 'none'}">${x.n ? `${pct(x.p)}<span style="color:var(--dim);font-weight:400"> ・${x.n}戦</span>` : '未使用'}</span></span>
       <span class="sub">${p.charId ? charName(p.charId) : '夜渡り未設定'}${styleText(p) ? '・' + esc(styleText(p)) : ''}</span>${slotDots(p)}</button>`; }).join('')}
@@ -668,7 +782,9 @@ function enemyPage(body, chip, q, list) {
     </div>
     ${q ? `<p class="hint">「${esc(q)}」の検索結果：${list.length}件</p>` : ''}
     ${body}
-    <p class="hint source-note">数値の出典：Recycle氏の解析シート「Elden Ring Nightreign - PvE Stats」（Calibrations Ver 1.02.3・2025年9月時点）。DLC（1.03）以降の調整とDLCの敵は入っていません。</p>
+    <div class="hint source-note"><p>「Elden Ring Nightreign - PvE Stats（Calibrations Ver 1.02.3）」を参照。DLC未対応。更新をお待ちください。</p>
+      <p>HPや崩し値の数値は不正確の可能性があります。参考程度としてください。</p>
+      <p>誤植の修正は<button class="link-btn" data-act="reportOpen">こちら</button>にてお知らせください。</p></div>
   </div>`;
 }
 // 色分け（数値の色だけ変える）
@@ -753,7 +869,7 @@ function editPreset() {
       + disc('relicDeep', '深層の遺物', relicValue('deep'), `<div class="section">${[0, 1, 2].map(i => slot('deep', i)).join('')}</div><p class="hint">深き夜で使う遺物です。</p>`, false, true)
       + '<p class="hint">枠は空いたままでも保存できます。</p>' : ''}
     <div class="form-actions"><button class="ghost" data-act="eCancel">キャンセル</button><button class="primary" data-act="eSave">保存する</button></div>
-    ${S.edit.isNew ? '' : `<div class="row-actions" style="justify-content:center"><button class="ghost" data-act="eDup">複製して新しく作る</button><button class="ghost danger" data-act="eDel">${S.confirmDel === 'edit' ? 'もう一度押すと削除' : 'このプリセットを削除'}</button></div>`}
+    ${S.edit.isNew ? '' : `<div class="row-actions" style="justify-content:center"><button class="ghost" data-act="eShare">共有する</button><button class="ghost" data-act="eDup">複製して新しく作る</button><button class="ghost danger" data-act="eDel">${S.confirmDel === 'edit' ? 'もう一度押すと削除' : 'このプリセットを削除'}</button></div>`}
   </div>`;
 }
 function editSlot() {
@@ -839,6 +955,8 @@ function renderSheet() {
   if (sh.type === 'menu') { el.innerHTML = menuSheet(); return; }
   if (sh.type === 'guide') { el.innerHTML = guideSheet(); return; }
   if (sh.type === 'help') { el.innerHTML = helpSheet(); return; }
+  if (sh.type === 'import') { el.innerHTML = importSheet(); return; }
+  if (sh.type === 'report') { el.innerHTML = reportSheet(); return; }
   // 隠しの夜の王の画像を画面いっぱいに出す（どこをタップしても閉じる）
   if (sh.type === 'image') { el.innerHTML = `<div class="img-view" data-act="sClose" role="dialog" aria-label="ゲーミングリブラの画像"><img src="${SECRET_IMAGE}" alt="ゲーミングリブラ"><span>タップで閉じる</span></div>`; return; }
   const isDem = sh.kind === 'demerits';
@@ -1001,6 +1119,7 @@ function render(keepId) {
   renderSheet();
   syncDraft();
   save(db);
+  if (prefs().online?.join) scheduleSync();
 }
 // プリセットの作りかけ（編集中のもの）は、操作のたびに prefs().draft に残す。別のタブへ行ったり、アプリが閉じたりしても、
 // ビルドタブの「未完成」から続きを再開できる。何も選んでいない新規や、保存済みから何も変えていない編集は残さない
@@ -1023,7 +1142,7 @@ function toast(msg, action) {
 document.addEventListener('click', e => {
   const t = e.target.closest('[data-act]'); if (!t) return;
   const a = t.dataset.act, v = t.dataset.v, f = S.form;
-  if (a !== 'delRun' && a !== 'eDel' && a !== 'loadSample' && a !== 'wipe' && a !== 'draftDel' && a !== 'newPreset') S.confirmDel = null;
+  if (a !== 'delRun' && a !== 'eDel' && a !== 'loadSample' && a !== 'wipe' && a !== 'draftDel' && a !== 'newPreset' && a !== 'onlineLeave') S.confirmDel = null;
   switch (a) {
     case 'tab': if (S.edit && v !== 'builds') S.edit = null; S.tab = v; S.sheet = null; scrollTop(); break;  // 作りかけは prefs().draft に残っている
     case 'menu': S.sheet = { type: 'menu' }; break;
@@ -1043,7 +1162,7 @@ document.addEventListener('click', e => {
     case 'exportCsv': exportCsv(csvRows()).then(res => toast(res === 'cancelled' ? '書き出しをやめました' : 'CSVを書き出しました')); return;
     case 'loadSample':
       if (S.confirmDel !== 'sample') { S.confirmDel = 'sample'; break; }
-      replaceDb(seed()); S.confirmDel = null; S.sheet = null; toast('サンプルデータを入れました'); break;
+      replaceDb(seed()); db.runs.forEach(r => { r.sample = true; }); S.confirmDel = null; S.sheet = null; toast('サンプルデータを入れました'); break;
     case 'wipe':
       if (S.confirmDel !== 'wipe') { S.confirmDel = 'wipe'; break; }
       replaceDb({ runs: [], relics: [], presets: [] }); S.confirmDel = null; S.sheet = null; toast('すべてのデータを削除しました'); break;
@@ -1224,6 +1343,47 @@ document.addEventListener('click', e => {
       scrollTop(); toast('複製しました。直して保存すると新しいプリセットになります'); break;
     }
     case 'eCancel': S.edit = null; delete prefs().draft; break;
+    case 'eShare': {
+      // 保存済みの内容を共有する（直している途中の内容は、保存してから）
+      const sp = presetById(S.edit.data.id);
+      const url = shareUrl(sp);
+      const changed = JSON.stringify(buildSnapshot(sp)) !== JSON.stringify(buildSnapshot(S.edit.data));
+      if (navigator.share) navigator.share({ title: `ビルド「${presetName(sp)}」`, text: `夜の痕跡のビルド「${presetName(sp)}」`, url }).catch(() => {});
+      else navigator.clipboard?.writeText(url).then(() => toast('共有リンクをコピーしました'), () => toast('コピーできませんでした'));
+      if (changed) toast('保存済みの内容を共有します（直した分は、保存してから共有してください）');
+      return;
+    }
+    case 'importOpen': S.sheet = { type: 'import' }; break;
+    case 'onlineJoin': onlinePrefs().join = true; toast('参加しました。戦績を送ります'); scheduleSync(); break;
+    case 'onlineLeave': {
+      if (S.confirmDel !== 'onlineLeave') { S.confirmDel = 'onlineLeave'; break; }
+      S.confirmDel = null;
+      // やめるときは、送った戦績を「消した」扱いで送り直して、集計から外す
+      const o = onlinePrefs(), ids = Object.keys(o.sent), now = Date.now();
+      const done = () => { o.join = false; o.sent = {}; GLOBAL.at = 0; toast('参加をやめました。送った戦績は集計から外れます'); render(); };
+      if (!ids.length) { done(); return; }
+      postOnline({ type: 'runs', runs: ids.map(id => ({ id, deleted: true, updatedAt: now })) })
+        .then(res => res?.ok ? done() : Promise.reject(), () => toast('通信できませんでした。通信できる所でもう一度押してください'));
+      return;
+    }
+    case 'reportOpen': S.sheet = { type: 'report', enemy: document.querySelector('.enemy.open .enemy-head b')?.textContent || '' }; break;
+    case 'reportSend': {
+      const sh = S.sheet, text = document.getElementById('report-text')?.value.trim(), enemy = document.getElementById('report-enemy')?.value.trim();
+      if (!text) { toast('内容を書いてください'); return; }
+      sh.enemy = enemy; sh.sending = true; renderSheet();
+      const box = document.getElementById('report-text'); if (box) box.value = text;
+      postOnline({ type: 'report', enemy, text })
+        .then(res => { if (!res?.ok) throw new Error(); S.sheet = null; toast('送りました。ありがとうございます'); }, () => { sh.sending = false; toast('送れませんでした。通信できる所でもう一度お試しください'); })
+        .catch(() => { sh.sending = false; toast('送れませんでした。通信できる所でもう一度お試しください'); })
+        .finally(() => { if (S.sheet?.type === 'report') { renderSheet(); const b = document.getElementById('report-text'); if (b) b.value = text; } else render(); });
+      return;
+    }
+    case 'importRead': { const d = parseShare(document.getElementById('import-text')?.value); S.sheet = d ? { type: 'import', data: d } : { type: 'import', err: true }; break; }
+    case 'importDo': {
+      const d = S.sheet?.data; if (!d) return;
+      db.presets.push({ id: uid(), ...d });
+      S.sheet = null; S.edit = null; S.tab = 'builds'; scrollTop(); toast(`「${presetName(d)}」を取り込みました`); break;
+    }
     default: return;
   }
   render();
@@ -1252,6 +1412,12 @@ document.addEventListener('input', e => {
 document.addEventListener('toggle', e => { if (e.target.dataset?.details === 'opt') S.optOpen = e.target.open; }, true);
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && S.sheet) { S.sheet = null; renderSheet(); } });
 if (!prefs().onboarded && !db.runs.length) S.sheet = { type: 'guide' };
+// 共有リンク（#build=…）で開いたときは、ビルドの取り込み画面を出す。アドレスの #build=… は消しておく
+if (location.hash.startsWith('#build=')) {
+  const d = parseShare(location.hash);
+  history.replaceState(null, '', location.pathname + location.search);
+  S.tab = 'builds'; S.sheet = d ? { type: 'import', data: d } : { type: 'import', err: true };
+}
 render();
 
 document.addEventListener('change', e => {
