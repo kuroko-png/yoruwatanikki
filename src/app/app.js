@@ -539,32 +539,36 @@ function globalStats() {
   const DEPTH_KEYS = [['normal', '通常'], ['deep1', '深1'], ['deep2', '深2'], ['deep3', '深3'], ['deep4', '深4'], ['deep5', '深5']];
   // 夜渡り：勝率／使用数／ビルド／深度ごとの使用数 を切り替え
   const cMode = S.stats.gChar || 'rate';
-  const chars = Object.entries(g.char || {}).filter(([k]) => CHAR[k]);
+  const zero = { n: 0, w: 0 };
+  const chars = CHARS.map(c => [c.id, (g.char || {})[c.id] || zero]);  // まだ0回の夜渡りも出す
+  const rateOf = x => (x.n ? x.w / x.n : -1);
   let charBody = '';
-  if (cMode === 'rate') charBody = chars.sort((a, b) => b[1].w / b[1].n - a[1].w / a[1].n || b[1].n - a[1].n)
-    .map(([k, x]) => row(ico('char', k), CHAR[k].name, `<b>${pct(x.w / x.n)}</b> ${x.w}/${x.n}`, x.w / x.n, x.w / x.n >= .5 ? 'var(--grad-win)' : 'var(--grad-loss)', x.n < STATS_MIN_RUNS)).join('');
-  if (cMode === 'use') { const top = Math.max(...chars.map(([, x]) => x.n));
+  if (cMode === 'rate') charBody = chars.sort((a, b) => rateOf(b[1]) - rateOf(a[1]) || b[1].n - a[1].n)
+    .map(([k, x]) => row(ico('char', k), CHAR[k].name, x.n ? `<b>${pct(x.w / x.n)}</b> ${x.w}/${x.n}` : '<span class="none">まだなし</span>', x.n ? x.w / x.n : 0, x.w / x.n >= .5 ? 'var(--grad-win)' : 'var(--grad-loss)', x.n < STATS_MIN_RUNS)).join('');
+  if (cMode === 'use') { const top = Math.max(1, ...chars.map(([, x]) => x.n));
     charBody = chars.sort((a, b) => b[1].n - a[1].n).map(([k, x]) => row(ico('char', k), CHAR[k].name, `<b>${x.n}</b>戦（${pct(x.n / total)}）`, x.n / top, 'var(--accent)')).join(''); }
-  if (cMode === 'build') charBody = chars.sort((a, b) => b[1].n - a[1].n).map(([k]) => {
+  if (cMode === 'build' && !g.charWeapon) charBody = '<p class="hint">集計の更新待ちです。数分後にもう一度開いてください。</p>';
+  else if (cMode === 'build') charBody = chars.sort((a, b) => b[1].n - a[1].n).map(([k]) => {
     const top3 = obj => Object.entries(obj || {}).sort((a, b) => b[1] - a[1]).slice(0, 3);
     const w = top3((g.charWeapon || {})[k]).map(([n, c]) => `${esc(n)} ${c}`).join('・');
     const st = top3((g.charStyle || {})[k]).map(([n, c]) => `${esc(STYLES.find(x => x.id === n)?.name || n)} ${c}`).join('・');
     return `<div class="build-row"><span class="name">${ico('char', k)}${CHAR[k].name}</span><span class="hint">${w || st ? `武器：${w || '—'}<br>型：${st || '—'}` : 'ビルドの記録なし'}</span></div>`; }).join('');
-  if (cMode === 'depth') { const top = Math.max(...chars.map(([, x]) => x.n));
+  if (cMode === 'depth' && !g.charDepth) charBody = '<p class="hint">集計の更新待ちです。数分後にもう一度開いてください。</p>';
+  else if (cMode === 'depth') { const top = Math.max(1, ...chars.map(([, x]) => x.n));
     charBody = `<div class="depth-legend">${DEPTH_KEYS.map(([kk, l], i) => `<span><i class="dseg d${i}"></i>${l}</span>`).join('')}</div>` + chars.sort((a, b) => b[1].n - a[1].n).map(([k, x]) => {
       const d = (g.charDepth || {})[k] || {};
       const segs = DEPTH_KEYS.map(([kk], i) => d[kk] ? `<span class="dseg d${i}" style="flex:${d[kk]}" title="${d[kk]}"></span>` : '').join('');
-      return `<div class="bar-row"><span class="name">${ico('char', k)}${CHAR[k].name}</span><span class="num">${DEPTH_KEYS.filter(([kk]) => d[kk]).map(([kk, l]) => `${l} ${d[kk]}`).join('・')}</span>
+      return `<div class="bar-row ${x.n ? '' : 'dim'}"><span class="name">${ico('char', k)}${CHAR[k].name}</span><span class="num">${DEPTH_KEYS.filter(([kk]) => d[kk]).map(([kk, l]) => `${l} ${d[kk]}`).join('・') || '<span class="none">まだなし</span>'}</span>
         <span class="bar-track no-mid stacked" style="width:${x.n / top * 100}%">${segs}</span></div>`; }).join(''); }
   const charSel = sel('gChar', [['rate', '勝率'], ['use', '使用数'], ['build', 'ビルド'], ['depth', '深度ごとの使用数']], cMode);
   // 夜の王：出現数／討伐数／勝率 を切り替え、常夜かどうかのスイッチ
   const lMode = S.stats.gLord || 'appear', ever = !!S.stats.gEver;
-  const lords = Object.entries(g.lord || {}).filter(([k]) => LORD[k.split(':')[0]] && k.includes(':ever') === ever);
-  const metric = x => lMode === 'appear' ? x.n : lMode === 'win' ? x.w : x.w / x.n;
+  const lords = lordsFor(ever ? true : false).map(l => { const k = l.id + (ever ? ':ever' : ''); return [k, (g.lord || {})[k] || zero]; });  // まだ0回の王も出す
+  const metric = x => lMode === 'appear' ? x.n : lMode === 'win' ? x.w : rateOf(x);
   const lTop = Math.max(1e-9, ...lords.map(([, x]) => metric(x)));
   const lordBody = lords.length ? lords.sort((a, b) => metric(b[1]) - metric(a[1]) || b[1].n - a[1].n).map(([k, x]) => { const id = k.split(':')[0];
-    const right = lMode === 'appear' ? `<b>${x.n}</b>回（${pct(x.n / total)}）` : lMode === 'win' ? `<b>${x.w}</b>回（${x.n}戦中）` : `<b>${pct(x.w / x.n)}</b> ${x.w}/${x.n}`;
-    return row(ico('lord', id), LORD[id].name, right, lMode === 'rate' ? x.w / x.n : metric(x) / lTop, ever ? 'var(--grad-ever)' : 'var(--grad-win)', x.n < STATS_MIN_RUNS); }).join('')
+    const right = !x.n ? '<span class="none">まだなし</span>' : lMode === 'appear' ? `<b>${x.n}</b>回（${pct(x.n / total)}）` : lMode === 'win' ? `<b>${x.w}</b>回（${x.n}戦中）` : `<b>${pct(x.w / x.n)}</b> ${x.w}/${x.n}`;
+    return row(ico('lord', id), LORD[id].name, right, !x.n ? 0 : lMode === 'rate' ? x.w / x.n : metric(x) / lTop, ever ? 'var(--grad-ever)' : 'var(--grad-win)', x.n < STATS_MIN_RUNS); }).join('')
     : `<p class="hint">${ever ? '常夜の王' : '通常の夜の王'}の戦績はまだありません。</p>`;
   const lordHead = `<div class="head-tools">${sel('gLord', [['appear', '出現数'], ['win', '討伐数'], ['rate', '勝率']], lMode)}
     <button class="ever-switch ${ever ? 'on' : ''}" data-act="gEver" aria-pressed="${ever}">常夜</button></div>`;
@@ -575,13 +579,16 @@ function globalStats() {
   const depthList = g.depth ? [['通常', g.depth.normal || 0], ...[1, 2, 3, 4, 5].map(n => [`深き夜 深度${n}`, g.depth['deep' + n] || 0])].filter(([, n]) => n) : null;
   const partyList = g.party ? [['ソロ', g.party.solo || 0], ['デュオ', g.party.duo || 0], ['トリオ', g.party.trio || 0]].filter(([, n]) => n) : null;
   const later = '<p class="hint">スプレッドシート側の更新後に表示されます。</p>';
+  // 見出しをタップで開く・たたむ（端末に覚えておく）
+  const fold = (title, body, right = '') => { const closed = !!(prefs().gClosed || {})[title];
+    return `<section class="card-sec gcard ${closed ? 'closed' : ''}"><div class="sec-head"><button class="sec-fold" data-act="gFold" data-v="${title}" aria-expanded="${!closed}"><h2>${title}</h2><span class="chev"></span></button>${closed ? '' : right}</div>${closed ? '' : body}</section>`; };
   return `${dash}
     <div class="join-wrap">${join}</div>
-    ${card('夜渡り', `<div class="bars">${charBody || '<p class="hint">まだデータがありません。</p>'}</div>`, charSel)}
-    ${card('夜の王', `<div class="bars">${lordBody}</div>`, lordHead)}
-    ${card('よく使われている武器', countBody(weapons, '<p class="hint">ビルドを登録して記録された戦績のうち、メイン武器の割合（上位10）</p>'))}
-    ${card('深度', depthList ? countBody(depthList, '<p class="hint">通常と深き夜（深度ごと）の出撃回数</p>') : later)}
-    ${card('出撃人数', partyList ? countBody(partyList) : later)}`;
+    ${fold('夜渡り', `<div class="bars">${charBody || '<p class="hint">まだデータがありません。</p>'}</div>`, charSel)}
+    ${fold('夜の王', `<div class="bars">${lordBody}</div>`, lordHead)}
+    ${fold('よく使われている武器', countBody(weapons, '<p class="hint">ビルドを登録して記録された戦績のうち、メイン武器の割合（上位10）</p>'))}
+    ${fold('深度', depthList ? countBody(depthList, '<p class="hint">通常と深き夜（深度ごと）の出撃回数</p>') : later)}
+    ${fold('出撃人数', partyList ? countBody(partyList) : later)}`;
 }
 function globalCard() {
   const o = onlinePrefs(), g = GLOBAL.data;
@@ -1541,6 +1548,7 @@ document.addEventListener('click', e => {
     case 'statToggle': { const h = statHidden(); if (h[v]) delete h[v]; else h[v] = true; break; }
     case 'lordSort': S.stats.lordSort = v; break;
     case 'gEver': S.stats.gEver = !S.stats.gEver; break;
+    case 'gFold': { const c = (prefs().gClosed ||= {}); if (c[v]) delete c[v]; else c[v] = true; break; }
     case 'statJump': { const h = [...document.querySelectorAll('.card-sec h2')].find(x => x.textContent === v); if (h) window.scrollTo({ top: h.closest('.card-sec').getBoundingClientRect().top + window.scrollY - 76, behavior: 'smooth' }); if (!h) toast('この条件では、その表はありません'); return; }
     case 'enemyCat': S.enemy.cat = +v; S.enemy.open = null; S.enemy.limit = ENEMY_PAGE; break;
     case 'enemyParty': S.enemy.party = v; S.enemy.partyOpen = false; break;

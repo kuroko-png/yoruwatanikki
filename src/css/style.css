@@ -753,3 +753,10 @@ body { min-height: calc(100vh + 1px); min-height: calc(100lvh + 1px); }
 .pub-card .hint { margin-top: 6px; }
 .tiles.dash .k { white-space: nowrap; font-size: 11px; letter-spacing: 0; }
 @media (max-width: 359px) { .head-tools .mini-select { padding-right: 22px; font-size: 12px; } .ever-switch { padding: 5px 9px; font-size: 12px; } }
+
+/* みんなの統計：見出しで開く・たたむ、まだ0回 */
+.sec-fold { display: flex; align-items: center; gap: 8px; background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; text-align: left; flex: 1; min-width: 0; }
+.sec-fold .chev { width: 8px; height: 8px; border-right: 2px solid var(--dim); border-bottom: 2px solid var(--dim); transform: rotate(-135deg); margin-top: 4px; flex: none; transition: transform .15s; }
+.gcard.closed .sec-fold .chev { transform: rotate(45deg); margin-top: -4px; }
+.gcard.closed .sec-head { margin-bottom: 0; }
+.bar-row .none { color: var(--dim); font-size: 12px; }
