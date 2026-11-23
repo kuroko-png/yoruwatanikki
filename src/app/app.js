@@ -142,7 +142,7 @@ const S = {
   tab: 'record', recOpen: {}, form: blankForm(), openRun: null, confirmDel: null,
   stats: { period: 'all', mode: 'all', drill: {}, heatBy: 'lord' },
   hist: { result: 'all', lord: '', char: '' },
-  enemy: { cat: 0, q: '', party: 'trio', partyOpen: false, lord: '', lordOpen: false, base: '', baseOpen: false, field: '', fieldOpen: false, closed: {}, open: null, limit: 60 },  // 人数はトリオから。変えたいときだけ開く
+  enemy: { cat: 0, q: '', party: 'trio', partyOpen: false, lord: '', lordOpen: false, base: '', baseOpen: false, field: '', fieldOpen: false, mob: '', mobOpen: false, closed: {}, open: null, limit: 60 },  // 人数はトリオから。変えたいときだけ開く
   buildView: 'presets', edit: null, sheet: null,
 };
 { // remember last character / preset as sensible defaults
@@ -186,7 +186,7 @@ function viewRecord() {
     ${S.editRun ? `<div class="edit-banner"><b>戦績を編集中</b><span>直したら「更新する」を押してください</span></div>` : ''}
     ${card('日付', `${f.dateMode === 'pick' ? `<input type="date" id="f-date" data-field="date" value="${f.date}" max="${today()}">` : ''}`,
       `<div class="chips">${[['today', '今日'], ['yesterday', '昨日'], ['pick', '指定']].map(([v, l]) => chip('date', v, l, f.dateMode === v, 'chip small')).join('')}</div>`)}
-    ${card('夜の王の種類', '', `<div class="chips">${chip('everdark', 'no', '通常', f.everdark === false, 'chip small')}${chip('everdark', 'yes', '常夜', f.everdark === true, 'chip small')}</div>`)}
+    ${card('夜の王の種類', '', `<div class="chips ever-toggle">${chip('everdark', 'no', '通常', f.everdark === false, 'chip')}${chip('everdark', 'yes', '常夜', f.everdark === true, 'chip')}</div>`)}
     ${recDisc('lord', '夜の王', f.lordId && LORD[f.lordId].name,
       `<div class="grid-btns">${lords.map(l => chip('lord', l.id, lordName(l.id), f.lordId === l.id, 'tile-btn with-ico')).join('')}</div>`,
       f.lordId ? flagRow(f, chip) : '')}
@@ -451,9 +451,15 @@ function slotDots(p) {
 const vesselCols = (v, which) => `<span class="cols">${v[which].map(c => `<span class="slot-color ${which === 'deep' ? 'deep' : ''} c-${c}"></span>`).join('')}</span>`;
 function viewBuilds() {
   if (S.edit) return S.edit.slot ? editSlot() : editPreset();
+  const dr = prefs().draft;
+  const draftCard = dr ? `<div class="card draft-card"><button class="draft-main" data-act="draftResume">
+      <span class="title"><span><span class="badge draft">${dr.isNew ? '未完成' : '編集途中'}</span>${esc(presetName(dr.data))}</span><span class="rate none">続きから ›</span></span>
+      <span class="sub">${dr.data.charId ? charName(dr.data.charId) : '夜渡り未設定'}${styleText(dr.data) ? '・' + esc(styleText(dr.data)) : ''}</span></button>
+      <button class="ghost draft-del ${S.confirmDel === 'draft' ? 'danger' : ''}" data-act="draftDel">${S.confirmDel === 'draft' ? 'もう一度押すと破棄' : '破棄'}</button></div>` : '';
   return `<div class="stack-lg">
     <p class="hint">ビルドの登録は任意です。登録しなくても戦績は記録できます。遺物の効果まで入れておくと、ビルドや効果ごとの勝率が見られます。</p>
-    <button class="btn-add" data-act="newPreset">＋ プリセットを作る</button>
+    ${draftCard}
+    <button class="btn-add ${S.confirmDel === 'newPreset' ? 'danger' : ''}" data-act="newPreset">${S.confirmDel === 'newPreset' ? 'もう一度押すと、未完成のものを破棄して新しく作ります' : '＋ プリセットを作る'}</button>
     ${activePresets().map(p => { const x = rate(liveRuns().filter(r => r.presetId === p.id)); return `<button class="card" data-act="editPreset" data-v="${p.id}">
       <span class="title"><span>${esc(p.name)}</span><span class="rate ${x.n ? '' : 'none'}">${x.n ? `${pct(x.p)}<span style="color:var(--dim);font-weight:400"> ・${x.n}戦</span>` : '未使用'}</span></span>
       <span class="sub">${p.charId ? charName(p.charId) : '夜渡り未設定'}${styleText(p) ? '・' + esc(styleText(p)) : ''}</span>${slotDots(p)}</button>`; }).join('')}
@@ -548,13 +554,13 @@ function viewEnemies() {
     const rest = groups.filter(g => !d1.has(g.key) && !d2.has(g.key));
     return enemyPage(sec('n-d1', 'day1', '1日目の夜', groups.filter(g => d1.has(g.key)), dlcNote('d1'))
       + sec('n-d2', 'day2', '2日目の夜', groups.filter(g => d2.has(g.key)), dlcNote('d2'))
-      + (E.lord ? '' : sec('n-rest', 'rest', 'その他', rest)), chip, q, groups);
+      + (E.lord || !rest.length ? '' : sec('n-rest', 'rest', 'その他', rest)), chip, q, groups);
   }
   // フィールド・拠点・雑魚：敵データに書いた見出し（e[12]、tools/make_enemies.py で決める）ごとに分ける。
   // 同じ敵が2つの見出しに入っていれば、どちらにも出す。フィールドは種類、拠点は型で絞り込める
   if (E.cat >= 2) {
     const inCat = all.filter(([e]) => inHead(e, E.cat));
-    const pick = E.cat === 2 ? E.field : E.cat === 3 ? E.base : '';
+    const pick = E.cat === 2 ? E.field : E.cat === 3 ? E.base : E.mob;
     const secOf = h => {
       const id = `${E.cat}-${h}`;
       const list = enemyGroups(E.cat, inCat.filter(([e]) => inHead(e, E.cat, h))).map(g => ({ ...g, key: `${id}|${g.key}` }));
@@ -650,10 +656,12 @@ function enemyPage(body, chip, q, list) {
         ${E.partyOpen
           ? `<div class="party-row"><span class="flag-label">人数</span>${[['solo', 'ソロ'], ['duo', 'デュオ'], ['trio', 'トリオ']].map(([v, l]) => chip('enemyParty', v, l, E.party === v)).join('')}</div>`
           : `<button class="party-toggle" data-act="enemyPartyOpen">人数：<b>${{ solo: 'ソロ', duo: 'デュオ', trio: 'トリオ' }[E.party]}</b><span class="chev"></span></button>`}
+        ${!q && E.cat === 4 && !E.mobOpen ? `<button class="party-toggle" data-act="enemyMobOpen">種類：<b>${E.mob || 'すべて'}</b><span class="chev"></span></button>` : ''}
         ${!q && E.cat === 2 && !E.fieldOpen ? `<button class="party-toggle" data-act="enemyFieldOpen">種類：<b>${E.field || 'すべて'}</b><span class="chev"></span></button>` : ''}
         ${!q && E.cat === 3 && !E.baseOpen ? `<button class="party-toggle" data-act="enemyBaseOpen">拠点：<b>${E.base || 'すべて'}</b><span class="chev"></span></button>` : ''}
         ${!q && E.cat === 1 && !E.lordOpen ? `<button class="party-toggle" data-act="enemyLordOpen">夜の王：<b>${E.lord ? ico('lord', E.lord) + LORD[E.lord].name : 'すべて'}</b><span class="chev"></span></button>` : ''}
       </div>
+      ${!q && E.cat === 4 && E.mobOpen ? `<div class="chips lord-filter">${['', ...headsOf(4)].map(t => chip('enemyMob', t, t || 'すべて', E.mob === t)).join('')}</div>` : ''}
       ${!q && E.cat === 2 && E.fieldOpen ? `<div class="chips lord-filter">${['', ...headsOf(2)].map(t => chip('enemyField', t, t || 'すべて', E.field === t)).join('')}</div>` : ''}
       ${!q && E.cat === 3 && E.baseOpen ? `<div class="chips lord-filter">${chip('enemyBase', '', 'すべて', !E.base)}${headsOf(3).map(t => chip('enemyBase', t, t, E.base === t)).join('')}</div>` : ''}
       ${!q && E.cat === 1 && E.lordOpen ? `<div class="chips lord-filter">${chip('enemyLord', '', 'すべて', !E.lord)}${LORDS.map(l => chip('enemyLord', l.id, ico('lord', l.id) + l.name, E.lord === l.id)).join('')}</div>` : ''}
@@ -728,18 +736,18 @@ function editPreset() {
   const name = presetName(p);
   const nameRow = S.edit.editingName
     ? `<section class="card-sec"><div class="sec-head"><h2>プリセット名</h2></div>
-        <input type="text" id="e-name" data-edit="name" value="${esc(p.nameAuto ? '' : p.name)}" placeholder="${esc(autoName(p))}">
+        <input type="text" id="e-name" data-edit="name" value="${esc(name)}" placeholder="${esc(autoName(p))}">
         <div class="row-actions">${p.nameAuto ? '' : '<button class="ghost" data-act="nameAuto">自動の名前に戻す</button>'}<button class="ghost" data-act="nameDone">決定</button></div>
-        <p class="hint">空のままにすると「型 メイン武器」の名前になります。</p></section>`
+        <p class="hint">今の名前が入っています。消して空にすると「型 メイン武器」の自動の名前になります。</p></section>`
     : `<button class="name-row" data-act="nameEdit"><span class="k">プリセット名</span><span class="nm">${esc(name)}</span><span class="pen">${p.nameAuto ? '自動・変更' : '変更'}</span></button>`;
   BAR = '';
   return `<div class="stack-lg">
     <div class="page-title">${S.edit.isNew ? 'プリセットを作る' : 'プリセットを編集'}</div>
     ${disc('char', '夜渡り', p.charId ? { html: `${ico('char', p.charId)}<span class="txt">${CHAR[p.charId].name}</span>`, set: true } : val('未選択', false),
       `<div class="grid-btns">${CHARS.map(c => `<button class="tile-btn with-ico" data-act="eChar" data-v="${c.id}" ${pressed(p.charId === c.id)}>${charName(c.id)}</button>`).join('')}</div>`)}
+    ${disc('vessel', '献器', !p.charId ? val('先に夜渡りを選択', false) : v ? { html: `<span class="txt">${esc(v.name)}</span>${vesselCols(v, 'normal')}`, set: true } : val('未選択', false), vesselBody, !p.charId)}
     ${disc('style', '型', styleName ? val(styleName, true) : val('未設定', false), styleBody)}
     ${disc('weapon', 'メイン武器', p.weaponType ? val(p.weaponName ? `${p.weaponName}（${p.weaponType}）` : p.weaponType, true) : val('未設定', false), weaponBody)}
-    ${disc('vessel', '献器', !p.charId ? val('先に夜渡りを選択', false) : v ? { html: `<span class="txt">${esc(v.name)}</span>${vesselCols(v, 'normal')}`, set: true } : val('未選択', false), vesselBody, !p.charId)}
     ${nameRow}
     ${v ? disc('relicNormal', '表の遺物', relicValue('normal'), `<div class="section">${[0, 1, 2].map(i => slot('normal', i)).join('')}</div>`, false, true)
       + disc('relicDeep', '深層の遺物', relicValue('deep'), `<div class="section">${[0, 1, 2].map(i => slot('deep', i)).join('')}</div><p class="hint">深き夜で使う遺物です。</p>`, false, true)
@@ -991,7 +999,17 @@ function render(keepId) {
   document.getElementById('actionbar').innerHTML = BAR ? `<div class="action-bar"><div class="in">${BAR}</div></div>` : '';
   document.querySelector('.app').classList.toggle('has-bar', !!BAR);
   renderSheet();
+  syncDraft();
   save(db);
+}
+// プリセットの作りかけ（編集中のもの）は、操作のたびに prefs().draft に残す。別のタブへ行ったり、アプリが閉じたりしても、
+// ビルドタブの「未完成」から続きを再開できる。何も選んでいない新規や、保存済みから何も変えていない編集は残さない
+function syncDraft() {
+  const ed = S.edit;
+  if (!ed || ed.type !== 'preset') return;
+  const d = ed.data;
+  const worth = ed.isNew ? !!(d.charId || d.style || d.weaponType || d.weaponName || (!d.nameAuto && d.name)) : JSON.stringify(d) !== JSON.stringify(presetById(d.id));
+  if (worth) prefs().draft = ed; else if (prefs().draft?.data.id === d.id) delete prefs().draft;
 }
 let toastTimer;
 // action を渡すと、通知の右側にボタンが付く（例：取り消す）
@@ -1005,9 +1023,9 @@ function toast(msg, action) {
 document.addEventListener('click', e => {
   const t = e.target.closest('[data-act]'); if (!t) return;
   const a = t.dataset.act, v = t.dataset.v, f = S.form;
-  if (a !== 'delRun' && a !== 'eDel' && a !== 'loadSample' && a !== 'wipe') S.confirmDel = null;
+  if (a !== 'delRun' && a !== 'eDel' && a !== 'loadSample' && a !== 'wipe' && a !== 'draftDel' && a !== 'newPreset') S.confirmDel = null;
   switch (a) {
-    case 'tab': S.tab = v; S.sheet = null; scrollTop(); break;
+    case 'tab': if (S.edit && v !== 'builds') S.edit = null; S.tab = v; S.sheet = null; scrollTop(); break;  // 作りかけは prefs().draft に残っている
     case 'menu': S.sheet = { type: 'menu' }; break;
     case 'help': S.sheet = { type: 'help' }; break;
     case 'secretImage': S.sheet = { type: 'image' }; break;
@@ -1062,10 +1080,10 @@ document.addEventListener('click', e => {
         S.recOpen = {}; S.tab = 'history'; S.openRun = r.id; toast('戦績を更新しました'); break;
       }
       const newId = uid();
-      S.undo = { id: newId, form: structuredClone(f), recOpen: { ...S.recOpen } };
       db.runs.push({ id: newId, ...fields, presetRev: p ? presetRev(p) : null, updatedAt: Date.now(), deleted: false });
-      toast(`${LORD[f.lordId].name}戦の${f.result === 'win' ? '勝利' : '敗北'}を記録しました`, { act: 'undoSave', label: '取り消す' });
-      Object.assign(f, { dateMode: 'today', date: today(), lordId: null, everdark: null, flags: [], shift: null, result: null, lossAt: null, note: '' }); S.recOpen = {};
+      toast(`${LORD[f.lordId].name}戦の${f.result === 'win' ? '勝利' : '敗北'}を記録しました`);
+      // 日付は「今日」以外（昨日・指定）を選んでいたら、続けて記録しやすいようにそのまま残す
+      Object.assign(f, { lordId: null, everdark: null, flags: [], shift: null, result: null, lossAt: null, note: '' }); S.recOpen = {};
       break;
     }
     case 'editRun': {
@@ -1076,12 +1094,6 @@ document.addEventListener('click', e => {
       S.recOpen = {}; S.tab = 'record'; S.openRun = null; scrollTop(); break;
     }
     case 'cancelEdit': S.editRun = null; S.form = blankForm(); S.recOpen = {}; S.tab = 'history'; break;
-    case 'undoSave': {
-      if (!S.undo) return;
-      db.runs = db.runs.filter(r => r.id !== S.undo.id);
-      S.form = S.undo.form; S.recOpen = S.undo.recOpen; S.undo = null; S.editRun = null; S.tab = 'record';
-      toast('記録を取り消しました。内容を直してもう一度記録できます'); break;
-    }
     case 'openRun': S.openRun = S.openRun === v ? null : v; break;
     case 'delRun':
       if (S.confirmDel !== v) { S.confirmDel = v; break; }
@@ -1099,6 +1111,8 @@ document.addEventListener('click', e => {
     case 'enemyLordOpen': S.enemy.lordOpen = true; break;
     case 'enemyBaseOpen': S.enemy.baseOpen = true; break;
     case 'enemyFieldOpen': S.enemy.fieldOpen = true; break;
+    case 'enemyMobOpen': S.enemy.mobOpen = true; break;
+    case 'enemyMob': S.enemy.mob = v; S.enemy.mobOpen = false; S.enemy.open = null; break;
     case 'enemyField': S.enemy.field = v; S.enemy.fieldOpen = false; S.enemy.open = null; break;
     case 'enemyBase': S.enemy.base = v; S.enemy.baseOpen = false; S.enemy.open = null; break;
     case 'enemyLord': S.enemy.lord = v; S.enemy.lordOpen = false; S.enemy.open = null; break;
@@ -1109,7 +1123,9 @@ document.addEventListener('click', e => {
     case 'enemyMore': S.enemy.limit += ENEMY_PAGE; break;
     case 'statsMore': (S.statsMore ||= {})[v] = true; break;
     case 'bv': S.buildView = v; break;
-    case 'newPreset': S.edit = { type: 'preset', isNew: true, open: { char: true }, data: { id: uid(), name: '', nameAuto: true, charId: null, vesselId: null, normal: [null, null, null], deep: [null, null, null] } }; scrollTop(); break;
+    case 'draftResume': S.edit = prefs().draft; S.confirmDel = null; scrollTop(); break;
+    case 'draftDel': if (S.confirmDel !== 'draft') { S.confirmDel = 'draft'; break; } delete prefs().draft; S.confirmDel = null; toast('未完成のプリセットを破棄しました'); break;
+    case 'newPreset': if (prefs().draft && S.confirmDel !== 'newPreset') { S.confirmDel = 'newPreset'; break; } S.confirmDel = null; S.edit = { type: 'preset', isNew: true, open: { char: true }, data: { id: uid(), name: '', nameAuto: true, charId: null, vesselId: null, normal: [null, null, null], deep: [null, null, null] } }; scrollTop(); break;
     case 'editPreset': S.edit = { type: 'preset', open: {}, data: structuredClone(presetById(v)) }; scrollTop(); break;
     case 'eChar': {
       const d = S.edit.data; d.charId = v; S.edit.open.char = false;
@@ -1125,7 +1141,7 @@ document.addEventListener('click', e => {
       break;
     }
     case 'disc': S.edit.open[v] = t.dataset.open !== 'true'; break;
-    case 'nameEdit': S.edit.editingName = true; render(); document.getElementById('e-name')?.focus(); return;
+    case 'nameEdit': { S.edit.editingName = true; render(); const el = document.getElementById('e-name'); el?.focus(); el?.select(); return; }
     case 'nameDone': { const d = S.edit.data; if (!d.name.trim()) d.nameAuto = true; S.edit.editingName = false; break; }
     case 'nameAuto': { const d = S.edit.data; d.nameAuto = true; d.name = ''; S.edit.editingName = false; break; }
     case 'eStyle': { const d = S.edit.data; d.style = d.style === v ? null : v; if (d.style !== 'caster' && d.style !== 'hybrid') d.spec = []; break; }
@@ -1188,7 +1204,7 @@ document.addEventListener('click', e => {
       }
       const i = db.presets.findIndex(x => x.id === d.id);
       i >= 0 ? (db.presets[i] = d) : db.presets.push(d);
-      toast('保存しました'); S.edit = null; break;
+      toast('保存しました'); S.edit = null; delete prefs().draft; break;
     }
     case 'eDel': {
       if (S.confirmDel !== 'edit') { S.confirmDel = 'edit'; break; }
@@ -1197,7 +1213,7 @@ document.addEventListener('click', e => {
       if (db.runs.some(r => r.presetId === id)) target.deleted = true;  // 戦績で使っていれば「削除済み」として残す
       else db.presets = db.presets.filter(p => p.id !== id);
       if (S.form.presetId === id) S.form.presetId = null;
-      S.confirmDel = null; S.edit = null; toast('削除しました'); break;
+      S.confirmDel = null; S.edit = null; delete prefs().draft; toast('削除しました'); break;
     }
     case 'eDup': {
       // 保存済みの中身をコピーして、新しいプリセットとして作り始める（元のプリセットは変わらない）
@@ -1207,7 +1223,7 @@ document.addEventListener('click', e => {
       S.edit = { type: 'preset', isNew: true, open: {}, data: { ...rest, id: uid(), name: named ? `${rest.name}（コピー）` : '', nameAuto: !named } };
       scrollTop(); toast('複製しました。直して保存すると新しいプリセットになります'); break;
     }
-    case 'eCancel': S.edit = null; break;
+    case 'eCancel': S.edit = null; delete prefs().draft; break;
     default: return;
   }
   render();
@@ -1220,7 +1236,7 @@ document.addEventListener('input', e => {
   if (t.dataset.field) S.form[t.dataset.field] = t.value;
   // 日付を直したら、記録ボタンを押せるかどうかをすぐ反映する
   if (t.dataset.field === 'date') { render(); document.getElementById('f-date')?.focus(); }
-  if (t.dataset.edit) { S.edit.data[t.dataset.edit] = t.value; if (t.dataset.edit === 'name') S.edit.data.nameAuto = !t.value.trim(); }
+  if (t.dataset.edit) { S.edit.data[t.dataset.edit] = t.value; if (t.dataset.edit === 'name') S.edit.data.nameAuto = !t.value.trim(); syncDraft(); save(db); }
   if (t.hasAttribute('data-enemyq')) {
     // 名前で探す：入力のたびに一覧を作り直す。入力欄そのものは入れ替えない（変換中の文字を壊さないため）
     S.enemy.q = t.value; S.enemy.open = null; S.enemy.limit = ENEMY_PAGE;

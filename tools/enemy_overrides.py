@@ -92,4 +92,8 @@ OVERRIDES = {
     'Valiant Gargoyle (Crater)': {"place": [["フィールド", "火口"]]},
     'Weapon-Bequeathed Harmonia (Phase 2/Buffed Variant)': {"scene": "第2形態（ピンク個体）"},
     'Wormface': {"delete": True},
+    'Wandering Noble (Night Boss Enemy)': {"delete": True},  # 2026-11-23 夜の強敵の「その他の前哨戦」：どの戦いか分からないので載せない
+    'Skeletal Grave Warden (Night Boss Enemy)': {"delete": True},  # 2026-11-23 夜の強敵の「その他の前哨戦」：どの戦いか分からないので載せない
+    'Exile Soldier (Night Boss Enemy)': {"delete": True},  # 2026-11-23 夜の強敵の「その他の前哨戦」：どの戦いか分からないので載せない
+    'Exile Soldier [Large] (Night Boss Enemy)': {"delete": True},  # 2026-11-23 夜の強敵の「その他の前哨戦」：どの戦いか分からないので載せない
 }

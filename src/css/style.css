@@ -617,3 +617,11 @@ body { min-height: calc(100vh + 1px); min-height: calc(100lvh + 1px); }
   padding: max(12px, env(safe-area-inset-top, 0px)) 12px max(12px, env(safe-area-inset-bottom, 0px)); touch-action: none; cursor: pointer; }
 .img-view img { max-width: 100%; max-height: calc(100% - 30px); object-fit: contain; }
 .img-view span { font-size: 12px; color: var(--dim); }
+/* 記録：夜の王の種類（通常／常夜）は押しやすいよう大きめに */
+.chips.ever-toggle { gap: 10px; }
+.chips.ever-toggle .chip { min-width: 84px; min-height: 44px; padding: 9px 18px; font-size: 15px; font-weight: 700; }
+/* ビルド：作りかけのプリセット（未完成／編集途中） */
+.draft-card { cursor: default; border-style: dashed; border-color: color-mix(in srgb, var(--accent) 55%, transparent); display: flex; align-items: center; gap: 10px; }
+.draft-card .draft-main { flex: 1; min-width: 0; display: grid; gap: 8px; background: none; border: 0; padding: 0; color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.draft-card .draft-del { flex: none; padding: 6px 10px; font-size: 12px; }
+.badge.draft { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, transparent); margin-right: 6px; }
