@@ -154,7 +154,7 @@ const blankForm = () => ({ dateMode: 'today', date: today(), lordId: null, everd
   party: prefs().party || 'trio', charId: null, result: null, lossAt: null, presetId: null, note: '' });
 const lastPresetFor = charId => { const id = (prefs().presetByChar || {})[charId]; return id && db.presets.some(p => p.id === id && !p.deleted) ? id : null; };
 const S = {
-  tab: 'record', recOpen: {}, form: blankForm(), openRun: null, confirmDel: null,
+  tab: 'record', form: blankForm(), openRun: null, confirmDel: null,
   stats: { scope: 'mine', period: 'all', mode: 'all', drill: {}, heatBy: 'lord' },
   hist: { result: 'all', lord: '', char: '' },
   enemy: { cat: 0, q: '', party: 'trio', partyOpen: false, lord: '', lordOpen: false, base: '', baseOpen: false, field: '', fieldOpen: false, mob: '', mobOpen: false, closed: {}, open: null, limit: 60 },  // 人数はトリオから。変えたいときだけ開く
@@ -191,7 +191,7 @@ function viewRecord() {
   if (f.presetId && !activePresets().some(p => p.id === f.presetId) && !(S.editRun && f.presetId === S.form.origPresetId)) f.presetId = null;
   const presets = db.presets.filter(p => (!p.deleted && p.charId === f.charId) || p.id === f.presetId);
   const lords = lordsFor(f.everdark);
-  const missing = [!dateOk && '日付', f.everdark === null && '通常/常夜', !f.lordId && '夜の王', !f.charId && '夜渡り', !depthOk && '深度', !f.result && '結果'].filter(Boolean);
+  const missing = [!dateOk && '日付', !f.lordId && '夜の王', !f.charId && '夜渡り', f.everdark === null && '通常/常夜', !depthOk && '深度', !f.result && '結果'].filter(Boolean);
   const label = S.editRun ? '更新する' : '記録する';
   BAR = `${S.editRun ? '<button class="ghost" data-act="cancelEdit">やめる</button>' : ''}<button class="primary" data-act="save" ${canSave ? '' : 'disabled'}>${canSave ? label : `<span class="need">あと：${missing.join('・')}</span>`}</button>`;
   const chip = (act, v, label, on, cls = 'chip') => `<button class="${cls}" data-act="${act}" data-v="${v}" ${pressed(on)}>${label}</button>`;
@@ -199,22 +199,21 @@ function viewRecord() {
     ${S.editRun ? `<div class="edit-banner"><b>戦績を編集中</b><span>直したら「更新する」を押してください</span></div>` : ''}
     ${card('日付', `${f.dateMode === 'pick' ? `<input type="date" id="f-date" data-field="date" value="${f.date}" max="${today()}">` : ''}`,
       `<div class="chips ever-toggle date-toggle">${[['today', '今日'], ['yesterday', '昨日'], ['pick', '指定']].map(([v, l]) => chip('date', v, l, f.dateMode === v, 'chip')).join('')}</div>`)}
-    ${card('夜の王の種類', '', `<div class="chips ever-toggle">${chip('everdark', 'no', '通常', f.everdark === false, 'chip')}${chip('everdark', 'yes', '常夜', f.everdark === true, 'chip')}</div>`)}
-    ${recDisc('lord', '夜の王', f.lordId && LORD[f.lordId].name,
-      `<div class="grid-btns">${lords.map(l => chip('lord', l.id, lordName(l.id), f.lordId === l.id, 'tile-btn with-ico')).join('')}</div>`,
-      f.lordId ? flagRow(f, chip) : '')}
-    ${recDisc('char', '夜渡り', f.charId && CHAR[f.charId].name,
-      `<div class="grid-btns">${CHARS.map(c => chip('char', c.id, charName(c.id), f.charId === c.id, 'tile-btn with-ico')).join('')}</div>`)}
+    <section class="card-sec pick-card">
+      <div class="wheels">
+        <div class="wheel-col"><div class="wheel-label">夜の王</div>${wheel('lord', lords, f.lordId, lordName)}</div>
+        <div class="wheel-col"><div class="wheel-label">夜渡り</div>${wheel('char', CHARS, f.charId, charName)}</div>
+      </div>
+      <p class="hint wheel-hint">上下にスクロールして、真ん中の枠に合わせたものが選ばれます（タップでも選べます）</p>
+      <div class="pick-build"><div class="label">ビルド</div>
+        ${f.charId ? `<div class="chips one-line">${chip('preset', '', 'ビルドなし', !f.presetId)}${presets.map(p => chip('preset', p.id, esc(presetLabel(p)), f.presetId === p.id)).join('')}</div>
+          ${presets.length ? '' : `<p class="hint">${CHAR[f.charId].name}のプリセットはまだありません。「ビルド」タブで作れます。</p>`}`
+          : '<p class="hint">夜渡りを選ぶと、その夜渡りのビルドを選べます。</p>'}</div>
+    </section>
+    ${card('夜の王の種類', f.lordId ? flagRow(f, chip) : '', `<div class="chips ever-toggle">${chip('everdark', 'no', '通常', f.everdark === false, 'chip')}${chip('everdark', 'yes', '常夜', f.everdark === true, 'chip')}</div>`)}
     <section class="card-sec mode-card"><div class="sec-head"><h2>モード</h2><div class="chips mode-toggle">${MODES.map(m => chip('mode', m.id, m.name, f.mode === m.id, 'chip small')).join('')}</div></div>
       ${f.mode === 'deep' ? `<div class="depth-line"><span class="label">深度${f.depth ? '' : '<span class="need-mark">（選んでください）</span>'}</span>
         <div class="depth-row compact">${DEPTHS.map(d => chip('depth', d, d, f.depth === d, 'chip depth')).join('')}</div></div>` : ''}</section>
-    ${f.charId ? card('ビルド', `<div class="chips one-line">${chip('preset', '', 'ビルドなし', !f.presetId)}${presets.map(p => chip('preset', p.id, esc(presetLabel(p)), f.presetId === p.id)).join('')}</div>
-      ${presets.length ? '' : `<p class="hint">${CHAR[f.charId].name}のプリセットはまだありません。「ビルド」タブで作れます。</p>`}`) : ''}
-    ${card('結果', `<div class="result-row">
-        <button class="result-btn win" data-act="result" data-v="win" ${pressed(f.result === 'win')}>勝利</button>
-        <button class="result-btn loss" data-act="result" data-v="loss" ${pressed(f.result === 'loss')}>敗北</button></div>
-      ${f.result === 'loss' ? `<div class="subpanel"><div class="label">どこで倒れた？</div>
-        <div class="chips">${LOSS_AT.map(x => chip('lossAt', x.id, x.name, f.lossAt === x.id)).join('')}</div></div>` : ''}`)}
     <details class="opt" ${S.optOpen ? 'open' : ''} data-details="opt">
       <summary><span>詳細</span><span class="tag">${esc(optSummary())}</span></summary>
       <div class="inner">
@@ -225,18 +224,45 @@ function viewRecord() {
         <p class="hint">人数は、次の記録でもそのまま使われます。</p>
       </div>
     </details>
+    ${card('結果', `<div class="result-row">
+        <button class="result-btn win" data-act="result" data-v="win" ${pressed(f.result === 'win')}>勝利</button>
+        <button class="result-btn loss" data-act="result" data-v="loss" ${pressed(f.result === 'loss')}>敗北</button></div>
+      ${f.result === 'loss' ? `<div class="subpanel"><div class="label">どこで倒れた？</div>
+        <div class="chips">${LOSS_AT.map(x => chip('lossAt', x.id, x.name, f.lossAt === x.id)).join('')}</div></div>` : ''}`)}
   </div>`;
 }
-// 記録画面の開閉する行。未選択なら開き、選んだら畳む（行をタップで開き直せる）
-const recOpen = (key, hasValue) => S.recOpen[key] ?? !hasValue;
-function recDisc(key, label, value, body, extra = '') {
-  const open = recOpen(key, !!value);
-  return `<div class="disc ${open ? 'open' : ''}">
-    <button class="disc-head" data-act="rdisc" data-v="${key}" aria-expanded="${open}">
-      <span class="k">${label}</span><span class="v ${value ? 'set' : ''}">${value ? ico(key, key === 'lord' ? S.form.lordId : S.form.charId) : ''}<span class="txt">${value ? esc(value) : '未選択'}</span></span><span class="chev"></span></button>
-    ${open ? `<div class="disc-body">${body}</div>` : ''}
-    ${extra ? `<div class="disc-extra">${extra}</div>` : ''}</div>`;
+// 夜の王・夜渡りの縦スクロールの選択欄（ドラム式）。先頭は「未選択」。真ん中の枠に止まったものが選ばれる
+const WHEEL_H = 40;  // 1行の高さ（style.css の .wheel-item と同じ）
+function wheel(kind, items, cur, label) {
+  const idx = cur ? items.findIndex(x => x.id === cur) + 1 : 0;
+  const item = (i, v, html) => `<button class="wheel-item ${i === idx ? 'center' : ''} ${v ? '' : 'none'}" data-act="wheelPick" data-i="${i}" data-v="${v}" role="option" aria-selected="${i === idx}">${html}</button>`;
+  return `<div class="wheel-wrap"><div class="wheel" data-wheel="${kind}" data-idx="${idx}" role="listbox" aria-label="${kind === 'lord' ? '夜の王' : '夜渡り'}を選ぶ">
+    <div class="wheel-pad"></div>${item(0, '', '未選択')}${items.map((x, i) => item(i + 1, x.id, label(x.id))).join('')}<div class="wheel-pad"></div>
+  </div><span class="wheel-band" aria-hidden="true"></span></div>`;
 }
+// 画面を作り直したあと、選んでいるものが真ん中に来るように位置を戻す
+// まだ動いている途中だった欄は、作り直す前の位置のまま続ける（止まったときに、そこで選ばれる）
+function initWheels(moving = {}) { document.querySelectorAll('.wheel').forEach(w => { const top = moving[w.dataset.wheel] ?? +w.dataset.idx * WHEEL_H; if (w.dataset.wheel in moving) { w._moving = true; w._t = setTimeout(() => commitWheel(w), 150); } else if (top) w._init = true; w.scrollTop = top; }); }
+let wheelTouch = false;  // 止まったかどうかを待つタイマーは、欄ごとに別に持つ（w._t）
+// 止まったら（指を離して、動きが落ち着いたら）、真ん中のものを選ぶ
+function commitWheel(w) {
+  if (wheelTouch || !w.isConnected) return;
+  w._moving = false; w._target = undefined;
+  const i = Math.round(w.scrollTop / WHEEL_H), v = w.querySelectorAll('.wheel-item')[i]?.dataset.v || null, f = S.form;
+  if (w.dataset.wheel === 'lord') { if (f.lordId === v) return; f.lordId = v; if (!v) { f.flags = []; f.shift = null; } }
+  else { if (f.charId === v) return; f.presetId = v ? lastPresetFor(v) : null; f.charId = v; }
+  render();
+}
+document.addEventListener('scroll', e => {
+  const w = e.target; if (!(w instanceof Element) || !w.matches('.wheel')) return;
+  const i = Math.round(w.scrollTop / WHEEL_H);
+  w.querySelectorAll('.wheel-item').forEach((b, k) => b.classList.toggle('center', k === i));
+  if (w._init) { w._init = false; return; }  // 位置を戻しただけ（指で動かしたのではない）
+  w._moving = true;
+  clearTimeout(w._t); w._t = setTimeout(() => commitWheel(w), 150);
+}, true);
+document.addEventListener('touchstart', e => { const w = e.target.closest?.('.wheel'); if (w) { wheelTouch = true; w._target = undefined; } }, { passive: true, capture: true });
+document.addEventListener('touchend', e => { if (!wheelTouch) return; wheelTouch = false; const w = e.target.closest?.('.wheel'); if (w) { clearTimeout(w._t); w._t = setTimeout(() => commitWheel(w), 150); } }, { passive: true, capture: true });
 // 夜の王の下の印：「地図欠損」or「ボス不明」と、それとは別に「地変」。地変を選んだときだけ、その下に種類を出す
 function flagRow(f, chip) {
   const c = x => chip('flag', x.id, x.name, f.flags.includes(x.id), 'chip small');
@@ -1347,7 +1373,7 @@ function guideSheet() {
     <div class="sheet-list guide-list">
       <p class="hint">ナイトレインの戦績を記録して、夜の王・夜渡り・ビルドごとの勝率を振り返るアプリです。<b>まずは「記録」タブだけ使えばOK</b>。ビルド・敵・みんなの統計は、気になったときにどうぞ。</p>
       ${install}
-      ${step(installed ? 1 : 2, '戦績を記録する', '「記録」タブで、常夜かどうか・夜の王・夜渡り・結果を選んで「記録する」。ビルドは、夜渡りごとに前回使ったものが自動で選ばれます。')}
+      ${step(installed ? 1 : 2, '戦績を記録する', '「記録」タブで、夜の王と夜渡り（スクロールして真ん中に合わせる）・通常か常夜か・結果を選んで「記録する」。ビルドは、夜渡りごとに前回使ったものが自動で選ばれます。')}
       ${step(installed ? 2 : 3, '記録は自動でバックアップ', '記録は自動で暗号化して、ネット上にも保存されます。機種変更のときは、右上の円柱の絵のボタン（データ）に出ている「引き継ぎコード」で戻せます。')}
       <button class="ghost" data-act="restoreOpen">機種変更した方：引き継ぎコードで戻す</button>
     </div>
@@ -1457,9 +1483,11 @@ function patchKeeping(root, html, keepId) {
 function render(keepId) {
   document.getElementById('tabs').innerHTML = TABS.map(t => `<button data-act="tab" data-v="${t.id}" ${S.tab === t.id ? 'aria-current="page"' : ''}><span class="tab-ico" style="-webkit-mask-image:url('icons/tabs/${t.id}.png');mask-image:url('icons/tabs/${t.id}.png')" aria-hidden="true"></span>${t.name}</button>`).join('');
   BAR = '';
+  const moving = Object.fromEntries([...document.querySelectorAll('.wheel')].filter(w => w._moving).map(w => [w.dataset.wheel, w._target ?? w.scrollTop]));  // タップで動かしている途中なら、行き先へ
   const v = { record: viewRecord, history: viewHistory, stats: viewStats, builds: viewBuilds, enemies: viewEnemies }[S.tab];
   if (keepId) patchKeeping(document.getElementById('view'), v(), keepId);
   else document.getElementById('view').innerHTML = v();
+  if (S.tab === 'record') initWheels(moving);
   document.getElementById('appsub').textContent = appSub();
   // 右上のボタンは「（今のタブ名）の使い方」
   const helpLabel = document.querySelector('[data-act=help] span');
@@ -1521,8 +1549,7 @@ document.addEventListener('click', e => {
       if (S.confirmDel !== 'wipe') { S.confirmDel = 'wipe'; break; }
       replaceDb({ runs: [], relics: [], presets: [] }); S.confirmDel = null; S.sheet = null; toast('すべてのデータを削除しました'); break;
     case 'date': f.dateMode = v; if (v === 'today') f.date = today(); if (v === 'yesterday') f.date = daysAgo(1); break;
-    case 'lord': f.lordId = f.lordId === v ? null : v; if (!f.lordId) { f.flags = []; f.shift = null; } S.recOpen.lord = !f.lordId; break;
-    case 'rdisc': S.recOpen[v] = !recOpen(v, !!(v === 'lord' ? f.lordId : f.charId)); break;
+    case 'wheelPick': { const w = t.closest('.wheel'); if (w) w._target = +t.dataset.i * WHEEL_H; if (w) w.scrollTo({ top: +t.dataset.i * WHEEL_H, behavior: 'smooth' }); return; }  // タップしたものを真ん中へ（止まったら選ばれる）
     case 'everdark': f.everdark = v === 'yes'; if (f.lordId && !lordsFor(f.everdark).some(l => l.id === f.lordId)) f.lordId = null; break;
     case 'flag':
       if (f.flags.includes(v)) f.flags = f.flags.filter(x => x !== v);
@@ -1531,7 +1558,6 @@ document.addEventListener('click', e => {
       if (!f.flags.includes('shift')) f.shift = null;
       break;
     case 'shift': f.shift = f.shift === v ? null : v; break;
-    case 'char': if (f.charId !== v) f.presetId = lastPresetFor(v); f.charId = v; S.recOpen.char = false; break;
     case 'result': f.result = v; if (v === 'win') f.lossAt = null; break;
     case 'lossAt': f.lossAt = f.lossAt === v ? null : v; break;
     case 'mode': f.mode = v; f.depth = v === 'deep' ? (f.depth || prefs().lastDepth || null) : null; if (!S.editRun) { prefs().mode = v; prefs().depth = f.depth; } break;
@@ -1550,15 +1576,16 @@ document.addEventListener('click', e => {
         const keepRev = r.presetId === f.presetId ? r.presetRev : (p ? presetRev(p) : null);
         Object.assign(r, fields, { presetRev: keepRev, editedAt: Date.now() });
         S.editRun = null; S.form = blankForm();
-        S.recOpen = {}; S.tab = 'history'; S.openRun = r.id; toast('戦績を更新しました'); break;
+        S.tab = 'history'; S.openRun = r.id; toast('戦績を更新しました'); break;
       }
       const newId = uid();
+      document.querySelectorAll('.wheel').forEach(w => { w._moving = false; clearTimeout(w._t); });  // 記録したら、動いている途中の欄も「未選択」に戻す
       db.runs.push({ id: newId, ...fields, presetRev: p ? presetRev(p) : null, updatedAt: Date.now(), deleted: false });
       S.undo = { type: 'add', id: newId };
       toast(`${LORD[f.lordId].name}戦の${f.result === 'win' ? '勝利' : '敗北'}を記録しました`, { act: 'undo', label: '取り消す' });
       // 日付は「今日」以外（昨日・指定）を選んでいたら、続けて記録しやすいようにそのまま残す
       // 夜渡りも選び直してもらう（前回のまま記録してしまわないように）。ビルドは夜渡りを選ぶと、その夜渡りで前回使ったものが入る
-      Object.assign(f, { lordId: null, everdark: null, flags: [], shift: null, charId: null, presetId: null, result: null, lossAt: null, note: '' }); S.recOpen = {};
+      Object.assign(f, { lordId: null, everdark: null, flags: [], shift: null, charId: null, presetId: null, result: null, lossAt: null, note: '' });
       break;
     }
     case 'editRun': {
@@ -1566,9 +1593,9 @@ document.addEventListener('click', e => {
       S.editRun = r.id;
       S.form = { dateMode: 'pick', date: r.date || today(), lordId: r.lordId, everdark: !!r.everdark, flags: [...(r.flags || [])], shift: r.shift ?? null, mode: r.mode || 'normal', depth: r.depth ?? null,
         party: r.party || 'trio', charId: r.charId, result: r.result, lossAt: r.lossAt ?? null, presetId: r.presetId ?? null, origPresetId: r.presetId ?? null, note: r.note || '' };
-      S.recOpen = {}; S.tab = 'record'; S.openRun = null; scrollTop(); break;
+      S.tab = 'record'; S.openRun = null; scrollTop(); break;
     }
-    case 'cancelEdit': S.editRun = null; S.form = blankForm(); S.recOpen = {}; S.tab = 'history'; break;
+    case 'cancelEdit': S.editRun = null; S.form = blankForm(); S.tab = 'history'; break;
     case 'openRun': S.openRun = S.openRun === v ? null : v; break;
     case 'delRun':
       if (S.confirmDel !== v) { S.confirmDel = v; break; }
