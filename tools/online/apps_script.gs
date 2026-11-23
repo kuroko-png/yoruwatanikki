@@ -14,12 +14,23 @@
  * 受け取るもの：
  *  - 戦績（みんなの勝率）：参加をオンにした人の戦績だけ。名前などは受け取らず、端末ごとのランダムなIDだけ
  *  - 誤植の報告：敵の名前と、書かれた文章
- * シートは自動で作られる（runs＝戦績、reports＝誤植の報告）。消したい行は、シートから直接消してよい。
+ *  - 自動バックアップ：端末の記録を、アプリ側で暗号化したもの。鍵（引き継ぎコード）は送られてこないので、ここでは中身を読めない
+ * シートは自動で作られる（runs＝戦績、reports＝誤植の報告、backups＝自動バックアップ）。runs・reports の行は消してよい。
+ * backups の行を消すと、その人は引き継ぎコードで戻せなくなるので消さないこと。
  */
 
 const RUN_COLS = ['receivedAt', 'clientId', 'runId', 'date', 'lordId', 'everdark', 'mode', 'depth', 'party', 'charId', 'result', 'lossAt', 'deleted', 'updatedAt', 'style', 'weaponType'];
 const REPORT_COLS = ['receivedAt', 'clientId', 'enemy', 'text', 'appVersion'];
 const MAX_RUNS_PER_POST = 500;
+const BACKUP_COLS = ['id', 'updatedAt', 'size', 'data（暗号化・長いときは右の列へ続く）'];
+const BACKUP_CHUNK = 45000;          // 1つのセルに入れる文字数（セルの上限は5万字）
+const BACKUP_MAX = 3000000;          // 1人分の上限（文字数）
+
+// 自動バックアップの行を探す（1列目＝引き継ぎコードから作った番号）
+function backupRow_(sh, id) {
+  const hit = sh.getRange('A:A').createTextFinder(id).matchEntireCell(true).findNext();
+  return hit ? hit.getRow() : 0;
+}
 
 function sheet_(name, cols) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -47,6 +58,27 @@ function doPost(e) {
       if (rows.length) { const sh = sheet_('runs', RUN_COLS); sh.getRange(sh.getLastRow() + 1, 1, rows.length, RUN_COLS.length).setValues(rows); }
       CacheService.getScriptCache().remove('stats');
       return json_({ ok: true, received: rows.length });
+    }
+    if (body.type === 'backup_put' || body.type === 'backup_get') {
+      const id = str_(body.id, 64);
+      if (!/^[0-9a-f]{64}$/.test(id)) return json_({ ok: false, error: 'bad id' });
+      const sh = sheet_('backups', BACKUP_COLS);
+      let row = backupRow_(sh, id);
+      if (body.type === 'backup_get') {
+        if (!row) return json_({ ok: true, found: false });
+        const vals = sh.getRange(row, 1, 1, sh.getLastColumn()).getDisplayValues()[0];
+        return json_({ ok: true, found: true, updatedAt: vals[1], data: vals.slice(3).join('') });
+      }
+      const data = typeof body.data === 'string' ? body.data : '';
+      if (!data || data.length > BACKUP_MAX) return json_({ ok: false, error: 'bad size' });
+      const chunks = data.match(new RegExp('[\\s\\S]{1,' + BACKUP_CHUNK + '}', 'g'));
+      if (!row) row = sh.getLastRow() + 1;
+      const width = 3 + chunks.length;
+      if (sh.getMaxColumns() < width) sh.insertColumnsAfter(sh.getMaxColumns(), width - sh.getMaxColumns());
+      sh.getRange(row, 1, 1, Math.max(sh.getLastColumn(), width)).clearContent();
+      // すべて「文字」として入れる（= や + で始まっても計算式にしない）
+      sh.getRange(row, 1, 1, width).setNumberFormat('@').setValues([[id, now.toISOString(), String(data.length), ...chunks]]);
+      return json_({ ok: true });
     }
     if (body.type === 'report') {
       const text = str_(body.text, 1000).trim();

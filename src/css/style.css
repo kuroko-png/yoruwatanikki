@@ -669,3 +669,16 @@ body { min-height: calc(100vh + 1px); min-height: calc(100lvh + 1px); }
 .chips.ever-toggle { flex-wrap: nowrap; }
 @media (max-width: 359px) { .chips.ever-toggle .chip { min-width: 64px; padding: 9px 12px; } .chips.date-toggle .chip { min-width: 0; padding: 9px 10px; } }
 .action-bar .primary .need { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+
+/* 自動バックアップ（データ管理） */
+.cloud-box { border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 14px; padding: 12px; display: grid; gap: 8px; background: rgba(220, 184, 108, .05); }
+.cloud-box.off { border-color: var(--line); background: none; }
+.cloud-head { display: grid; gap: 2px; }
+.cloud-box .bad { color: var(--loss); }
+.code-row { display: flex; align-items: center; gap: 8px; }
+.code-row .code { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 17px; font-weight: 700; letter-spacing: .06em; color: var(--accent);
+  background: rgba(0,0,0,.28); border: 1px dashed var(--line-strong); border-radius: 10px; padding: 9px 10px; text-align: center; user-select: all; -webkit-user-select: all; white-space: nowrap; overflow-x: auto; }
+.cloud-box .row-actions { justify-content: space-between; align-items: center; }
+#restore-code { font-size: 18px; letter-spacing: .08em; text-transform: uppercase; text-align: center; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.guide-list > .ghost { width: 100%; }
+@media (max-width: 359px) { .code-row .code { font-size: 14px; letter-spacing: .02em; padding: 9px 6px; } }

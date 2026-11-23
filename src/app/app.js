@@ -247,11 +247,13 @@ function backupState() {
   const n = liveRuns().length, last = prefs().lastBackupAt || 0;
   const added = n - (prefs().lastBackupRuns || 0);
   const days = last ? Math.floor((Date.now() - last) / 864e5) : null;
-  const due = n > 0 && (added >= BACKUP_EVERY_RUNS || (added > 0 && (days === null ? n >= 5 : days >= BACKUP_EVERY_DAYS)));
+  const auto = prefs().cloud?.on && prefs().cloud.savedAt && !prefs().cloud.failed;  // 自動バックアップが効いていれば、ファイルの保存は急がない
+  const due = !auto && n > 0 && (added >= BACKUP_EVERY_RUNS || (added > 0 && (days === null ? n >= 5 : days >= BACKUP_EVERY_DAYS)));
   return { n, last, days, added, due };
 }
 const backupAgo = b => !b.last ? 'まだ一度も保存していません' : b.days === 0 ? '今日' : `${b.days}日前`;
 function backupNotice() {
+  if (codeNoticeDue()) return codeNotice();
   const b = backupState();
   if (!b.due || (prefs().backupSnoozeUntil || 0) > Date.now()) return '';
   return `<div class="backup-note"><span>${b.last ? `前回のバックアップから戦績が${b.added}件増えています` : `まだバックアップをしていません（戦績${b.n}件）`}</span>
@@ -342,6 +344,106 @@ function barRows(items, getRuns, opts = {}) {
     ${hidden ? `<button class="more-btn" data-act="statsMore" data-v="${opts.key}">すべて表示（残り${hidden}件）</button>` : ''}`;
 }
 // 名前を1行目に全部出し、棒グラフは2行目に置く（長い名前が切れないように）。drill を渡すとタップで絞り込める
+// ---------- 自動バックアップ（引き継ぎコード＋暗号化） ----------
+// 記録・プリセットを、変えるたびに自動で受け取り口（スプレッドシート）へ保存する。最初から全員オン。
+// 中身はこの端末で暗号化してから送る。鍵は「引き継ぎコード」で、コード自体は送らない（受け取り口の持ち主にも読めない）。
+// 受け取り口で使う番号は、コードから作った別の文字（SHA-256）。機種変更のときは、コードを入れると取り出して戻せる。
+const CODE_CHARS = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';  // 見間違えやすい 0/O・1/I は使わない
+const newCode = () => [...crypto.getRandomValues(new Uint8Array(16))].map(x => CODE_CHARS[x % 32]).join('').match(/.{4}/g).join('-');
+const normCode = str => String(str || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+const validCode = str => normCode(str).length === 16 && [...normCode(str)].every(ch => CODE_CHARS.includes(ch));
+const fmtCode = str => normCode(str).match(/.{1,4}/g)?.join('-') || '';
+const cloud = () => (prefs().cloud ||= { on: true, code: newCode(), confirmed: false, savedAt: 0, sig: '', failed: false });
+const te = new TextEncoder();
+let keyCache = null;
+async function cloudKeys(code) {
+  const c = normCode(code);
+  if (keyCache?.c === c) return keyCache;
+  const idBuf = await crypto.subtle.digest('SHA-256', te.encode('yoru-no-konseki/backup-id/' + c));
+  const id = [...new Uint8Array(idBuf)].map(b => b.toString(16).padStart(2, '0')).join('');
+  const base = await crypto.subtle.importKey('raw', te.encode(c), 'PBKDF2', false, ['deriveKey']);
+  const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt: te.encode('yoru-no-konseki/backup-key'), iterations: 150000, hash: 'SHA-256' },
+    base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  return (keyCache = { c, id, key });
+}
+const toB64 = bytes => { let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(bin); };
+const fromB64 = str => Uint8Array.from(atob(str), ch => ch.charCodeAt(0));
+// 圧縮（対応している端末だけ。暗号化の前に小さくして、通信とシートの容量を減らす）
+async function gzip(bytes, pack) {
+  const Stream = pack ? window.CompressionStream : window.DecompressionStream;
+  if (!Stream) return null;
+  return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new Stream('gzip'))).arrayBuffer());
+}
+async function seal(obj, key) {
+  let bytes = te.encode(JSON.stringify(obj)), z = false;
+  const packed = await gzip(bytes, true).catch(() => null);
+  if (packed) { bytes = packed; z = true; }
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bytes));
+  return JSON.stringify({ v: 1, z, iv: toB64(iv), ct: toB64(ct) });
+}
+async function unseal(text, key) {
+  const o = JSON.parse(text);
+  let bytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(o.iv) }, key, fromB64(o.ct)));
+  if (o.z) bytes = await gzip(bytes, false);
+  if (!bytes) throw new Error('この端末では読み込めない形式です');
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+// 保存するもの：戦績・遺物・プリセット・設定（自動バックアップとみんなの戦績の設定は端末ごとなので除く）
+const cloudPayload = () => { const { cloud: _c, online: _o, ...rest } = db.prefs; return { runs: db.runs, relics: db.relics, presets: db.presets, prefs: rest }; };
+const sigOf = str => { let h = 5381; for (let i = 0; i < str.length; i++) h = (h * 33 + str.charCodeAt(i)) | 0; return `${str.length}:${h}`; };
+let cloudTimer = null, cloudDue = 0, cloudBusy = false;
+// 予定より遅らせない（変更が続いても、最初の変更から15秒以内には保存する）
+const scheduleCloud = (ms = 15000) => { const at = Date.now() + ms; if (cloudTimer && cloudDue <= at) return;
+  clearTimeout(cloudTimer); cloudDue = at; cloudTimer = setTimeout(() => { cloudTimer = null; cloudSave(); }, ms); };
+async function cloudSave() {
+  const cl = cloud();
+  if (!cl.on || cloudBusy || !navigator.onLine || !crypto.subtle) return;
+  if (!db.runs.length && !db.presets.length) return;  // まだ何もないときは保存しない
+  const payload = cloudPayload(), sig = sigOf(JSON.stringify(payload));
+  if (sig === cl.sig) return;
+  cloudBusy = true;
+  try {
+    const { id, key } = await cloudKeys(cl.code);
+    const res = await postOnline({ type: 'backup_put', id, data: await seal(payload, key) });
+    if (!res?.ok) throw new Error(res?.error || 'failed');
+    Object.assign(cl, { sig, savedAt: Date.now(), failed: false });
+  } catch (e) { cl.failed = true; } finally { cloudBusy = false; save(db); if (S.sheet?.type === 'menu') renderSheet(); }
+}
+// アプリを閉じる・ほかのアプリに切り替えるときは、待たずに保存する
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') cloudSave(); });
+// 引き継ぎコードで取り出す
+async function cloudFetch(code) {
+  const { id, key } = await cloudKeys(code);
+  const res = await postOnline({ type: 'backup_get', id });
+  if (!res?.ok) throw new Error('通信できませんでした');
+  if (!res.found) return null;
+  return { updatedAt: res.updatedAt, data: await unseal(res.data, key) };
+}
+const agoText = t => { if (!t) return 'まだ保存していません'; const m = Math.floor((Date.now() - t) / 60000);
+  return m < 1 ? 'たった今' : m < 60 ? `${m}分前` : m < 1440 ? `${Math.floor(m / 60)}時間前` : `${Math.floor(m / 1440)}日前`; };
+function restoreSheet() {
+  const sh = S.sheet, f = sh.found;
+  const body = f
+    ? `<div class="card import-preview"><span class="title"><span>見つかりました</span></span>
+        <span class="sub">戦績 ${f.data.runs.filter(r => !r.deleted).length}件・プリセット ${f.data.presets.filter(p => !p.deleted).length}件（${esc(new Date(f.updatedAt).toLocaleString('ja-JP'))} に保存）</span></div>
+       <p class="hint">戻すと、この端末の今のデータは、このバックアップの内容に置き換わります。これからは、このコードで自動バックアップを続けます。</p>
+       <div class="form-actions"><button class="ghost" data-act="sClose">やめる</button><button class="primary" data-act="restoreDo">戻す</button></div>`
+    : `<input type="text" id="restore-code" value="${esc(sh.code || '')}" placeholder="例：K7QM-82XP-4HZD-W9TA" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="24">
+       ${sh.err ? `<p class="hint import-err">${esc(sh.err)}</p>` : ''}
+       <p class="hint">前の端末の「データ管理」に出ていた引き継ぎコードを入れてください。小文字やハイフンなしでも大丈夫です。</p>
+       <div class="form-actions"><button class="ghost" data-act="sClose">やめる</button><button class="primary" data-act="restoreFind" ${sh.busy ? 'disabled' : ''}>${sh.busy ? '探しています…' : '探す'}</button></div>`;
+  return `<div class="scrim" data-act="sClose"></div><div class="sheet" role="dialog" aria-label="引き継ぎコードで戻す">
+    <div class="sheet-head"><h2>引き継ぎコードで戻す</h2><button class="ghost" data-act="sClose">閉じる</button></div>
+    <div class="sheet-list import-list">${body}</div></div>`;
+}
+// 引き継ぎコードを控えてもらう案内（戦績が3件以上あって、まだ「控えた」を押していないとき。「あとで」で7日休む）
+const codeNoticeDue = () => { const cl = cloud(); return cl.on && !cl.confirmed && liveRuns().length >= 3 && (cl.snoozeUntil || 0) < Date.now(); };
+function codeNotice() {
+  if (!codeNoticeDue()) return '';
+  return `<div class="backup-note"><span>機種変更やアプリを消したときに備えて、引き継ぎコードを控えてください</span>
+    <button class="ghost small" data-act="menu">見る</button><button class="note-x" data-act="codeLater" aria-label="あとで">あとで</button></div>`;
+}
 // ---------- オンライン（みんなの勝率・誤植の報告） ----------
 // 受け取り口は持ち主の Google スプレッドシート（tools/online/apps_script.gs をウェブアプリとして公開したもの）
 const ONLINE_URL = 'https://script.google.com/macros/s/AKfycbwj1IcWjrrl-Jc12G3IPYp8TTYUJTMeYiZurQqs0eBfib_ltNz1nKZTZB3-FoUJ59ICog/exec';
@@ -981,6 +1083,7 @@ function renderSheet() {
   if (sh.type === 'help') { el.innerHTML = helpSheet(); return; }
   if (sh.type === 'import') { el.innerHTML = importSheet(); return; }
   if (sh.type === 'report') { el.innerHTML = reportSheet(); return; }
+  if (sh.type === 'restore') { el.innerHTML = restoreSheet(); return; }
   // 隠しの夜の王の画像を画面いっぱいに出す（どこをタップしても閉じる）
   if (sh.type === 'image') { el.innerHTML = `<div class="img-view" data-act="sClose" role="dialog" aria-label="ゲーミングリブラの画像"><img src="${SECRET_IMAGE}" alt="ゲーミングリブラ"><span>タップで閉じる</span></div>`; return; }
   const isDem = sh.kind === 'demerits';
@@ -1051,7 +1154,8 @@ function guideSheet() {
       <p class="hint">ナイトレインの戦績を記録して、夜の王・夜渡り・ビルドごとの勝率を振り返るアプリです。</p>
       ${install}
       ${step(installed ? 1 : 2, '戦績を記録する', '「記録」タブで、常夜かどうか・夜の王・夜渡り・結果を選んで「記録する」。2戦目からは前回の夜渡りとビルドを覚えています。')}
-      ${step(installed ? 2 : 3, 'バックアップを取る', '記録はこのスマホの中だけに保存されます。機種変更の前などは、右上の円柱の絵のボタン（データ）→「バックアップを保存」をしてください。')}
+      ${step(installed ? 2 : 3, '記録は自動でバックアップ', '記録は自動で暗号化して、ネット上にも保存されます。機種変更のときは、右上の円柱の絵のボタン（データ）に出ている「引き継ぎコード」で戻せます。')}
+      <button class="ghost" data-act="restoreOpen">機種変更した方：引き継ぎコードで戻す</button>
     </div>
     <button class="primary" data-act="guideClose">はじめる</button></div>`;
 }
@@ -1065,14 +1169,28 @@ function helpSheet() {
       ${h.dev ? `<div class="dev-note"><b>開発者より</b><p>${esc(h.dev)}</p></div>` : ''}
     </div></div>`;
 }
+function cloudBox() {
+  const cl = cloud();
+  if (!cl.on) return `<div class="cloud-box off"><b>自動バックアップ：オフ</b><p class="hint">オンにすると、記録が自動でネット上に保存され、機種変更のときに引き継ぎコードで戻せます。</p>
+    <button class="primary" data-act="cloudOn">オンにする</button></div>`;
+  const status = cl.failed ? '<span class="bad">保存できませんでした（通信できるときに、自動でやり直します）</span>' : `最後の保存：${agoText(cl.savedAt)}`;
+  return `<div class="cloud-box"><div class="cloud-head"><b>自動バックアップ：オン</b><span class="hint">${status}</span></div>
+    <p class="hint">記録は自動で暗号化してネット上に保存しています。機種変更のときは、このコードで戻せます。<b>コードをなくすと誰にも戻せない</b>ので、スクショなどで控えてください。</p>
+    <div class="code-row"><span class="code" aria-label="引き継ぎコード">${esc(cl.code)}</span><button class="ghost small" data-act="codeCopy">${navigator.share ? '送る' : 'コピー'}</button></div>
+    <div class="row-actions">${cl.confirmed ? '<span class="hint">✓ 控え済み</span>' : '<button class="ghost small" data-act="codeConfirm">控えた</button>'}
+      <button class="ghost small ${S.confirmDel === 'cloudOff' ? 'danger' : ''}" data-act="cloudOff">${S.confirmDel === 'cloudOff' ? 'もう一度押すとオフ' : 'オフにする'}</button></div></div>`;
+}
 function menuSheet() {
   const n = liveRuns().length;
   const item = (act, title, sub, cls = '') => `<button class="pick ${cls}" data-act="${act}"><span><b>${title}</b><br><span class="hint">${sub}</span></span><span class="cat">›</span></button>`;
   return `<div class="scrim" data-act="sClose"></div><div class="sheet" role="dialog" aria-label="データ管理">
     <div class="sheet-head"><h2>データ管理</h2><button class="ghost" data-act="sClose">閉じる</button></div>
-    <p class="hint">記録はこの端末のブラウザに保存されています（戦績 ${n}件・プリセット ${activePresets().length}件）。機種変更の前やブラウザのデータを消す前に、バックアップを保存してください。</p>
     <div class="sheet-list">
+      ${cloudBox()}
+      ${item('restoreOpen', '引き継ぎコードで戻す', '機種変更した・アプリを入れ直したときに、前のデータを戻します')}
       ${item('guide', '使い方・ホーム画面に追加', 'はじめに出た案内をもう一度見る')}
+      <div class="sub-group">ファイルで保存する</div>
+      <p class="hint" style="padding:0 4px">この端末の記録：戦績 ${n}件・プリセット ${activePresets().length}件。ファイルでも手元に残しておけます。</p>
       ${item('exportJson', 'バックアップを保存', `最後のバックアップ：${backupAgo(backupState())}${backupState().due ? '（おすすめ）' : ''}`, backupState().due ? 'recommend' : '')}
       <label class="pick" for="importFile"><span><b>バックアップから復元</b><br><span class="hint">今のデータは、ファイルの内容に置き換わります</span></span><span class="cat">›</span></label>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
@@ -1082,13 +1200,14 @@ function menuSheet() {
     </div></div>`;
 }
 function replaceDb(next) {
-  const was = db.prefs.online;
+  const was = db.prefs.online, wasCloud = db.prefs.cloud;
   db.runs = next.runs; db.relics = next.relics; db.presets = next.presets; db.prefs = next.prefs || {};
   if (was) {  // 参加の状態と端末の番号はこの端末のものを引き継ぎ、なくなった戦績は「消した」扱いで送る
     const keep = new Set(db.runs.map(r => r.id));
     const gone = Object.keys(was.sent || {}).filter(id => !keep.has(id));
     db.prefs.online = { join: was.join, id: was.id, sent: {}, pendingDelete: [...new Set([...(was.pendingDelete || []), ...gone])] };
   }
+  if (wasCloud) db.prefs.cloud = { ...wasCloud, sig: '' };  // 引き継ぎコードは端末のもの。中身が変わったので次の機会に保存し直す
   S.edit = null; S.openRun = null; S.form = blankForm();
 }
 function csvRows() {
@@ -1143,13 +1262,14 @@ function render(keepId) {
   // 右上のボタンは「（今のタブ名）の使い方」
   const helpLabel = document.querySelector('[data-act=help] span');
   if (helpLabel) helpLabel.textContent = `${TABS.find(t => t.id === S.tab).name}の使い方`;
-  document.querySelector('[data-act=menu]')?.classList.toggle('due', backupState().due);
+  document.querySelector('[data-act=menu]')?.classList.toggle('due', backupState().due || codeNoticeDue());
   document.getElementById('actionbar').innerHTML = BAR ? `<div class="action-bar"><div class="in">${BAR}</div></div>` : '';
   document.querySelector('.app').classList.toggle('has-bar', !!BAR);
   renderSheet();
   syncDraft();
   save(db);
   if (prefs().online?.join || prefs().online?.pendingDelete?.length) scheduleSync();
+  if (cloud().on) scheduleCloud();
 }
 // プリセットの作りかけ（編集中のもの）は、操作のたびに prefs().draft に残す。別のタブへ行ったり、アプリが閉じたりしても、
 // ビルドタブの「未完成」から続きを再開できる。何も選んでいない新規や、保存済みから何も変えていない編集は残さない
@@ -1172,7 +1292,7 @@ function toast(msg, action) {
 document.addEventListener('click', e => {
   const t = e.target.closest('[data-act]'); if (!t) return;
   const a = t.dataset.act, v = t.dataset.v, f = S.form;
-  if (a !== 'delRun' && a !== 'eDel' && a !== 'loadSample' && a !== 'wipe' && a !== 'draftDel' && a !== 'newPreset' && a !== 'onlineLeave') S.confirmDel = null;
+  if (a !== 'delRun' && a !== 'eDel' && a !== 'loadSample' && a !== 'wipe' && a !== 'draftDel' && a !== 'newPreset' && a !== 'onlineLeave' && a !== 'cloudOff') S.confirmDel = null;
   switch (a) {
     case 'tab': if (S.edit && v !== 'builds') S.edit = null; S.tab = v; S.sheet = null; scrollTop(); break;  // 作りかけは prefs().draft に残っている
     case 'menu': S.sheet = { type: 'menu' }; break;
@@ -1386,6 +1506,32 @@ document.addEventListener('click', e => {
       return;
     }
     case 'importOpen': S.sheet = { type: 'import' }; break;
+    case 'restoreOpen': prefs().onboarded = true; S.sheet = { type: 'restore' }; break;
+    case 'restoreFind': {
+      const code = document.getElementById('restore-code')?.value || '';
+      if (!validCode(code)) { S.sheet = { type: 'restore', code, err: '引き継ぎコードは、英数字16文字です（例：K7QM-82XP-4HZD-W9TA）。' }; break; }
+      S.sheet = { type: 'restore', code, busy: true }; renderSheet();
+      cloudFetch(code).then(found => { S.sheet = found ? { type: 'restore', code, found } : { type: 'restore', code, err: 'このコードのバックアップは見つかりませんでした。コードをもう一度確かめてください。' }; },
+        e => { S.sheet = { type: 'restore', code, err: `戻せませんでした（${e.message || '通信できませんでした'}）。通信できる所でもう一度お試しください。` }; })
+        .finally(() => renderSheet());
+      return;
+    }
+    case 'restoreDo': {
+      const { found, code } = S.sheet || {}; if (!found) return;
+      replaceDb({ runs: found.data.runs || [], relics: found.data.relics || [], presets: found.data.presets || [], prefs: { ...(found.data.prefs || {}), onboarded: true } });
+      prefs().cloud = { on: true, code: fmtCode(code), confirmed: true, savedAt: Date.now(), sig: sigOf(JSON.stringify(cloudPayload())), failed: false };
+      S.sheet = null; S.tab = 'record'; scrollTop(); toast(`戻しました（戦績 ${liveRuns().length}件）`); break;
+    }
+    case 'codeCopy': {
+      const code = cloud().code, text = `夜の痕跡の引き継ぎコード：${code}`;
+      if (navigator.share) navigator.share({ title: '夜の痕跡の引き継ぎコード', text }).catch(() => {});
+      else navigator.clipboard?.writeText(code).then(() => toast('コピーしました'), () => toast('コピーできませんでした'));
+      return;
+    }
+    case 'codeConfirm': cloud().confirmed = true; toast('ありがとうございます。コードは大切に保管してください'); break;
+    case 'codeLater': cloud().snoozeUntil = Date.now() + 7 * 864e5; toast('7日後にまたお知らせします'); break;
+    case 'cloudOn': Object.assign(cloud(), { on: true, sig: '' }); scheduleCloud(500); toast('自動バックアップをオンにしました'); break;
+    case 'cloudOff': if (S.confirmDel !== 'cloudOff') { S.confirmDel = 'cloudOff'; break; } S.confirmDel = null; cloud().on = false; toast('自動バックアップをオフにしました'); break;
     case 'onlineJoin': onlinePrefs().join = true; toast('参加しました。戦績を送ります'); scheduleSync(); break;
     case 'onlineLeave': {
       if (S.confirmDel !== 'onlineLeave') { S.confirmDel = 'onlineLeave'; break; }
