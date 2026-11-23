@@ -900,3 +900,9 @@ details.spare[open] { padding-bottom: 8px; }
 .rec-bar .link-btn { justify-self: center; font-size: 12.5px; }
 .cond-row .chip.dchip { min-width: 32px; padding-left: 0; padding-right: 0; justify-content: center; text-align: center; }
 .cond-row:has(.dchip) .chips { gap: 5px; flex-wrap: nowrap; }
+
+/* ページが左右に動かないようにする（iPhoneで縦にスクロールしたとき、指が少し横にずれるとページごと揺れていた）。
+   clip はスクロールの仕組みを変えないので、上の見出しや画面の固定はそのまま。横に流す列（日付・ビルド）は今までどおり動く */
+html, body { overflow-x: clip; overscroll-behavior-x: none; }
+/* 夜の王・夜渡りの欄は、上下の動きだけを受け付ける */
+.wheel { touch-action: pan-y; }
