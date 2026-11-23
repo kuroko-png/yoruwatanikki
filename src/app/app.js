@@ -208,7 +208,7 @@ function viewRecord() {
     ${card('日付', dateStrip(f), `<span class="date-now">${dateLabel(recDate(f))}${recDate(f) !== today() ? '<button class="link-btn" data-act="pickDate" data-v="today">今日に戻す</button>' : ''}</span>`)}
     <section class="card-sec pick-card">
       <div class="wheels">
-        <div class="wheel-col"><div class="wheel-label">夜の王</div>${wheel('lord', lords, f.lordId, lordName)}</div>
+        <div class="wheel-col ${f.everdark === true ? 'ever' : ''}"><div class="wheel-label">夜の王</div>${wheel('lord', lords, f.lordId, lordName)}</div>
         <div class="wheel-col"><div class="wheel-label">夜渡り</div>${wheel('char', CHARS, f.charId, charName, true)}</div>
       </div>
       <div class="pick-build"><div class="label">ビルド</div>

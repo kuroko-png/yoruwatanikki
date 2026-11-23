@@ -906,3 +906,6 @@ details.spare[open] { padding-bottom: 8px; }
 html, body { overflow-x: clip; overscroll-behavior-x: none; }
 /* 夜の王・夜渡りの欄は、上下の動きだけを受け付ける */
 .wheel { touch-action: pan-y; }
+
+/* 記録：「常夜」を選んだら、夜の王のアイコンを紫にする（白いアイコンを #a77cf0 くらいの紫に染める） */
+.wheel-col.ever .ico { filter: brightness(0) saturate(100%) invert(58%) sepia(48%) saturate(2400%) hue-rotate(225deg) brightness(100%); }
