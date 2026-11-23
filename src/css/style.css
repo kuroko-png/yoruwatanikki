@@ -705,3 +705,15 @@ body { min-height: calc(100vh + 1px); min-height: calc(100lvh + 1px); }
 .stats-toc .chip[aria-pressed="false"] { opacity: .55; text-decoration: line-through; }
 .bar-track.no-mid::after { display: none; }
 .lg-normal { color: #5fd3a0; } .lg-ever { color: #a77cf0; }
+
+/* スクショ読み取りの見本 */
+.scan-sample { justify-self: start; font-size: 13px; padding: 2px 0; }
+.sample-view { justify-content: flex-start; overflow-y: auto; touch-action: pan-y; }
+.sample-view .sample-list { display: grid; gap: 14px; width: 100%; max-width: 720px; margin: auto 0; }
+.sample-view figure { margin: 0; display: grid; gap: 6px; }
+.sample-view figcaption { font-size: 13px; color: var(--fg); font-weight: 700; }
+.sample-view img { width: 100%; max-height: none; border-radius: 8px; border: 1px solid var(--line-strong); }
+.sample-view .hint { text-align: center; }
+
+/* 記録：深度を選び忘れたとき */
+.need-mark { color: #f0b46a; font-weight: 400; font-size: 12px; margin-left: 4px; }

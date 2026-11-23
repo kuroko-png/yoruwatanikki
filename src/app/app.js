@@ -187,11 +187,12 @@ const card = (title, body, right = '') => `<section class="card-sec"><div class=
 function viewRecord() {
   const f = S.form;
   const dateOk = f.dateMode !== 'pick' || (/^\d{4}-\d{2}-\d{2}$/.test(f.date) && f.date <= today());
-  const canSave = dateOk && f.everdark !== null && f.lordId && f.charId && f.result;
+  const depthOk = f.mode !== 'deep' || !!f.depth || !!S.editRun;  // 前に深度なしで記録した戦績は、直すときは深度なしでも更新できる
+  const canSave = dateOk && f.everdark !== null && f.lordId && f.charId && f.result && depthOk;
   if (f.presetId && !activePresets().some(p => p.id === f.presetId) && !(S.editRun && f.presetId === S.form.origPresetId)) f.presetId = null;
   const presets = db.presets.filter(p => (!p.deleted && p.charId === f.charId) || p.id === f.presetId);
   const lords = lordsFor(f.everdark);
-  const missing = [!dateOk && '日付', f.everdark === null && '通常/常夜', !f.lordId && '夜の王', !f.charId && '夜渡り', !f.result && '結果'].filter(Boolean);
+  const missing = [!dateOk && '日付', f.everdark === null && '通常/常夜', !f.lordId && '夜の王', !f.charId && '夜渡り', !depthOk && '深度', !f.result && '結果'].filter(Boolean);
   const label = S.editRun ? '更新する' : '記録する';
   BAR = `${S.editRun ? '<button class="ghost" data-act="cancelEdit">やめる</button>' : ''}<button class="primary" data-act="save" ${canSave ? '' : 'disabled'}>${canSave ? label : `<span class="need">あと：${missing.join('・')}</span>`}</button>`;
   const chip = (act, v, label, on, cls = 'chip') => `<button class="${cls}" data-act="${act}" data-v="${v}" ${pressed(on)}>${label}</button>`;
@@ -205,6 +206,10 @@ function viewRecord() {
       f.lordId ? flagRow(f, chip) : '')}
     ${recDisc('char', '夜渡り', f.charId && CHAR[f.charId].name,
       `<div class="grid-btns">${CHARS.map(c => chip('char', c.id, charName(c.id), f.charId === c.id, 'tile-btn with-ico')).join('')}</div>`)}
+    ${card('モード', f.mode === 'deep' ? `<div class="subpanel"><div class="label">深度${f.depth ? '' : '<span class="need-mark">（選んでください）</span>'}</div>
+        <div class="depth-row">${DEPTHS.map(d => chip('depth', d, d, f.depth === d, 'chip depth')).join('')}</div></div>
+        <p class="hint">モードと深度は、次の記録でもそのまま選ばれます。</p>` : '',
+      `<div class="chips ever-toggle">${MODES.map(m => chip('mode', m.id, m.name, f.mode === m.id, 'chip')).join('')}</div>`)}
     ${f.charId ? card('ビルド', `<div class="chips one-line">${chip('preset', '', '記録無し', !f.presetId)}${presets.map(p => chip('preset', p.id, esc(presetLabel(p)), f.presetId === p.id)).join('')}</div>
       ${presets.length ? '' : `<p class="hint">${CHAR[f.charId].name}のプリセットはまだありません。「ビルド」タブで作れます。</p>`}`) : ''}
     ${card('結果', `<div class="result-row">
@@ -215,15 +220,11 @@ function viewRecord() {
     <details class="opt" ${S.optOpen ? 'open' : ''} data-details="opt">
       <summary><span>詳細</span><span class="tag">${esc(optSummary())}</span></summary>
       <div class="inner">
-        <div class="section"><div class="label">モード</div>
-          <div class="chips">${MODES.map(m => chip('mode', m.id, m.name, f.mode === m.id)).join('')}</div>
-          ${f.mode === 'deep' ? `<div class="subpanel"><div class="label">深度</div>
-            <div class="depth-row">${DEPTHS.map(d => chip('depth', d, d, f.depth === d, 'chip depth')).join('')}</div></div>` : ''}</div>
         <div class="section"><div class="label">人数</div>
           <div class="chips">${PARTY.map(m => chip('party', m.id, m.name, f.party === m.id)).join('')}</div></div>
         <div class="section"><div class="label">メモ（任意）</div>
           <textarea id="f-note" data-field="note" placeholder="例：最終戦で回復が足りなかった">${esc(f.note)}</textarea></div>
-        <p class="hint">モード・深度・人数は、次の記録でもそのまま使われます。</p>
+        <p class="hint">人数は、次の記録でもそのまま使われます。</p>
       </div>
     </details>
   </div>`;
@@ -249,7 +250,7 @@ function flagRow(f, chip) {
 const lordsFor = everdark => LORDS.filter(l => everdark !== true || l.everdark !== false);
 function optSummary() {
   const f = S.form;
-  const parts = [f.mode === 'deep' && f.depth ? `深き夜 深度${f.depth}` : MODE[f.mode].name, PARTYM[f.party].name];
+  const parts = [PARTYM[f.party].name, f.note.trim() ? 'メモあり' : ''].filter(Boolean);
   return parts.join('・');
 }
 
@@ -1048,6 +1049,7 @@ function editPreset() {
   const scanCard = `<section class="card-sec scan-card"><div class="sec-head"><h2>スクショから読み取る</h2></div>
     <div class="scan-btns">${scanBtn('normal', '表')}${scanBtn('deep', '深層')}</div>
     <p class="hint">${p.charId ? 'ゲームの「遺物儀式」画面のスクショを、表（スロット1〜3を選んだ画面）と深層（スロット4〜6を選んだ画面）で1枚ずつ選ぶと、遺物を自動で入れます。' : '先に夜渡りを選んでください。'}</p>
+    <button class="link-btn scan-sample" data-act="scanSample">📷 この画面です！（見本を見る）</button>
     <p class="hint scan-note">※ 端末の中で文字を読み取るので、とくに「＋」のあとの数字は間違っていることがあります。読み取ったあとは、ゲームの画面と見比べて確かめてください。</p></section>`;
   const styleName = p.style ? STYLES.find(x => x.id === p.style).name + ((p.spec || []).length ? `・${p.spec.join('/')}` : '') : '';
   const styleBody = `<div class="chips">${STYLES.map(x => `<button class="chip" data-act="eStyle" data-v="${x.id}" ${pressed(p.style === x.id)}>${x.name}</button>`).join('')}</div>
@@ -1171,6 +1173,12 @@ function renderSheet() {
   if (sh.type === 'report') { el.innerHTML = reportSheet(); return; }
   if (sh.type === 'restore') { el.innerHTML = restoreSheet(); return; }
   // 隠しの夜の王の画像を画面いっぱいに出す（どこをタップしても閉じる）
+  if (sh.type === 'scanSample') { el.innerHTML = `<div class="img-view sample-view" data-act="sClose" role="dialog" aria-label="スクショの見本">
+    <div class="sample-list">
+      <figure><figcaption>表（スロット1〜3のどれかを選んだ画面）</figcaption><img src="icons/scan/sample-normal.webp" alt="表のスクショの見本"></figure>
+      <figure><figcaption>深層（スロット4〜6のどれかを選んだ画面）</figcaption><img src="icons/scan/sample-deep.webp" alt="深層のスクショの見本"></figure>
+      <p class="hint">ゲームのスクショ機能で撮った画像を、切り取らずにそのまま選んでください。</p>
+    </div><span>タップで閉じる</span></div>`; return; }
   if (sh.type === 'image') { el.innerHTML = `<div class="img-view" data-act="sClose" role="dialog" aria-label="ゲーミングリブラの画像"><img src="${SECRET_IMAGE}" alt="ゲーミングリブラ"><span>タップで閉じる</span></div>`; return; }
   const isDem = sh.kind === 'demerits';
   const deep = S.edit.slot.k === 'deep';
@@ -1383,6 +1391,7 @@ document.addEventListener('click', e => {
     case 'menu': S.sheet = { type: 'menu' }; break;
     case 'help': S.sheet = { type: 'help' }; break;
     case 'secretImage': S.sheet = { type: 'image' }; break;
+    case 'scanSample': S.sheet = { type: 'scanSample' }; break;
     case 'guide': S.sheet = { type: 'guide' }; break;
     case 'guideClose': prefs().onboarded = true; S.sheet = null; break;
     case 'install': installPrompt?.prompt(); installPrompt = null; return;
@@ -1416,13 +1425,13 @@ document.addEventListener('click', e => {
     case 'char': if (f.charId !== v) f.presetId = lastPresetFor(v); f.charId = v; S.recOpen.char = false; break;
     case 'result': f.result = v; if (v === 'win') f.lossAt = null; break;
     case 'lossAt': f.lossAt = f.lossAt === v ? null : v; break;
-    case 'mode': f.mode = v; if (v !== 'deep') f.depth = null; if (!S.editRun) { prefs().mode = v; prefs().depth = f.depth; } break;
-    case 'depth': f.depth = f.depth === +v ? null : +v; if (!S.editRun) prefs().depth = f.depth; break;
+    case 'mode': f.mode = v; f.depth = v === 'deep' ? (f.depth || prefs().lastDepth || null) : null; if (!S.editRun) { prefs().mode = v; prefs().depth = f.depth; } break;
+    case 'depth': f.depth = +v; if (!S.editRun) { prefs().depth = f.depth; prefs().lastDepth = f.depth; } break;
     case 'party': f.party = v; if (!S.editRun) prefs().party = v; break;
     case 'preset': f.presetId = v || null; if (!S.editRun) (prefs().presetByChar ||= {})[f.charId] = f.presetId; break;
     case 'save': {
       const dateOk = f.dateMode !== 'pick' || (/^\d{4}-\d{2}-\d{2}$/.test(f.date) && f.date <= today());
-      if (!(dateOk && f.everdark !== null && f.lordId && f.charId && f.result)) return;
+      if (!(dateOk && f.everdark !== null && f.lordId && f.charId && f.result && (f.mode !== 'deep' || f.depth || S.editRun))) return;
       const date = f.dateMode === 'pick' ? f.date : f.dateMode === 'yesterday' ? daysAgo(1) : today();
       const p = f.presetId && presetById(f.presetId);
       const fields = { date, lordId: f.lordId, everdark: f.everdark, flags: f.flags, shift: f.flags.includes('shift') ? f.shift : null, mode: f.mode, depth: f.mode === 'deep' ? f.depth : null, party: f.party,
