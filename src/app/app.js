@@ -161,7 +161,7 @@ const blankForm = () => ({ dateMode: 'today', date: today(), lordId: DEFAULT_LOR
 const lastPresetFor = charId => { const id = (prefs().presetByChar || {})[charId]; return id && db.presets.some(p => p.id === id && !p.deleted) ? id : null; };
 const S = {
   tab: 'record', form: blankForm(), openRun: null, confirmDel: null,
-  stats: { scope: 'mine', period: 'all', mode: 'all', drill: {}, heatBy: 'lord' },
+  stats: { scope: 'mine', period: 'all', mode: 'all', drill: {} },
   hist: { result: 'all', lord: '', char: '' },
   enemy: { cat: 0, q: '', party: 'trio', partyOpen: false, lord: '', lordOpen: false, base: '', baseOpen: false, field: '', fieldOpen: false, mob: '', mobOpen: false, closed: {}, open: null, limit: 60 },  // 人数はトリオから。変えたいときだけ開く
   buildView: 'presets', edit: null, sheet: null,
@@ -431,21 +431,47 @@ const DRILL = {
 };
 const rate = arr => { const w = arr.filter(r => r.result === 'win').length; return { w, n: arr.length, p: arr.length ? w / arr.length : 0 }; };
 const STATS_MIN_RUNS = 5;  // これ未満の試合数は「参考」として下にまとめる
-function barRows(items, getRuns, opts = {}) {
-  const all = items.map(it => ({ it, ...rate(getRuns(it)) })).filter(x => x.n > 0);
-  if (!all.length) return `<p class="hint">この条件の記録はありません</p>`;
-  const enough = all.filter(x => x.n >= STATS_MIN_RUNS).sort((a, b) => b.p - a.p || b.n - a.n);
-  const few = all.filter(x => x.n < STATS_MIN_RUNS).sort((a, b) => b.n - a.n || b.p - a.p);
-  let rows = [...enough, ...few];
-  const limit = opts.limit && !(S.statsMore || {})[opts.key] ? opts.limit : Infinity;
-  const hidden = Math.max(0, rows.length - limit);
-  rows = rows.slice(0, limit);
-  const row = x => barRow(x, x.n < STATS_MIN_RUNS, opts.drill);
-  const shownEnough = rows.filter(x => x.n >= STATS_MIN_RUNS), shownFew = rows.filter(x => x.n < STATS_MIN_RUNS);
-  return `<div class="bars">${shownEnough.map(row).join('')}
-    ${shownFew.length ? `<div class="few-label">${STATS_MIN_RUNS}戦未満（参考）</div>${shownFew.map(row).join('')}` : ''}</div>
-    ${hidden ? `<button class="more-btn" data-act="statsMore" data-v="${opts.key}">すべて表示（残り${hidden}件）</button>` : ''}`;
+// ---------- 統計の部品（自分の統計・みんなの統計で共通。見た目をそろえるため） ----------
+// 1行：名前と数字、その下に勝率の棒（濃い部分＝ありそうな範囲、丸＝勝率、真ん中の線＝50%）
+// tap を渡すとボタンになる：{ act, v, k（任意）, open（開閉式のときだけ）, mark（右の印） }
+function ciRow(icon, name, x, extra = '', tap = null) {
+  const p = x.n ? x.w / x.n : 0, [lo, hi] = wilson(x.w, x.n), few = x.n < STATS_MIN_RUNS;
+  const inner = `<span class="name">${icon}${esc(name)}</span><span class="num">${x.n ? `<b>${pct(p)}</b><small>${x.w}/${x.n}</small>` : '<span class="none">まだなし</span>'}${extra}</span>
+    <span class="ci-track">${x.n ? `<span class="ci-band ${p >= .5 ? 'win' : 'loss'}" style="left:${lo * 100}%;width:${Math.max(1, (hi - lo) * 100)}%"></span><span class="ci-dot" style="left:${p * 100}%"></span>` : ''}</span>`;
+  if (!tap) return `<div class="bar-row ci-row ${few ? 'dim' : ''}">${inner}</div>`;
+  return `<button class="bar-row ci-row tap ${few ? 'dim' : ''} ${tap.open ? 'open' : ''}" data-act="${tap.act}" data-v="${esc(tap.v)}"${tap.k ? ` data-k="${tap.k}"` : ''}${tap.open != null ? ` aria-expanded="${tap.open}"` : ''}>${inner}<span class="go" aria-hidden="true">${tap.mark}</span></button>`;
 }
+// 並べ替え：信頼度（ありそうな範囲の下の端）・勝率・試合数
+function statCmp(a, b) {
+  const s = S.stats.gSort || 'lb';
+  return s === 'n' ? b.n - a.n : s === 'rate' ? (b.n ? b.w / b.n : -1) - (a.n ? a.w / a.n : -1) || b.n - a.n
+    : wilson(b.w, b.n)[0] - wilson(a.w, a.n)[0] || b.n - a.n;
+}
+const statShare = (n, sum) => sum ? `<em>${pct(n / sum)}</em>` : '';
+const statMinN = () => +(S.stats.gMin || 0);
+const statSortTools = () => `<div class="g-tools"><span class="grp"><span class="k">並び</span>${[['lb', '信頼度'], ['rate', '勝率'], ['n', '試合数']].map(([v, l]) => `<button class="chip mini" data-act="gSort" data-v="${v}" ${pressed((S.stats.gSort || 'lb') === v)}>${l}</button>`).join('')}</span>
+  <span class="grp"><span class="k">対象</span>${[['0', 'すべて'], ['5', '5戦〜'], ['20', '20戦〜']].map(([v, l]) => `<button class="chip mini" data-act="gMin" data-v="${v}" ${pressed(String(statMinN()) === v)}>${l}</button>`).join('')}</span></div>`;
+const statLegend = '<p class="hint g-legend">棒の濃い部分は「本当の勝率はたぶんこの範囲」（95%）。試合が少ないほど広くなります。「信頼度」順は、この範囲の下の端で並べるので、試合が少ないのにたまたま勝率が高いものは上に来ません。</p>';
+// 敗北の内訳（1日目・2日目・最終戦）
+const LOSS_COLS = [['d1', '1日目', '#f0b46a'], ['d2', '2日目', '#e3835e'], ['final', '最終戦', '#cf5a55']];
+function lossBar(obj) {
+  obj = obj || {}; const sum = LOSS_COLS.reduce((a, [k]) => a + (obj[k] || 0), 0);
+  return sum ? `<div class="stack">${LOSS_COLS.filter(([k]) => obj[k]).map(([k, , c]) => `<div style="flex:${obj[k]};background:${c}">${obj[k] / sum >= .14 ? pct(obj[k] / sum) : ''}</div>`).join('')}</div>
+    <div class="legend">${LOSS_COLS.map(([k, l, c]) => `<span><i style="background:${c}"></i>${l} ${obj[k] || 0}</span>`).join('')}</div>` : '<p class="hint">敗北の記録はまだありません。</p>';
+}
+// 相性の表：夜の王（縦）×夜渡り（横）の勝率。getX(夜の王id, 夜渡りid) → { w, n }
+function matchMatrix(lords, getX, ever) {
+  const sel = S.stats.gCell, zero = { n: 0, w: 0 };
+  const cell = (l, c) => { const x = getX(l.id, c.id) || zero, p = x.n ? x.w / x.n : null;
+    const col = p == null ? 'transparent' : `color-mix(in srgb, ${p >= .5 ? 'var(--win)' : 'var(--loss)'} ${x.n < STATS_MIN_RUNS ? 16 : Math.round(22 + Math.abs(p - .5) * 2 * 60)}%, var(--panel))`;
+    return `<button class="mx-cell ${x.n && x.n < STATS_MIN_RUNS ? 'few' : ''} ${sel === `${l.id}/${c.id}` ? 'on' : ''}" style="background:${col}" data-act="gCell" data-v="${l.id}/${c.id}" aria-label="${LORD[l.id].name}×${c.name}">${p == null ? '' : Math.round(p * 100)}</button>`; };
+  const [sl, sc] = (sel || '/').split('/'), sx = sel && LORD[sl] && CHAR[sc] ? getX(sl, sc) || zero : null;
+  return `<div class="mx"><span class="mx-corner"></span>${CHARS.map(c => `<span class="mx-h">${ico('char', c.id)}</span>`).join('')}
+    ${lords.map(l => `<span class="mx-r">${ico('lord', l.id, ever)}</span>${CHARS.map(c => cell(l, c)).join('')}`).join('')}</div>
+    <p class="hint mx-note">${sx ? `${LORD[sl].name}${ever ? '（常夜）' : ''} × ${CHAR[sc].name}：${sx.n ? `<b>${pct(sx.w / sx.n)}</b>（${sx.w}勝 ${sx.n - sx.w}敗）` : 'まだなし'}` : 'マスをタップすると、組み合わせの名前と勝敗数が出ます。'}</p>`;
+}
+// 分析のタブの列
+const statTabs = (tabs, cur, act) => `<div class="g-tabs" role="tablist">${tabs.map(([v, l]) => `<button role="tab" data-act="${act}" data-v="${v}" aria-selected="${cur === v}">${l}</button>`).join('')}</div>`;
 // 名前を1行目に全部出し、棒グラフは2行目に置く（長い名前が切れないように）。drill を渡すとタップで絞り込める
 // ---------- 自動バックアップ（引き継ぎコード＋暗号化） ----------
 // 記録・プリセットを、変えるたびに自動で受け取り口（スプレッドシート）へ保存する。最初から全員オン。
@@ -629,11 +655,6 @@ function gPeriodBar() {
     ${p === 'custom' ? `<div class="g-dates"><input type="date" data-gdate="gFrom" value="${r.from}" max="${today()}" aria-label="集計の開始日"><span>〜</span><input type="date" data-gdate="gTo" value="${r.to}" max="${today()}" aria-label="集計の終了日"></div>
       ${gRangeOk(r) ? '' : `<p class="hint">${!r.from ? '開始日を選んでください。' : '開始日は終了日より前にしてください。'}</p>`}` : ''}</div>`;
 }
-// 統計の項目は、上のボタンで表示・非表示を切り替えられる（端末に覚えておく）
-const STATS_MINE = ['勝率の推移', '夜の王別', '夜渡り別', '相性表', 'どこで倒れたか', 'ビルド別', '型・メイン武器別', '効果別'];
-const statHidden = () => (prefs().statsHidden ||= {});
-const cardIf = (title, ...rest) => statHidden()[title] ? '' : card(title, ...rest);
-const secToggles = list => `<div class="stats-toc" aria-label="表示する項目">${list.map(t => `<button class="chip mini" data-act="statToggle" data-v="${t}" ${pressed(!statHidden()[t])}>${t}</button>`).join('')}</div>`;
 // みんなの統計：参加・概要のカードと、項目ごとのカード
 function globalStats() {
   const o = onlinePrefs(), G = loadGlobal(), g = G.data, period = S.stats.gPeriod && S.stats.gPeriod !== 'all';
@@ -659,35 +680,21 @@ function globalStats() {
     </div>`;
   // ---------- ここから下：分析（タブで切り替え） ----------
   const zero = { n: 0, w: 0 };
-  const T = S.stats.gTab || 'char', sortBy = S.stats.gSort || 'lb', minN = +(S.stats.gMin || 0), ever = !!S.stats.gEver;
+  const T = S.stats.gTab || 'char', minN = statMinN(), ever = !!S.stats.gEver;
   const fresh = !!g.weaponW;  // 分析用の集計がある新しい受け取り口か
   const wait = '<p class="hint">この分析は、スプレッドシート側の更新後に表示されます。</p>';
   const lordKey = id => id + (ever ? ':ever' : '');
   const lordList = lordsFor(ever ? true : false);
   const DK = [['normal', '通常'], ['deep1', '深度1'], ['deep2', '深度2'], ['deep3', '深度3'], ['deep4', '深度4'], ['deep5', '深度5']];
   const PT = [['solo', 'ソロ'], ['duo', 'デュオ'], ['trio', 'トリオ']];
-  const LS = [['d1', '1日目', '#f0b46a'], ['d2', '2日目', '#e3835e'], ['final', '最終戦', '#cf5a55']];
-  // 1行：名前と数字、その下に勝率の棒（濃い部分＝ありそうな範囲、丸＝勝率、真ん中の線＝50%）
-  const rateLine = (icon, name, x, extra = '', act = '', open = false) => {
-    const p = x.n ? x.w / x.n : 0, [lo, hi] = wilson(x.w, x.n), few = x.n < STATS_MIN_RUNS;
-    const inner = `<span class="name">${icon}${esc(name)}</span><span class="num">${x.n ? `<b>${pct(p)}</b><small>${x.w}/${x.n}</small>` : '<span class="none">まだなし</span>'}${extra}</span>
-      <span class="ci-track">${x.n ? `<span class="ci-band ${p >= .5 ? 'win' : 'loss'}" style="left:${lo * 100}%;width:${Math.max(1, (hi - lo) * 100)}%"></span><span class="ci-dot" style="left:${p * 100}%"></span>` : ''}</span>`;
-    return act ? `<button class="bar-row ci-row tap ${few ? 'dim' : ''} ${open ? 'open' : ''}" data-act="gOpen" data-v="${act}" aria-expanded="${open}">${inner}<span class="go" aria-hidden="true">${open ? '−' : '+'}</span></button>`
-      : `<div class="bar-row ci-row ${few ? 'dim' : ''}">${inner}</div>`;
-  };
-  // 並べ替え：信頼度（ありそうな範囲の下の端）・勝率・試合数
-  const sorter = (a, b) => sortBy === 'n' ? b.x.n - a.x.n : sortBy === 'rate' ? (b.x.n ? b.x.w / b.x.n : -1) - (a.x.n ? a.x.w / a.x.n : -1) || b.x.n - a.x.n
-    : wilson(b.x.w, b.x.n)[0] - wilson(a.x.w, a.x.n)[0] || b.x.n - a.x.n;
-  const share = (n, sum) => sum ? `<em>${pct(n / sum)}</em>` : '';
-  const listOf = (items, sum, drillKey) => { const shown = items.filter(it => it.x.n >= minN).sort(sorter);
+  const rateLine = (icon, name, x, extra = '', act = '', open = false) => ciRow(icon, name, x, extra, act ? { act: 'gOpen', v: act, open, mark: open ? '−' : '+' } : null);
+  const share = statShare;
+  const listOf = (items, sum, drillKey) => { const shown = items.filter(it => it.x.n >= minN).sort((a, b) => statCmp(a.x, b.x));
     return shown.length ? shown.map(it => { const key = drillKey ? `${drillKey}:${it.id}` : '', open = !!key && S.stats.gOpen === key;
       return rateLine(it.icon || '', it.name, it.x, share(it.x.n, sum), key, open) + (open ? `<div class="g-drill">${it.drill()}</div>` : ''); }).join('')
       : `<p class="hint">${minN ? `${minN}戦以上のものはありません。` : 'まだデータがありません。'}</p>`; };
   const mini = (title, items, sum) => { const rows = items.filter(it => it.x.n).sort((a, b) => b.x.n - a.x.n);
     return `<div class="g-mini"><div class="g-mini-h">${title}</div>${rows.length ? rows.map(it => rateLine(it.icon || '', it.name, it.x, share(it.x.n, sum))).join('') : '<p class="hint">まだデータがありません。</p>'}</div>`; };
-  const lossBar = obj => { obj = obj || {}; const sum = LS.reduce((a, [k]) => a + (obj[k] || 0), 0);
-    return sum ? `<div class="stack">${LS.filter(([k]) => obj[k]).map(([k, , c]) => `<div style="flex:${obj[k]};background:${c}">${obj[k] / sum >= .14 ? pct(obj[k] / sum) : ''}</div>`).join('')}</div>
-      <div class="legend">${LS.map(([k, l, c]) => `<span><i style="background:${c}"></i>${l} ${obj[k] || 0}</span>`).join('')}</div>` : '<p class="hint">敗北の記録はまだありません。</p>'; };
   const lc = g.lordChar || {};
   // 夜渡りを開いたとき：夜の王別・深度別・人数別・武器別
   const charDrill = id => () => {
@@ -704,8 +711,7 @@ function globalStats() {
       + mini('人数別', PT.map(([p, l]) => ({ name: l, x: ((g.lordParty || {})[k] || {})[p] || zero })), lx.n)
       + `<div class="g-mini"><div class="g-mini-h">どこで倒れたか</div>${lossBar((g.lordLoss || {})[k])}</div>` : wait); };
   let body = '', tools = '';
-  const sortTools = `<div class="g-tools"><span class="grp"><span class="k">並び</span>${[['lb', '信頼度'], ['rate', '勝率'], ['n', '試合数']].map(([v, l]) => `<button class="chip mini" data-act="gSort" data-v="${v}" ${pressed(sortBy === v)}>${l}</button>`).join('')}</span>
-    <span class="grp"><span class="k">対象</span>${[['0', 'すべて'], ['5', '5戦〜'], ['20', '20戦〜']].map(([v, l]) => `<button class="chip mini" data-act="gMin" data-v="${v}" ${pressed(String(minN) === v)}>${l}</button>`).join('')}</span></div>`;
+  const sortTools = statSortTools();
   const everTool = `<button class="ever-switch ${ever ? 'on' : ''}" data-act="gEver" aria-pressed="${ever}">常夜</button>`;
   if (T === 'char') { tools = sortTools;
     body = `<p class="hint">右の％は使用率。行をタップすると、夜の王別・深度別・人数別・武器別の勝率が見られます。</p>`
@@ -714,14 +720,7 @@ function globalStats() {
     const sum = lordList.reduce((a, l) => a + (((g.lord || {})[lordKey(l.id)] || zero).n), 0);
     body = listOf(lordList.map(l => ({ id: l.id, icon: ico('lord', l.id, ever), name: LORD[l.id].name, x: (g.lord || {})[lordKey(l.id)] || zero, drill: lordDrill(l.id) })), sum, 'l'); }
   if (T === 'match') { tools = `<div class="g-tools">${everTool}<span class="hint">夜の王（縦）×夜渡り（横）の勝率（%）。薄いマスは5戦未満</span></div>`;
-    const sel = S.stats.gCell;
-    const cell = (l, c) => { const x = lc[`${lordKey(l.id)}/${c.id}`] || zero, p = x.n ? x.w / x.n : null;
-      const col = p == null ? 'transparent' : `color-mix(in srgb, ${p >= .5 ? 'var(--win)' : 'var(--loss)'} ${x.n < STATS_MIN_RUNS ? 16 : Math.round(22 + Math.abs(p - .5) * 2 * 60)}%, var(--panel))`;
-      return `<button class="mx-cell ${x.n && x.n < STATS_MIN_RUNS ? 'few' : ''} ${sel === `${l.id}/${c.id}` ? 'on' : ''}" style="background:${col}" data-act="gCell" data-v="${l.id}/${c.id}" aria-label="${LORD[l.id].name}×${c.name}">${p == null ? '' : Math.round(p * 100)}</button>`; };
-    const [sl, sc] = (sel || '/').split('/'), sx = sel && LORD[sl] ? lc[`${lordKey(sl)}/${sc}`] || zero : null;
-    body = `<div class="mx"><span class="mx-corner"></span>${CHARS.map(c => `<span class="mx-h">${ico('char', c.id)}</span>`).join('')}
-      ${lordList.map(l => `<span class="mx-r">${ico('lord', l.id, ever)}</span>${CHARS.map(c => cell(l, c)).join('')}`).join('')}</div>
-      <p class="hint mx-note">${sx ? `${LORD[sl].name}${ever ? '（常夜）' : ''} × ${CHAR[sc].name}：${sx.n ? `<b>${pct(sx.w / sx.n)}</b>（${sx.w}勝 ${sx.n - sx.w}敗）` : 'まだなし'}` : 'マスをタップすると、組み合わせの名前と勝敗数が出ます。'}</p>`; }
+    body = matchMatrix(lordList, (l, c) => lc[`${lordKey(l)}/${c}`], ever); }
   if (T === 'gear') { tools = sortTools;
     const ws = Object.entries(g.weaponW || {}).filter(([k]) => WEAPON_TYPES.includes(k)), wsum = ws.reduce((a, [, x]) => a + x.n, 0);
     const ss = Object.entries(g.styleW || {}), ssum = ss.reduce((a, [, x]) => a + x.n, 0);
@@ -731,17 +730,17 @@ function globalStats() {
   if (T === 'trend') body = !fresh ? wait : trendChart(g.trend || {}, gRange());
   if (T === 'loss') { tools = `<div class="g-tools">${everTool}<span class="hint">負けた試合が、どこで倒れたか</span></div>`;
     body = !fresh ? wait : `<div class="g-mini"><div class="g-mini-h">全体</div>${lossBar(g.loss)}</div>
-      ${lordList.map(l => { const o = (g.lordLoss || {})[lordKey(l.id)] || {}, n = LS.reduce((a, [k]) => a + (o[k] || 0), 0);
+      ${lordList.map(l => { const o = (g.lordLoss || {})[lordKey(l.id)] || {}, n = LOSS_COLS.reduce((a, [k]) => a + (o[k] || 0), 0);
         return n ? `<div class="g-mini"><div class="g-mini-h">${ico('lord', l.id, ever)}${LORD[l.id].name}<small>${n}敗</small></div>${lossBar(o)}</div>` : ''; }).join('')}`; }
   const TABS_G = [['char', '夜渡り'], ['lord', '夜の王'], ['match', '相性'], ['gear', '武器・型'], ['mode', '深度・人数'], ['trend', '推移'], ['loss', '敗北']];
   return `${dash}
     ${fewNote}
     <div class="join-wrap">${join}</div>
     <section class="card-sec g-ana">
-      <div class="g-tabs" role="tablist">${TABS_G.map(([v, l]) => `<button role="tab" data-act="gTab" data-v="${v}" aria-selected="${T === v}">${l}</button>`).join('')}</div>
+      ${statTabs(TABS_G, T, 'gTab')}
       ${tools}
       <div class="bars g-body">${body}</div>
-      ${['char', 'lord', 'gear'].includes(T) ? '<p class="hint g-legend">棒の濃い部分は「本当の勝率はたぶんこの範囲」（95%）。試合が少ないほど広くなります。「信頼度」順は、この範囲の下の端で並べるので、試合が少ないのにたまたま勝率が高いものは上に来ません。</p>' : ''}
+      ${['char', 'lord', 'gear'].includes(T) ? statLegend : ''}
     </section>`;
 }
 // 勝率の「ありそうな範囲」（ウィルソンの95%信頼区間）。試合が少ないほど広い
@@ -833,13 +832,6 @@ function reportSheet() {
 }
 // 自分の統計で「常夜の王」に絞っているときは、夜の王のアイコンを紫にする
 const myEver = () => S.stats.scope !== 'all' && S.stats.mode === 'ever';
-function barRow(x, dim, drill) {
-  const inner = `<span class="name">${ico(drill, x.it.id, myEver())}${esc(x.it.name)}</span><span class="num"><b>${pct(x.p)}</b> ${x.w}/${x.n}</span>
-    <span class="bar-track"><span class="bar-fill" style="width:${x.p * 100}%;background:${x.p >= .5 ? 'var(--grad-win)' : 'var(--grad-loss)'}"></span></span>`;
-  return drill
-    ? `<button class="bar-row tap ${dim ? 'dim' : ''}" data-act="drill" data-k="${drill}" data-v="${esc(x.it.id)}">${inner}<span class="go" aria-hidden="true">›</span></button>`
-    : `<div class="bar-row ${dim ? 'dim' : ''}">${inner}</div>`;
-}
 function drillBanner() {
   const keys = Object.keys(S.stats.drill);
   if (!keys.length) return `<p class="hint">各項目の行をタップすると、その条件に絞って詳しく見られます。</p>`;
@@ -853,39 +845,57 @@ function viewStats() {
   const chrono = [...runs].sort((a, b) => a.date.localeCompare(b.date) || a.updatedAt - b.updatedAt);
   let streak = 0; for (let i = chrono.length - 1; i >= 0 && chrono[i].result === 'win'; i--) streak++;
   let best = 0, cur = 0; chrono.forEach(r => { cur = r.result === 'win' ? cur + 1 : 0; best = Math.max(best, cur); });
-  const losses = runs.filter(r => r.result === 'loss');
-  const lossCounts = LOSS_AT.map(x => ({ ...x, n: losses.filter(r => r.lossAt === x.id).length }));
-  const lossColors = { d1: '#f0b46a', d2: '#e3835e', final: '#cf5a55' };
-  const lossTotal = lossCounts.reduce((s, x) => s + x.n, 0);
-  const filterChips = (key, opts) => opts.map(([v, l]) => `<button class="chip small" data-act="sf" data-k="${key}" data-v="${v}" ${pressed(S.stats[key] === v)}>${l}</button>`).join('');
+  const lossObj = Object.fromEntries(LOSS_AT.map(x => [x.id, runs.filter(r => r.result === 'loss' && r.lossAt === x.id).length]));
+  const filterChips = (key, opts) => `<div class="chips" style="--n:${opts.length}">${opts.map(([v, l]) => `<button class="chip small" data-act="sf" data-k="${key}" data-v="${v}" ${pressed(S.stats[key] === v)}>${l}</button>`).join('')}</div>`;
   const scopeSeg = `<div class="seg scope-seg">${[['mine', '自分の統計'], ['all', 'みんなの統計']].map(([v, l]) => `<button data-act="statsScope" data-v="${v}" ${pressed(S.stats.scope === v)}>${l}</button>`).join('')}</div>`;
   if (S.stats.scope === 'all') return `<div class="stack-lg">${scopeSeg}${globalStats()}</div>`;
+  const periodBar = `<div class="g-period">${filterChips('period', [['all', '全期間'], ['30', '30日'], ['7', '7日']])}${filterChips('mode', [['all', 'すべて'], ['normal', '通常'], ['deep', '深き夜'], ['ever', '常夜の王']])}</div>`;
+  if (!runs.length) return `<div class="stack-lg">${scopeSeg}${periodBar}${drillBanner()}<div class="empty-state">この条件の記録はありません</div></div>`;
+  // ---------- 分析（みんなの統計と同じタブ式。行をタップすると、その条件に絞り込む） ----------
+  const T = S.stats.mTab || 'char', ev = myEver(), minN = statMinN();
+  const list = (items, getRuns, drill, opts = {}) => {
+    const rows = items.map(it => ({ it, x: rate(getRuns(it)) })).filter(r => r.x.n && r.x.n >= minN).sort((a, b) => statCmp(a.x, b.x));
+    if (!rows.length) return `<p class="hint">${minN ? `${minN}戦以上のものはありません。` : 'この条件の記録はありません。'}</p>`;
+    const limit = opts.limit && !(S.statsMore || {})[opts.key] ? opts.limit : Infinity, hidden = Math.max(0, rows.length - limit);
+    return rows.slice(0, limit).map(r => ciRow(ico(drill, r.it.id, ev), r.it.name, r.x, statShare(r.x.n, all.n), { act: 'drill', k: drill, v: r.it.id, mark: '›' })).join('')
+      + (hidden ? `<button class="more-btn" data-act="statsMore" data-v="${opts.key}">すべて表示（残り${hidden}件）</button>` : '');
+  };
+  let body = '', tools = '';
+  if (T === 'char') { tools = statSortTools();
+    body = '<p class="hint">右の％は使用率。行をタップすると、その夜渡りに絞り込んで見られます。</p>' + list(CHARS, c => runs.filter(r => r.charId === c.id), 'char'); }
+  if (T === 'lord') { tools = statSortTools();
+    body = '<p class="hint">右の％は出現率。勝率＝討伐率。行をタップすると、その夜の王に絞り込んで見られます。</p>' + list(LORDS, l => runs.filter(r => r.lordId === l.id), 'lord'); }
+  if (T === 'match') {
+    tools = `<div class="g-tools"><span class="hint">夜の王（縦）×夜渡り（横）の勝率（%）。薄いマスは${STATS_MIN_RUNS}戦未満</span></div>`;
+    body = matchMatrix(LORDS.filter(l => runs.some(r => r.lordId === l.id)), (l, c) => rate(runs.filter(r => r.lordId === l && r.charId === c)), ev); }
+  if (T === 'build') { tools = statSortTools();
+    body = list([...db.presets.map(p => ({ id: p.id, name: presetLabel(p) })), { id: '__none', name: 'ビルドなし' }, { id: '__gone', name: '削除済み（詳細不明）' }], p => runs.filter(r => DRILL.preset.match(r, p.id)), 'preset'); }
+  if (T === 'gear') { tools = statSortTools();
+    body = `<div class="g-mini-h">メイン武器</div><p class="hint">ビルドを登録して記録された戦績が対象。右の％は使用率</p>${list(WEAPON_TYPES.map(w => ({ id: w, name: w })), w => runs.filter(r => runBuild(r)?.weaponType === w.id), 'weapon')}
+      <div class="g-mini-h">型</div>${list(STYLES, st => runs.filter(r => runBuild(r)?.style === st.id), 'style')}`; }
+  if (T === 'effect') { tools = statSortTools();
+    body = '<p class="hint">その効果を積んでいた試合の勝率。プリセットに登録した効果だけが対象です。右の％は採用率</p>'
+      + list(usedEffects(runs).filter(ef => ef.id !== dr.effect), ef => runs.filter(r => presetHasEffect(r, ef.id)), 'effect', { limit: 10, key: 'effects' }); }
+  if (T === 'trend') body = `<p class="hint">直近10戦ごとの勝率。点線は50%</p>${spark(chrono)}`;
+  if (T === 'loss') body = `<div class="g-mini"><div class="g-mini-h">全体</div>${lossBar(lossObj)}</div>
+    ${LORDS.map(l => { const o = Object.fromEntries(LOSS_AT.map(x => [x.id, runs.filter(r => r.result === 'loss' && r.lordId === l.id && r.lossAt === x.id).length])), n = LOSS_AT.reduce((a, x) => a + o[x.id], 0);
+      return n ? `<div class="g-mini"><div class="g-mini-h">${ico('lord', l.id, ev)}${LORD[l.id].name}<small>${n}敗</small></div>${lossBar(o)}</div>` : ''; }).join('')}`;
+  const TABS_M = [['char', '夜渡り'], ['lord', '夜の王'], ['match', '相性'], ['build', 'ビルド'], ['gear', '武器・型'], ['effect', '効果'], ['trend', '推移'], ['loss', '敗北']];
   return `<div class="stack-lg">
     ${scopeSeg}
-    <div class="filters">
-      <div class="chips">${filterChips('period', [['all', '全期間'], ['30', '30日'], ['7', '7日']])}</div>
-      <div class="chips">${filterChips('mode', [['all', 'すべて'], ['normal', '通常'], ['deep', '深き夜'], ['ever', '常夜の王']])}</div>
-    </div>
-    ${drillBanner()}
-    ${runs.length ? `
-    ${secToggles(STATS_MINE)}
-    <div class="tiles">
+    ${periodBar}
+    <div class="tiles dash">
       <div class="tile"><div class="k">戦数</div><div class="v">${all.n}</div><div class="s">${all.w}勝 ${all.n - all.w}敗</div></div>
       <div class="tile"><div class="k">勝率</div><div class="v">${pct(all.p)}</div><div class="s">${{ all: '全期間', 30: '直近30日', 7: '直近7日' }[S.stats.period]}</div></div>
       <div class="tile"><div class="k">連勝</div><div class="v">${streak}</div><div class="s">最高 ${best}</div></div>
     </div>
-    ${cardIf('勝率の推移', `<p class="hint">直近10戦ごとの勝率。点線は50%</p>${spark(chrono)}`)}
-    ${dr.lord ? '' : cardIf('夜の王別', barRows(LORDS, l => runs.filter(r => r.lordId === l.id), { drill: 'lord' }))}
-    ${dr.char ? '' : cardIf('夜渡り別', barRows(CHARS, c => runs.filter(r => r.charId === c.id), { drill: 'char' }))}
-    ${dr.lord || dr.char ? '' : cardIf('相性表', heat(runs), `<div class="chips">${[['lord', '夜の王ごと'], ['char', '夜渡りごと']].map(([v, l]) => `<button class="chip small" data-act="heatBy" data-v="${v}" ${pressed(S.stats.heatBy === v)}>${l}</button>`).join('')}</div>`)}
-    ${cardIf('どこで倒れたか', lossTotal ? `<div class="stack">${lossCounts.filter(x => x.n).map(x => `<div style="flex:${x.n};background:${lossColors[x.id]}">${x.n >= lossTotal * .12 ? pct(x.n / lossTotal) : ''}</div>`).join('')}</div>
-      <div class="legend">${lossCounts.map(x => `<span><i style="background:${lossColors[x.id]}"></i>${x.name} ${x.n}回</span>`).join('')}</div>` : `<p class="hint">敗北の記録はありません</p>`)}
-    ${dr.preset ? '' : cardIf('ビルド別', barRows([...db.presets.map(p => ({ id: p.id, name: presetLabel(p) })), { id: '__none', name: 'ビルドなし' }, { id: '__gone', name: '削除済み（詳細不明）' }],
-      p => runs.filter(r => DRILL.preset.match(r, p.id)), { drill: 'preset' }))}
-    ${dr.style && dr.weapon ? '' : cardIf('型・メイン武器別', `${dr.style ? '' : barRows(STYLES, st => runs.filter(r => runBuild(r)?.style === st.id), { drill: 'style' })}
-      ${dr.weapon ? '' : barRows(WEAPON_TYPES.map(w => ({ id: w, name: w })), w => runs.filter(r => runBuild(r)?.weaponType === w.id), { drill: 'weapon' })}`)}
-    ${cardIf('効果別', `<p class="hint">その効果を積んでいた試合の勝率。プリセットに登録した効果だけが対象です</p>
-      ${barRows(usedEffects(runs).filter(ef => ef.id !== dr.effect), ef => runs.filter(r => presetHasEffect(r, ef.id)), { limit: 10, key: 'effects', drill: 'effect' })}`)}` : `<div class="empty-state">この条件の記録はありません</div>`}
+    ${drillBanner()}
+    <section class="card-sec g-ana">
+      ${statTabs(TABS_M, T, 'mTab')}
+      ${tools}
+      <div class="bars g-body">${body}</div>
+      ${['char', 'lord', 'build', 'gear', 'effect'].includes(T) ? statLegend : ''}
+    </section>
   </div>`;
 }
 function spark(chrono) {
@@ -906,23 +916,6 @@ function spark(chrono) {
     <text x="${W - padX - 6}" y="${Math.max(14, y(last) - 8)}" fill="var(--fg)" font-size="11" text-anchor="end">${pct(last)}</text>
   </svg>`;
 }
-// 相性表：横に広い表をやめて、夜の王（または夜渡り）ごとに、相手との勝率を色付きの札で並べる
-function heat(runs) {
-  const byLord = S.stats.heatBy !== 'char';
-  const groups = byLord ? LORDS : CHARS, others = byLord ? CHARS : LORDS;
-  const gKey = byLord ? 'lordId' : 'charId', oKey = byLord ? 'charId' : 'lordId';
-  const rows = groups.filter(g => runs.some(r => r[gKey] === g.id)).map(g => {
-    const mine = runs.filter(r => r[gKey] === g.id);
-    const cells = others.map(o => ({ o, ...rate(mine.filter(r => r[oKey] === o.id)) })).filter(x => x.n).sort((a, b) => b.n - a.n || b.p - a.p);
-    return `<div class="match-group"><div class="match-head"><b>${ico(byLord ? 'lord' : 'char', g.id, myEver())}${g.name}</b><span>${rate(mine).n}戦</span></div><div class="match-cells">${cells.map(x => {
-      const col = x.p >= .5 ? 'var(--win)' : 'var(--loss)';
-      const strength = x.n < STATS_MIN_RUNS ? 14 : Math.round(18 + Math.abs(x.p - .5) * 2 * 60);  // 戦数が少ないものは、色を薄くして目立たせない
-      return `<span class="match ${x.n < STATS_MIN_RUNS ? 'few' : ''}" style="background:color-mix(in srgb, ${col} ${strength}%, var(--panel))"><span class="nm">${ico(byLord ? 'char' : 'lord', x.o.id, myEver())}${x.o.name}</span><b>${pct(x.p)}</b><small>${x.w}/${x.n}</small></span>`;
-    }).join('')}</div></div>`;
-  });
-  return `<p class="hint">${byLord ? '夜の王ごとに、使った夜渡りの勝率' : '夜渡りごとに、戦った夜の王との勝率'}。緑ほど勝ち越し、赤ほど負け越し。点線で色の薄い札は${STATS_MIN_RUNS}戦未満（参考）です</p><div class="match-list">${rows.join('')}</div>`;
-}
-
 function relicSub(r) { if (r.special) return SPECIAL[r.special].effects.join('・'); return r.effects.filter(Boolean).map(e => ALL_EFF[e].name).join('・') || '効果未登録'; }
 const presetRelics = p => [...p.normal, ...p.deep].filter(Boolean);
 function presetHasEffect(run, effId) {
@@ -1837,12 +1830,12 @@ document.addEventListener('click', e => {
     case 'hf': S.hist.result = v; S.openRun = null; break;
     case 'hfClear': S.hist = { result: 'all', lord: '', char: '' }; S.openRun = null; break;
     case 'sf': S.stats[t.dataset.k] = v; break;
-    case 'drill': S.stats.drill[t.dataset.k] = v; scrollTop(); break;
+    // 絞り込んだら、その中身が見やすいタブへ（夜渡り → 夜の王別、それ以外 → 夜渡り別）
+    case 'drill': S.stats.drill[t.dataset.k] = v; S.stats.mTab = t.dataset.k === 'char' ? 'lord' : 'char'; S.stats.gCell = null; scrollTop(); break;
     case 'undrill': delete S.stats.drill[v]; break;
     case 'undrillAll': S.stats.drill = {}; break;
-    case 'heatBy': S.stats.heatBy = v; break;
-    case 'statsScope': S.stats.scope = v; scrollTop(); break;
-    case 'statToggle': { const h = statHidden(); if (h[v]) delete h[v]; else h[v] = true; break; }
+    case 'statsScope': S.stats.scope = v; S.stats.gCell = null; scrollTop(); break;
+    case 'mTab': S.stats.mTab = v; S.stats.gCell = null; break;
     case 'lordSort': S.stats.lordSort = v; break;
     case 'gEver': S.stats.gEver = !S.stats.gEver; S.stats.gOpen = null; S.stats.gCell = null; break;
     case 'gTab': S.stats.gTab = v; S.stats.gOpen = null; break;
