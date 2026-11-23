@@ -162,12 +162,18 @@ function doPost(e) {
 }
 
 // みんなの統計（3分ごとに数え直す）
+// from・to（yyyy-MM-dd）を付けると、その期間（両端の日を含む）の戦績だけを数える。付けなければ全期間。
+// 返す range に、実際に使った期間を入れる（アプリはこれを見て、期間の絞り込みに対応した版かを確かめる）
 function doGet(e) {
-  const type = (e.parameter || {}).type;
+  const prm = e.parameter || {};
+  const type = prm.type;
   if (type === 'builds') return builds_();
   if (type !== 'stats') return json_({ ok: true, app: 'yoru-no-konseki' });
+  const ymd = x => (/^\d{4}-\d{2}-\d{2}$/.test(String(x || '')) ? String(x) : '');
+  const from = ymd(prm.from), to = ymd(prm.to);
+  const cacheKey = 'stats' + (from || to ? ':' + from + ':' + to : '');
   const cache = CacheService.getScriptCache();
-  const hit = cache.get('stats');
+  const hit = cache.get(cacheKey);
   if (hit) return ContentService.createTextOutput(hit).setMimeType(ContentService.MimeType.JSON);
   const sh = sheet_('runs', RUN_COLS);
   const values = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, RUN_COLS.length).getValues() : [];
@@ -175,7 +181,7 @@ function doGet(e) {
   const latest = {};
   values.forEach(v => { const k = v[1] + '/' + v[2]; if (!latest[k] || v[13] >= latest[k][13]) latest[k] = v; });
   const add = (map, key, win) => { const x = map[key] || (map[key] = { n: 0, w: 0 }); x.n++; if (win) x.w++; };
-  const out = { ok: true, updatedAt: Date.now(), players: 0, total: { n: 0, w: 0 }, lord: {}, char: {}, lordChar: {}, style: {}, weapon: {}, depth: {}, party: {},
+  const out = { ok: true, updatedAt: Date.now(), range: { from: from, to: to }, players: 0, total: { n: 0, w: 0 }, lord: {}, char: {}, lordChar: {}, style: {}, weapon: {}, depth: {}, party: {},
     byDate: {}, charDepth: {}, charWeapon: {}, charStyle: {} };
   const since = Utilities.formatDate(new Date(Date.now() - 14 * 864e5), 'Asia/Tokyo', 'yyyy-MM-dd');
   const inc = (map, a, b) => { const m = map[a] || (map[a] = {}); m[b] = (m[b] || 0) + 1; };
@@ -187,6 +193,8 @@ function doGet(e) {
     const v = latest[k];
     if (v[12] === true || v[12] === 'TRUE') return;  // 消された戦績
     if (perDay[dayKey(v)] > MAX_RUNS_PER_DAY) return;  // 1日に人が遊べる数を超える分は数えない
+    const day = v[3] instanceof Date ? Utilities.formatDate(v[3], 'Asia/Tokyo', 'yyyy-MM-dd') : String(v[3]).slice(0, 10);
+    if ((from && day < from) || (to && day > to)) return;  // 期間の外
     const win = v[10] === 'win', lord = v[4] + (v[5] === true || v[5] === 'TRUE' ? ':ever' : '');
     players[v[1]] = 1;
     add(out, 'total', win);
@@ -208,7 +216,7 @@ function doGet(e) {
   });
   out.players = Object.keys(players).length;
   const text = JSON.stringify(out);
-  cache.put('stats', text, 180);  // 3分ごとに数え直す
+  cache.put(cacheKey, text, 180);  // 3分ごとに数え直す
   return ContentService.createTextOutput(text).setMimeType(ContentService.MimeType.JSON);
 }
 

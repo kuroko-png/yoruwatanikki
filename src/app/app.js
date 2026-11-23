@@ -583,22 +583,47 @@ async function syncRuns() {
       part.forEach(r => { o.sent[r.id] = r.sample ? SAMPLE_GONE : runSig(r); });
       save(db);
     }
-    GLOBAL.at = 0;  // 次に統計を開いたときは取り直す
+    resetGlobal();  // 次に統計を開いたときは取り直す
   } catch (e) { /* 通信できなければ、次に開いたときにまた送る */ } finally { syncing = false; }
 }
-// みんなの勝率（受け取り口で10分ごとに数え直したもの）
-const GLOBAL = { data: null, at: 0, loading: false, failed: false };
+// みんなの統計（受け取り口で3分ごとに数え直したもの）。期間（全期間・30日・7日・今日・指定）ごとに別々に持つ
 const CACHE_KEY = 'yowatari-nikki-online-cache';
 const readCache = k => { try { return JSON.parse(localStorage.getItem(CACHE_KEY) || '{}')[k] || null; } catch { return null; } };
 const writeCache = (k, v) => { try { const c = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); c[k] = v; localStorage.setItem(CACHE_KEY, JSON.stringify(c)); } catch { /* 保存できなくても動く */ } };
+const GLOBALS = {};
+const G_PERIODS = [['all', '全期間'], ['30', '30日'], ['7', '7日'], ['1', '今日'], ['custom', '指定']];
+// 今選んでいる期間（from・to は yyyy-MM-dd。全期間は空）
+function gRange() {
+  const p = S.stats.gPeriod || 'all';
+  if (p === 'all') return { from: '', to: '' };
+  if (p === 'custom') return { from: S.stats.gFrom || '', to: S.stats.gTo || today() };
+  return { from: daysAgo(+p - 1), to: today() };
+}
+const gKeyOf = r => r.from || r.to ? `${r.from}:${r.to}` : 'all';
+const gState = k => (GLOBALS[k] ||= { data: k === 'all' ? readCache('stats') : null, at: 0, loading: false, failed: false, unsupported: false });  // 全期間は前回の結果をすぐ出す
+const resetGlobal = () => Object.values(GLOBALS).forEach(x => { x.at = 0; });  // 次に開いたときは取り直す
+const gRangeOk = r => S.stats.gPeriod !== 'custom' || (!!r.from && !!r.to && r.from <= r.to && r.to <= today());
 function loadGlobal() {
-  if (!GLOBAL.data) GLOBAL.data = readCache('stats');  // 前回の結果をすぐ出す
-  if (GLOBAL.loading || Date.now() - GLOBAL.at < 3 * 60e3) return;
-  GLOBAL.loading = true;
+  const r = gRange(), k = gKeyOf(r), G = gState(k);
+  if (G.loading || !gRangeOk(r) || Date.now() - G.at < 3 * 60e3) return G;
+  G.loading = true;
   // 失敗したときは1分あけてからやり直す（すぐにやり直すと、通信できないときに読み込みが止まらず画面が固まるため）
-  fetch(`${ONLINE_URL}?type=stats`).then(r => r.json()).then(d => { if (!d.ok) throw new Error('bad'); GLOBAL.data = d; GLOBAL.failed = false; GLOBAL.at = Date.now(); writeCache('stats', d); },
-    () => { GLOBAL.failed = true; GLOBAL.at = Date.now() - 2 * 60e3; })
-    .finally(() => { GLOBAL.loading = false; if (S.tab === 'stats') render(); });
+  fetch(`${ONLINE_URL}?type=stats${k === 'all' ? '' : `&from=${r.from}&to=${r.to}`}`).then(res => res.json()).then(d => { if (!d.ok) throw new Error('bad');
+      // 期間の絞り込みに対応していない受け取り口（古い版）は、期間を無視して全期間を返すので、使わない
+      G.unsupported = k !== 'all' && !(d.range && d.range.from === r.from && d.range.to === r.to);
+      G.data = G.unsupported ? null : d; G.failed = false; G.at = Date.now(); if (k === 'all') writeCache('stats', d); },
+    () => { G.failed = true; G.at = Date.now() - 2 * 60e3; })
+    .finally(() => { G.loading = false; if (S.tab === 'stats') render(); });
+  return G;
+}
+// 期間の表示名（例：11/17〜11/23）
+const gPeriodLabel = () => { const r = gRange(), md = d => d ? `${+d.slice(5, 7)}/${+d.slice(8, 10)}` : ''; return r.from === r.to ? md(r.from) : `${md(r.from)}〜${md(r.to)}`; };
+// 期間のボタン（指定のときは、開始日と終了日をカレンダーで選ぶ）
+function gPeriodBar() {
+  const p = S.stats.gPeriod || 'all', r = gRange();
+  return `<div class="g-period"><div class="chips">${G_PERIODS.map(([v, l]) => `<button class="chip small" data-act="gPeriod" data-v="${v}" ${pressed(p === v)}>${l}</button>`).join('')}</div>
+    ${p === 'custom' ? `<div class="g-dates"><input type="date" data-gdate="gFrom" value="${r.from}" max="${today()}" aria-label="集計の開始日"><span>〜</span><input type="date" data-gdate="gTo" value="${r.to}" max="${today()}" aria-label="集計の終了日"></div>
+      ${gRangeOk(r) ? '' : `<p class="hint">${!r.from ? '開始日を選んでください。' : '開始日は終了日より前にしてください。'}</p>`}` : ''}</div>`;
 }
 // 統計の項目は、上のボタンで表示・非表示を切り替えられる（端末に覚えておく）
 const STATS_MINE = ['勝率の推移', '夜の王別', '夜渡り別', '相性表', 'どこで倒れたか', 'ビルド別', '型・メイン武器別', '効果別'];
@@ -608,20 +633,25 @@ const cardIf = (title, ...rest) => statHidden()[title] ? '' : card(title, ...res
 const secToggles = list => `<div class="stats-toc" aria-label="表示する項目">${list.map(t => `<button class="chip mini" data-act="statToggle" data-v="${t}" ${pressed(!statHidden()[t])}>${t}</button>`).join('')}</div>`;
 // みんなの統計：参加・概要のカードと、項目ごとのカード
 function globalStats() {
-  const o = onlinePrefs(), g = GLOBAL.data;
-  loadGlobal();
+  const o = onlinePrefs(), G = loadGlobal(), g = G.data, period = S.stats.gPeriod && S.stats.gPeriod !== 'all';
   const fewNote = g && g.total.n && (g.total.n < 300 || g.players < 20)
     ? `<p class="hint caution">⚠ まだ集まった戦績が少ない（${g.players}人・${g.total.n}戦）ので、割合や勝率は参考程度に見てください。5戦未満の行は薄く表示しています。匿名で集計しているため、正確さは保証できません。</p>` : '';
   const join = o.join
     ? `<div class="online-join on"><span>参加中：あなたの戦績も集計に入っています</span><button class="ghost small-btn ${S.confirmDel === 'onlineLeave' ? 'danger' : ''}" data-act="onlineLeave">${S.confirmDel === 'onlineLeave' ? 'もう一度押すとやめる' : 'やめる'}</button></div>`
     : `<div class="online-join"><p class="hint">参加すると、あなたの戦績（夜の王・夜渡り・勝敗など）を名前なしで送り、みんなの統計に加えます。メモや遺物は送りません。これまでの戦績も送ります。</p>
        <button class="primary" data-act="onlineJoin">参加する</button></div>`;
-  if (!g || !g.total.n) return card('みんなの統計', `<p class="hint">${GLOBAL.loading || !GLOBAL.at ? '読み込んでいます…' : GLOBAL.failed ? '読み込めませんでした。通信できる所で「もう一度読み込む」を押してください。' : 'まだ集まった戦績がありません。'}</p>${GLOBAL.failed && !GLOBAL.loading ? '<button class="ghost small" data-act="globalRetry">もう一度読み込む</button>' : ''}${join}`);
+  if (!g || !g.total.n) return gPeriodBar() + card('みんなの統計', `<p class="hint">${!gRangeOk(gRange()) ? '期間を選ぶと表示されます。'
+      : G.unsupported ? '期間の絞り込みは、スプレッドシート側の更新後に使えます。今は「全期間」だけ見られます。'
+      : G.loading || !G.at ? '読み込んでいます…' : G.failed ? '読み込めませんでした。通信できる所で「もう一度読み込む」を押してください。'
+      : period ? 'この期間の戦績はありません。' : 'まだ集まった戦績がありません。'}</p>${G.failed && !G.loading ? '<button class="ghost small" data-act="globalRetry">もう一度読み込む</button>' : ''}${join}`);
   const total = g.total.n, td = (g.byDate || {})[today()] || { n: 0, w: 0 };
   // ダッシュボード：今日の出撃・これまでの出撃・勝率・参加者
-  const dash = `<div class="tiles dash">
-      <div class="tile"><div class="k">今日の出撃</div><div class="v">${td.n}</div><div class="s">${td.n ? `勝率 ${pct(td.w / td.n)}` : 'まだなし'}</div></div>
-      <div class="tile"><div class="k">これまでの出撃</div><div class="v">${total}</div><div class="s">${g.players}人の合計</div></div>
+  // 期間を絞っているときは「その期間の出撃」と「参加者」にする（今日の数は全期間のときだけ）
+  const dash = `${gPeriodBar()}<div class="tiles dash">
+      ${period ? `<div class="tile"><div class="k">期間の出撃</div><div class="v">${total}</div><div class="s">${esc(gPeriodLabel())}</div></div>
+      <div class="tile"><div class="k">参加者</div><div class="v">${g.players}</div><div class="s">人</div></div>`
+      : `<div class="tile"><div class="k">今日の出撃</div><div class="v">${td.n}</div><div class="s">${td.n ? `勝率 ${pct(td.w / td.n)}` : 'まだなし'}</div></div>
+      <div class="tile"><div class="k">これまでの出撃</div><div class="v">${total}</div><div class="s">${g.players}人の合計</div></div>`}
       <div class="tile"><div class="k">勝率</div><div class="v">${pct(g.total.w / total)}</div><div class="s">${g.total.w}勝 ${total - g.total.w}敗</div></div>
     </div>`;
   const row = (icon, name, right, width, color, dim = false) => `<div class="bar-row ${dim ? 'dim' : ''}"><span class="name">${icon}${esc(name)}</span><span class="num">${right}</span>
@@ -1671,7 +1701,8 @@ document.addEventListener('click', e => {
     case 'gFold': { const c = (prefs().gClosed ||= {}); if (c[v]) delete c[v]; else c[v] = true; break; }
     case 'statJump': { const h = [...document.querySelectorAll('.card-sec h2')].find(x => x.textContent === v); if (h) window.scrollTo({ top: h.closest('.card-sec').getBoundingClientRect().top + window.scrollY - 76, behavior: 'smooth' }); if (!h) toast('この条件では、その表はありません'); return; }
     case 'enemyRetry': S.enemy.failed = false; S.enemy.retry = (S.enemy.retry || 0) + 1; break;
-    case 'globalRetry': GLOBAL.at = 0; GLOBAL.failed = false; break;
+    case 'globalRetry': resetGlobal(); Object.values(GLOBALS).forEach(x => { x.failed = false; }); break;
+    case 'gPeriod': S.stats.gPeriod = v; if (v === 'custom' && !S.stats.gTo) S.stats.gTo = today(); break;
     case 'undo': { const u = S.undo; S.undo = null; document.getElementById('toast').innerHTML = ''; clearTimeout(toastTimer);
       const r = u && db.runs.find(x => x.id === u.id); if (!r) return;
       r.deleted = u.type === 'add'; r.updatedAt = Date.now(); if (u.type === 'del') r.editedAt = Date.now();
@@ -1892,7 +1923,7 @@ document.addEventListener('click', e => {
       S.confirmDel = null;
       // やめるときは、送った戦績を「消した」扱いで送り直して、集計から外す
       const o = onlinePrefs(), ids = Object.keys(o.sent), now = Date.now();
-      const done = () => { o.join = false; o.sent = {}; GLOBAL.at = 0; toast('参加をやめました。送った戦績は集計から外れます'); render(); };
+      const done = () => { o.join = false; o.sent = {}; resetGlobal(); toast('参加をやめました。送った戦績は集計から外れます'); render(); };
       if (!ids.length) { done(); return; }
       postOnline({ type: 'runs', runs: ids.map(id => ({ id, deleted: true, updatedAt: now })) })
         .then(res => res?.ok ? done() : Promise.reject(), () => toast('通信できませんでした。通信できる所でもう一度押してください'));
@@ -1985,6 +2016,7 @@ render();
 document.addEventListener('change', e => {
   // 日付をカレンダー（一覧）から選んだとき。未来の日は選べない
   if (e.target.id === 'f-date-pick') { const d = e.target.value; if (/^\d{4}-\d{2}-\d{2}$/.test(d) && d <= today()) { S.form.date = d; S.form.dateMode = d === today() ? 'today' : 'pick'; S.dayStripX = null; render(); } return; }
+  if (e.target.dataset?.gdate) { S.stats[e.target.dataset.gdate] = e.target.value; render(); return; }
   if (e.target.dataset?.gsel) { S.stats[e.target.dataset.gsel] = e.target.value; render(); return; }
   if (e.target.dataset?.scan && e.target.files[0] && S.edit?.type === 'preset') { runScan(e.target.dataset.scan, e.target.files[0]); return; }
   if (e.target.dataset?.hf) { S.hist[e.target.dataset.hf] = e.target.value; S.openRun = null; render(); return; }

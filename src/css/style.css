@@ -921,3 +921,13 @@ html, body { overflow-x: clip; overscroll-behavior-x: none; }
 .char-sq[aria-pressed="true"] .ico { filter: brightness(0); opacity: .8; }
 .char-sq[aria-pressed="true"] i { color: var(--accent-ink); }
 .char-grid-note { display: flex; align-items: center; justify-content: center; gap: 10px; margin: -4px 0 0; }
+
+/* みんなの統計：期間の絞り込み（全期間・30日・7日・今日・指定） */
+.g-period { display: grid; gap: 8px; margin-bottom: 4px; }
+.g-period .chips { gap: 6px; }
+.g-dates { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.g-dates input { flex: 1; min-width: 0; font-size: 16px; }
+.g-dates span { color: var(--dim); flex: none; }
+.g-period .chips { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.g-period .chip { padding-left: 2px; padding-right: 2px; text-align: center; white-space: nowrap; }
+.g-dates input { padding-left: 6px; padding-right: 4px; }
