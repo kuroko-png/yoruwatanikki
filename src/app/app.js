@@ -160,10 +160,7 @@ const S = {
   enemy: { cat: 0, q: '', party: 'trio', partyOpen: false, lord: '', lordOpen: false, base: '', baseOpen: false, field: '', fieldOpen: false, mob: '', mobOpen: false, closed: {}, open: null, limit: 60 },  // 人数はトリオから。変えたいときだけ開く
   buildView: 'presets', edit: null, sheet: null,
 };
-{ // remember last character / preset as sensible defaults
-  const last = [...db.runs].sort((a, b) => b.updatedAt - a.updatedAt)[0];
-  if (last) { S.form.charId = last.charId; S.form.presetId = lastPresetFor(last.charId) ?? last.presetId ?? null; }
-}
+// 夜渡りは毎回選んでもらう（前回の夜渡りは自動で入れない）
 const liveRuns = () => db.runs.filter(r => !r.deleted);
 const relicById = id => db.relics.find(r => r.id === id);
 const presetById = id => db.presets.find(p => p.id === id);
@@ -1124,11 +1121,21 @@ function editPreset() {
   const p = S.edit.data;
   const fv = fitVessel(p);
   p.vesselId = fv?.id || null;  // 献器は遺物の色から自動で決める
+  // 遺物の枠。効果は1行ずつ並べ、右端の×で、その効果だけをすぐ消せる（読み取りの間違いを直しやすく）
   const slot = (kind, i) => {
     const r = p[kind][i];
-    return `<button class="slot-btn ${r ? 'filled' : ''}" data-act="openSlot" data-k="${kind}" data-v="${i}">
+    const head = `<button class="slot-btn ${r ? 'filled' : ''}" data-act="openSlot" data-k="${kind}" data-v="${i}">
       <span class="slot-color ${kind === 'deep' ? 'deep' : ''} ${r ? 'c-' + r.color : 'c-none'}"></span>
-      ${r ? `<span class="rname"><span>${relicName(r)}${r.check ? '<span class="badge check">要確認</span>' : ''}</span><small>${esc(relicSub(r))}</small></span>` : `<span class="empty">空き（タップして遺物を入れる）</span>`}</button>`;
+      ${r ? `<span class="rname"><span>${relicName(r)}${r.check ? '<span class="badge check">要確認</span>' : ''}</span></span>` : `<span class="empty">空き（タップして遺物を入れる）</span>`}</button>`;
+    if (!r) return head;
+    const x = (j, w, label) => `<button class="eff-x" data-act="effX" data-k="${kind}" data-i="${i}" data-j="${j}" data-w="${w}" aria-label="${esc(label)}を消す">×</button>`;
+    const line = (text, xBtn, cls = '') => `<li class="${cls}"><button class="eff-txt" data-act="openSlot" data-k="${kind}" data-v="${i}">${esc(text)}</button>${xBtn}</li>`;
+    // 夜の王の遺物・固有遺物は効果が決まっているので、遺物の名前の右に「遺物ごと外す×」を1つだけ付ける
+    const lines = r.special
+      ? SPECIAL[r.special].effects.map(e => line(e, '')).join('')
+      : r.effects.map((e, j) => !e ? '' : line(ALL_EFF[e]?.name ?? '', x(j, 'eff', ALL_EFF[e]?.name ?? '効果'))
+        + (r.demerits?.[j] ? line(`↳ ${ALL_EFF[r.demerits[j]]?.name ?? ''}`, x(j, 'dem', ALL_EFF[r.demerits[j]]?.name ?? 'デメリット'), 'dem') : '')).join('');
+    return `<div class="relic-box"><div class="relic-head">${head}${r.special ? x(0, 'relic', SPECIAL[r.special].name) : ''}</div><ul class="eff-lines">${lines || '<li class="none">効果未登録</li>'}</ul></div>`;
   };
   // スクショから読み取る（表・深層を1枚ずつ）
   const scanBtn = (kind, label) => S.edit.scanning === kind
@@ -1340,7 +1347,7 @@ function guideSheet() {
     <div class="sheet-list guide-list">
       <p class="hint">ナイトレインの戦績を記録して、夜の王・夜渡り・ビルドごとの勝率を振り返るアプリです。<b>まずは「記録」タブだけ使えばOK</b>。ビルド・敵・みんなの統計は、気になったときにどうぞ。</p>
       ${install}
-      ${step(installed ? 1 : 2, '戦績を記録する', '「記録」タブで、常夜かどうか・夜の王・夜渡り・結果を選んで「記録する」。2戦目からは前回の夜渡りとビルドを覚えています。')}
+      ${step(installed ? 1 : 2, '戦績を記録する', '「記録」タブで、常夜かどうか・夜の王・夜渡り・結果を選んで「記録する」。ビルドは、夜渡りごとに前回使ったものが自動で選ばれます。')}
       ${step(installed ? 2 : 3, '記録は自動でバックアップ', '記録は自動で暗号化して、ネット上にも保存されます。機種変更のときは、右上の円柱の絵のボタン（データ）に出ている「引き継ぎコード」で戻せます。')}
       <button class="ghost" data-act="restoreOpen">機種変更した方：引き継ぎコードで戻す</button>
     </div>
@@ -1542,7 +1549,7 @@ document.addEventListener('click', e => {
         const r = db.runs.find(x => x.id === S.editRun);
         const keepRev = r.presetId === f.presetId ? r.presetRev : (p ? presetRev(p) : null);
         Object.assign(r, fields, { presetRev: keepRev, editedAt: Date.now() });
-        S.editRun = null; S.form = blankForm(); S.form.charId = fields.charId; S.form.presetId = lastPresetFor(fields.charId);
+        S.editRun = null; S.form = blankForm();
         S.recOpen = {}; S.tab = 'history'; S.openRun = r.id; toast('戦績を更新しました'); break;
       }
       const newId = uid();
@@ -1550,7 +1557,8 @@ document.addEventListener('click', e => {
       S.undo = { type: 'add', id: newId };
       toast(`${LORD[f.lordId].name}戦の${f.result === 'win' ? '勝利' : '敗北'}を記録しました`, { act: 'undo', label: '取り消す' });
       // 日付は「今日」以外（昨日・指定）を選んでいたら、続けて記録しやすいようにそのまま残す
-      Object.assign(f, { lordId: null, everdark: null, flags: [], shift: null, result: null, lossAt: null, note: '' }); S.recOpen = {};
+      // 夜渡りも選び直してもらう（前回のまま記録してしまわないように）。ビルドは夜渡りを選ぶと、その夜渡りで前回使ったものが入る
+      Object.assign(f, { lordId: null, everdark: null, flags: [], shift: null, charId: null, presetId: null, result: null, lossAt: null, note: '' }); S.recOpen = {};
       break;
     }
     case 'editRun': {
@@ -1675,6 +1683,24 @@ document.addEventListener('click', e => {
       if (!rows.length) toast('効果が空なので、枠を空にしました');
       S.edit.slot = null; scrollTop(); break;
     }
+    case 'effX': {
+      // プリセットの画面で、遺物の効果を1つだけすぐ消す（デメリットだけ・遺物ごと、も可）。残った効果は上に詰める
+      const k = t.dataset.k, i = +t.dataset.i, j = +t.dataset.j, w = t.dataset.w, d = S.edit.data, r = d[k][i];
+      if (!r) return;
+      S.undoRelic = { k, i, r: structuredClone(r), id: d.id };
+      let msg;
+      if (w === 'relic') { d[k][i] = null; msg = '遺物を外しました'; }
+      else if (w === 'dem') { r.demerits[j] = null; msg = 'デメリットを消しました'; }
+      else {
+        const rows = [0, 1, 2].filter(x => x !== j && r.effects[x]).map(x => [r.effects[x], r.demerits?.[x] ?? null]);
+        r.effects = [0, 1, 2].map(x => rows[x]?.[0] ?? null); r.demerits = [0, 1, 2].map(x => rows[x]?.[1] ?? null); r.size = rows.length;
+        if (!rows.length) d[k][i] = null;
+        msg = rows.length ? '効果を消しました' : '効果がなくなったので、枠を空にしました';
+      }
+      toast(msg, { act: 'undoEffX', label: '元に戻す' }); break;
+    }
+    case 'undoEffX': { const u = S.undoRelic; S.undoRelic = null; document.getElementById('toast').innerHTML = ''; clearTimeout(toastTimer);
+      if (!u || S.edit?.data?.id !== u.id) return; S.edit.data[u.k][u.i] = u.r; toast('元に戻しました'); break; }
     case 'eSlotClear': { const { k, i } = S.edit.slot; S.edit.data[k][i] = null; S.edit.slot = null; break; }
     case 'eSlotCancel': S.edit.slot = null; break;
     case 'eSave': {

@@ -810,3 +810,17 @@ details.spare[open] { padding-bottom: 8px; }
 .report-link { justify-self: center; font-size: 12.5px; margin-top: 2px; }
 .report-link[disabled] { opacity: .6; text-decoration: none; }
 .data-src { font-size: 12.5px; margin: -4px 2px 0; }
+
+/* プリセットの遺物：効果を1行ずつ並べ、右端の×でその効果だけ消す */
+.relic-box { border: 1px solid var(--line); border-radius: 12px; background: linear-gradient(90deg, rgba(255,255,255,.05), rgba(255,255,255,.01)), var(--surface-2); overflow: hidden; }
+.relic-box .slot-btn.filled { border: 0; border-radius: 0; background: transparent; min-height: 44px; padding-bottom: 6px; }
+.relic-head { display: flex; align-items: center; }
+.relic-head .slot-btn { flex: 1; min-width: 0; }
+.eff-lines { list-style: none; margin: 0; padding: 0 4px 6px 36px; }
+.eff-lines li { display: flex; align-items: center; gap: 4px; border-top: 1px solid var(--line); }
+.eff-lines li.none { color: var(--dim); font-size: 13px; padding: 8px 0; border-top: 0; }
+.eff-txt { flex: 1; min-width: 0; text-align: left; background: none; border: 0; color: var(--fg); font: inherit; font-size: 13px; line-height: 1.4; padding: 8px 0; cursor: pointer; }
+.eff-lines li.dem .eff-txt { color: var(--loss); padding-left: 8px; }
+.eff-x { flex: none; width: 36px; height: 36px; border: 0; border-radius: 50%; background: rgba(255,255,255,.06); color: var(--dim); font-size: 18px; line-height: 1; cursor: pointer; display: grid; place-items: center; }
+.eff-x:active { background: color-mix(in srgb, var(--loss) 35%, transparent); color: var(--fg); }
+.relic-head .eff-x { margin-right: 6px; }
