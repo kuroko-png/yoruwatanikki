@@ -17,7 +17,7 @@
  * シートは自動で作られる（runs＝戦績、reports＝誤植の報告）。消したい行は、シートから直接消してよい。
  */
 
-const RUN_COLS = ['receivedAt', 'clientId', 'runId', 'date', 'lordId', 'everdark', 'mode', 'depth', 'party', 'charId', 'result', 'lossAt', 'deleted', 'updatedAt'];
+const RUN_COLS = ['receivedAt', 'clientId', 'runId', 'date', 'lordId', 'everdark', 'mode', 'depth', 'party', 'charId', 'result', 'lossAt', 'deleted', 'updatedAt', 'style', 'weaponType'];
 const REPORT_COLS = ['receivedAt', 'clientId', 'enemy', 'text', 'appVersion'];
 const MAX_RUNS_PER_POST = 500;
 
@@ -25,6 +25,7 @@ function sheet_(name, cols) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sh = ss.getSheetByName(name);
   if (!sh) { sh = ss.insertSheet(name); sh.appendRow(cols); sh.setFrozenRows(1); }
+  else if (sh.getLastColumn() < cols.length) sh.getRange(1, 1, 1, cols.length).setValues([cols]);  // 列が増えたときは見出しを足す
   return sh;
 }
 const str_ = (v, n) => (typeof v === 'string' ? v.slice(0, n) : '');
@@ -42,7 +43,7 @@ function doPost(e) {
     const now = new Date();
     if (body.type === 'runs' && Array.isArray(body.runs)) {
       const rows = body.runs.slice(0, MAX_RUNS_PER_POST).map(r => [now, clientId, str_(r.id, 40), str_(r.date, 10), str_(r.lordId, 20), !!r.everdark,
-        str_(r.mode, 10), Number(r.depth) || '', str_(r.party, 10), str_(r.charId, 20), r.result === 'win' ? 'win' : 'loss', str_(r.lossAt, 10), !!r.deleted, Number(r.updatedAt) || 0]);
+        str_(r.mode, 10), Number(r.depth) || '', str_(r.party, 10), str_(r.charId, 20), r.result === 'win' ? 'win' : 'loss', str_(r.lossAt, 10), !!r.deleted, Number(r.updatedAt) || 0, str_(r.style, 20), str_(r.weaponType, 20)]);
       if (rows.length) { const sh = sheet_('runs', RUN_COLS); sh.getRange(sh.getLastRow() + 1, 1, rows.length, RUN_COLS.length).setValues(rows); }
       CacheService.getScriptCache().remove('stats');
       return json_({ ok: true, received: rows.length });
@@ -69,7 +70,7 @@ function doGet(e) {
   const latest = {};
   values.forEach(v => { const k = v[1] + '/' + v[2]; if (!latest[k] || v[13] >= latest[k][13]) latest[k] = v; });
   const add = (map, key, win) => { const x = map[key] || (map[key] = { n: 0, w: 0 }); x.n++; if (win) x.w++; };
-  const out = { ok: true, updatedAt: Date.now(), players: 0, total: { n: 0, w: 0 }, lord: {}, char: {}, lordChar: {} };
+  const out = { ok: true, updatedAt: Date.now(), players: 0, total: { n: 0, w: 0 }, lord: {}, char: {}, lordChar: {}, style: {}, weapon: {} };
   const players = {};
   Object.keys(latest).forEach(k => {
     const v = latest[k];
@@ -78,6 +79,9 @@ function doGet(e) {
     players[v[1]] = 1;
     add(out, 'total', win);
     add(out.lord, lord, win); add(out.char, v[9], win); add(out.lordChar, lord + '/' + v[9], win);
+    // よく使われている型・武器（使われた数だけ）
+    if (v[14]) out.style[v[14]] = (out.style[v[14]] || 0) + 1;
+    if (v[15]) out.weapon[v[15]] = (out.weapon[v[15]] || 0) + 1;
   });
   out.players = Object.keys(players).length;
   const text = JSON.stringify(out);

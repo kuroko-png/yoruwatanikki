@@ -140,7 +140,7 @@ const blankForm = () => ({ dateMode: 'today', date: today(), lordId: null, everd
 const lastPresetFor = charId => { const id = (prefs().presetByChar || {})[charId]; return id && db.presets.some(p => p.id === id && !p.deleted) ? id : null; };
 const S = {
   tab: 'record', recOpen: {}, form: blankForm(), openRun: null, confirmDel: null,
-  stats: { period: 'all', mode: 'all', drill: {}, heatBy: 'lord' },
+  stats: { scope: 'mine', period: 'all', mode: 'all', drill: {}, heatBy: 'lord' },
   hist: { result: 'all', lord: '', char: '' },
   enemy: { cat: 0, q: '', party: 'trio', partyOpen: false, lord: '', lordOpen: false, base: '', baseOpen: false, field: '', fieldOpen: false, mob: '', mobOpen: false, closed: {}, open: null, limit: 60 },  // 人数はトリオから。変えたいときだけ開く
   buildView: 'presets', edit: null, sheet: null,
@@ -347,14 +347,16 @@ function barRows(items, getRuns, opts = {}) {
 const ONLINE_URL = 'https://script.google.com/macros/s/AKfycbwj1IcWjrrl-Jc12G3IPYp8TTYUJTMeYiZurQqs0eBfib_ltNz1nKZTZB3-FoUJ59ICog/exec';
 // join＝みんなの勝率に参加しているか、id＝端末ごとのランダムな番号（名前などは送らない）、sent＝送った戦績とその時点の版
 const onlinePrefs = () => (prefs().online ||= { join: false, id: uid(), sent: {} });
-const runSig = r => `${r.editedAt || r.updatedAt}|${r.deleted ? 1 : 0}`;
+const runSig = r => `2|${r.editedAt || r.updatedAt}|${r.deleted ? 1 : 0}`;  // 先頭の 2 は送る中身の版（型・メイン武器を足した）
 async function postOnline(body) {
   const res = await fetch(ONLINE_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ ...body, clientId: onlinePrefs().id }) });
   return res.json();
 }
 // 送るのは勝率に使う項目だけ（メモ・ビルドは送らない）。サンプルデータは送らない
-const runForOnline = r => ({ id: r.id, date: r.date, lordId: r.lordId, everdark: !!r.everdark, mode: r.mode, depth: r.depth, party: r.party, charId: r.charId,
-  result: r.result, lossAt: r.lossAt, deleted: !!r.deleted, updatedAt: r.editedAt || r.updatedAt });
+// 型・メイン武器は「よく使われている武器」を数えるためだけに送る
+const runForOnline = r => { const b = runBuild(r);
+  return { id: r.id, date: r.date, lordId: r.lordId, everdark: !!r.everdark, mode: r.mode, depth: r.depth, party: r.party, charId: r.charId,
+    result: r.result, lossAt: r.lossAt, deleted: !!r.deleted, updatedAt: r.editedAt || r.updatedAt, style: b?.style || '', weaponType: b?.weaponType || '' }; };
 let syncing = false, syncTimer = null;
 const scheduleSync = () => { clearTimeout(syncTimer); syncTimer = setTimeout(syncRuns, 1500); };
 async function syncRuns() {
@@ -392,10 +394,19 @@ function globalCard() {
   const sorted = obj => Object.entries(obj || {}).sort((a, b) => (b[1].n >= STATS_MIN_RUNS) - (a[1].n >= STATS_MIN_RUNS) || b[1].w / b[1].n - a[1].w / a[1].n || b[1].n - a[1].n);
   const lordRows = sorted(g?.lord).filter(([k]) => LORD[k.split(':')[0]]).map(([k, x]) => { const [id, ev] = k.split(':'); return row('lord', id, LORD[id].name + (ev ? '（常夜）' : ''), x); }).join('');
   const charRows = sorted(g?.char).filter(([k]) => CHAR[k]).map(([k, x]) => row('char', k, CHAR[k].name, x)).join('');
+  // よく使われている型・武器：戦績で使われた数の多い順（勝率ではなく、使われた割合）
+  const useRows = (obj, nameOf, limit) => { const list = Object.entries(obj || {}).filter(([k]) => nameOf(k)).sort((a, b) => b[1] - a[1]).slice(0, limit);
+    const sum = Object.values(obj || {}).reduce((a, b) => a + b, 0);
+    return list.map(([k, n]) => `<div class="bar-row"><span class="name">${esc(nameOf(k))}</span><span class="num"><b>${pct(n / sum)}</b> ${n}戦</span>
+      <span class="bar-track"><span class="bar-fill" style="width:${n / list[0][1] * 100}%;background:var(--accent)"></span></span></div>`).join(''); };
+  const weaponRows = useRows(g?.weapon, k => WEAPON_TYPES.includes(k) ? k : null, 10);
+  const styleRows = useRows(g?.style, k => STYLES.find(x => x.id === k)?.name, 10);
   const body = g && g.total.n
     ? `<p class="hint">${g.players}人・${g.total.n}戦の合計（勝率 ${pct(g.total.w / g.total.n)}）。数分ごとに更新されます。</p>
        <div class="label">夜の王別</div><div class="bars">${lordRows}</div>
-       <div class="label">夜渡り別</div><div class="bars">${charRows}</div>`
+       <div class="label">夜渡り別</div><div class="bars">${charRows}</div>
+       ${weaponRows ? `<div class="label">よく使われている武器</div><p class="hint">ビルドを登録して記録された戦績のうち、メイン武器の割合（上位10）</p><div class="bars">${weaponRows}</div>` : ''}
+       ${styleRows ? `<div class="label">よく使われている型</div><div class="bars">${styleRows}</div>` : ''}`
     : `<p class="hint">${GLOBAL.loading || !GLOBAL.at ? '読み込んでいます…' : GLOBAL.failed ? '読み込めませんでした。通信できる所でもう一度開いてください。' : 'まだ集まった戦績がありません。'}</p>`;
   const join = o.join
     ? `<div class="online-join on"><span>参加中：あなたの戦績も集計に入っています</span><button class="ghost small-btn ${S.confirmDel === 'onlineLeave' ? 'danger' : ''}" data-act="onlineLeave">${S.confirmDel === 'onlineLeave' ? 'もう一度押すとやめる' : 'やめる'}</button></div>`
@@ -441,8 +452,10 @@ function viewStats() {
   const lossColors = { d1: '#f0b46a', d2: '#e3835e', final: '#cf5a55' };
   const lossTotal = lossCounts.reduce((s, x) => s + x.n, 0);
   const filterChips = (key, opts) => opts.map(([v, l]) => `<button class="chip small" data-act="sf" data-k="${key}" data-v="${v}" ${pressed(S.stats[key] === v)}>${l}</button>`).join('');
+  const scopeSeg = `<div class="seg scope-seg">${[['mine', '自分の戦績'], ['all', 'みんなの戦績']].map(([v, l]) => `<button data-act="statsScope" data-v="${v}" ${pressed(S.stats.scope === v)}>${l}</button>`).join('')}</div>`;
+  if (S.stats.scope === 'all') return `<div class="stack-lg">${scopeSeg}${globalCard()}</div>`;
   return `<div class="stack-lg">
-    ${globalCard()}
+    ${scopeSeg}
     <div class="filters">
       <div class="chips">${filterChips('period', [['all', '全期間'], ['30', '30日'], ['7', '7日']])}</div>
       <div class="chips">${filterChips('mode', [['all', 'すべて'], ['normal', '通常'], ['deep', '深き夜'], ['ever', '常夜の王']])}</div>
@@ -575,8 +588,9 @@ function viewBuilds() {
     <button class="btn-add ${S.confirmDel === 'newPreset' ? 'danger' : ''}" data-act="newPreset">${S.confirmDel === 'newPreset' ? 'もう一度押すと、未完成のものを破棄して新しく作ります' : '＋ プリセットを作る'}</button>
     <button class="ghost import-btn" data-act="importOpen">共有されたビルドを取り込む</button>
     ${activePresets().map(p => { const x = rate(liveRuns().filter(r => r.presetId === p.id)); return `<button class="card" data-act="editPreset" data-v="${p.id}">
-      <span class="title"><span>${esc(p.name)}</span><span class="rate ${x.n ? '' : 'none'}">${x.n ? `${pct(x.p)}<span style="color:var(--dim);font-weight:400"> ・${x.n}戦</span>` : '未使用'}</span></span>
-      <span class="sub">${p.charId ? charName(p.charId) : '夜渡り未設定'}${styleText(p) ? '・' + esc(styleText(p)) : ''}</span>${slotDots(p)}</button>`; }).join('')}
+      <span class="title"><span>${esc(p.name)}</span><span class="rate ${x.n ? '' : 'none'}">${x.n ? `勝率 ${pct(x.p)}` : '未使用'}</span></span>
+      <span class="sub">${p.charId ? charName(p.charId) : '夜渡り未設定'}${styleText(p) ? '・' + esc(styleText(p)) : ''}</span>
+      <span class="preset-use">${x.n ? `使用 <b>${x.n}</b>戦（${x.w}勝 ${x.n - x.w}敗）` : 'まだ戦績で使っていません'}</span></button>`; }).join('')}
   </div>`;
 }
 // ---------- 敵（耐性・カット率・崩し値） ----------
@@ -1224,6 +1238,7 @@ document.addEventListener('click', e => {
     case 'undrill': delete S.stats.drill[v]; break;
     case 'undrillAll': S.stats.drill = {}; break;
     case 'heatBy': S.stats.heatBy = v; break;
+    case 'statsScope': S.stats.scope = v; scrollTop(); break;
     case 'enemyCat': S.enemy.cat = +v; S.enemy.open = null; S.enemy.limit = ENEMY_PAGE; break;
     case 'enemyParty': S.enemy.party = v; S.enemy.partyOpen = false; break;
     case 'enemyPartyOpen': S.enemy.partyOpen = true; break;

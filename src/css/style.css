@@ -639,3 +639,8 @@ body { min-height: calc(100vh + 1px); min-height: calc(100lvh + 1px); }
 .online-join .small-btn { flex: none; padding: 6px 10px; font-size: 12px; }
 .link-btn { background: none; border: 0; padding: 0 2px; color: var(--accent); text-decoration: underline; font: inherit; cursor: pointer; }
 .import-list input[type=text] { font-size: 16px; }
+/* 統計：自分／みんなの切り替え、ビルド一覧の使った回数 */
+.scope-seg { width: 100%; }
+.scope-seg button { flex: 1; }
+.card .preset-use { font-size: 12px; color: var(--dim); }
+.card .preset-use b { color: var(--fg); }
