@@ -178,14 +178,14 @@ function viewRecord() {
   if (f.presetId && !activePresets().some(p => p.id === f.presetId) && !(S.editRun && f.presetId === S.form.origPresetId)) f.presetId = null;
   const presets = db.presets.filter(p => (!p.deleted && p.charId === f.charId) || p.id === f.presetId);
   const lords = lordsFor(f.everdark);
-  const missing = [!dateOk && '日付', f.everdark === null && '常夜かどうか', !f.lordId && '夜の王', !f.charId && '夜渡り', !f.result && '結果'].filter(Boolean);
+  const missing = [!dateOk && '日付', f.everdark === null && '通常/常夜', !f.lordId && '夜の王', !f.charId && '夜渡り', !f.result && '結果'].filter(Boolean);
   const label = S.editRun ? '更新する' : '記録する';
   BAR = `${S.editRun ? '<button class="ghost" data-act="cancelEdit">やめる</button>' : ''}<button class="primary" data-act="save" ${canSave ? '' : 'disabled'}>${canSave ? label : `<span class="need">あと：${missing.join('・')}</span>`}</button>`;
   const chip = (act, v, label, on, cls = 'chip') => `<button class="${cls}" data-act="${act}" data-v="${v}" ${pressed(on)}>${label}</button>`;
   return `<div class="stack-lg">
     ${S.editRun ? `<div class="edit-banner"><b>戦績を編集中</b><span>直したら「更新する」を押してください</span></div>` : ''}
     ${card('日付', `${f.dateMode === 'pick' ? `<input type="date" id="f-date" data-field="date" value="${f.date}" max="${today()}">` : ''}`,
-      `<div class="chips">${[['today', '今日'], ['yesterday', '昨日'], ['pick', '指定']].map(([v, l]) => chip('date', v, l, f.dateMode === v, 'chip small')).join('')}</div>`)}
+      `<div class="chips ever-toggle date-toggle">${[['today', '今日'], ['yesterday', '昨日'], ['pick', '指定']].map(([v, l]) => chip('date', v, l, f.dateMode === v, 'chip')).join('')}</div>`)}
     ${card('夜の王の種類', '', `<div class="chips ever-toggle">${chip('everdark', 'no', '通常', f.everdark === false, 'chip')}${chip('everdark', 'yes', '常夜', f.everdark === true, 'chip')}</div>`)}
     ${recDisc('lord', '夜の王', f.lordId && LORD[f.lordId].name,
       `<div class="grid-btns">${lords.map(l => chip('lord', l.id, lordName(l.id), f.lordId === l.id, 'tile-btn with-ico')).join('')}</div>`,
@@ -361,14 +361,20 @@ let syncing = false, syncTimer = null;
 const scheduleSync = () => { clearTimeout(syncTimer); syncTimer = setTimeout(syncRuns, 1500); };
 async function syncRuns() {
   const o = onlinePrefs();
-  if (!o.join || syncing || !navigator.onLine) return;
+  if ((!o.join && !o.pendingDelete?.length) || syncing || !navigator.onLine) return;
   // サンプルの戦績は送らない。前に送ってしまったサンプルは「消した」扱いで送り直して、集計から外す
   const SAMPLE_GONE = 'sample-removed';
-  const todo = db.runs.filter(r => r.sample ? o.sent[r.id] && o.sent[r.id] !== SAMPLE_GONE
+  const todo = !o.join ? [] : db.runs.filter(r => r.sample ? o.sent[r.id] && o.sent[r.id] !== SAMPLE_GONE
     : o.sent[r.id] !== runSig(r) && !(r.deleted && !o.sent[r.id]));
-  if (!todo.length) return;
+  if (!todo.length && !o.pendingDelete?.length) return;
   syncing = true;
   try {
+    // データを全部消したり復元したりして、なくなった戦績を集計から外す
+    if (o.pendingDelete?.length) {
+      const ids = o.pendingDelete.slice(0, 500), now = Date.now();
+      const res = await postOnline({ type: 'runs', runs: ids.map(id => ({ id, deleted: true, updatedAt: now })) });
+      if (res?.ok) { o.pendingDelete = o.pendingDelete.slice(ids.length); save(db); }
+    }
     for (let i = 0; i < todo.length; i += 200) {
       const part = todo.slice(i, i + 200);
       const res = await postOnline({ type: 'runs', runs: part.map(r => r.sample ? { id: r.id, deleted: true, updatedAt: Date.now() } : runForOnline(r)) });
@@ -400,7 +406,7 @@ function globalCard() {
   // よく使われている型・武器：戦績で使われた数の多い順（勝率ではなく、使われた割合）
   const useRows = (obj, nameOf, limit) => { const list = Object.entries(obj || {}).filter(([k]) => nameOf(k)).sort((a, b) => b[1] - a[1]).slice(0, limit);
     const sum = Object.values(obj || {}).reduce((a, b) => a + b, 0);
-    return list.map(([k, n]) => `<div class="bar-row"><span class="name">${esc(nameOf(k))}</span><span class="num"><b>${pct(n / sum)}</b> ${n}戦</span>
+    return list.map(([k, n]) => `<div class="bar-row use-row"><span class="name">${esc(nameOf(k))}</span><span class="num"><b>${pct(n / sum)}</b> ${n}戦</span>
       <span class="bar-track"><span class="bar-fill" style="width:${n / list[0][1] * 100}%;background:var(--accent)"></span></span></div>`).join(''); };
   const weaponRows = useRows(g?.weapon, k => WEAPON_TYPES.includes(k) ? k : null, 10);
   const styleRows = useRows(g?.style, k => STYLES.find(x => x.id === k)?.name, 10);
@@ -415,7 +421,7 @@ function globalCard() {
     ? `<div class="online-join on"><span>参加中：あなたの戦績も集計に入っています</span><button class="ghost small-btn ${S.confirmDel === 'onlineLeave' ? 'danger' : ''}" data-act="onlineLeave">${S.confirmDel === 'onlineLeave' ? 'もう一度押すとやめる' : 'やめる'}</button></div>`
     : `<div class="online-join"><p class="hint">参加すると、あなたの戦績（夜の王・夜渡り・勝敗など）を名前なしで送り、みんなの勝率に加えます。メモやビルドは送りません。これまでの戦績も送ります。</p>
        <button class="primary" data-act="onlineJoin">参加する</button></div>`;
-  return card('みんなの勝率', `${body}${join}`);
+  return card('みんなの戦績', `${body}${join}`);
 }
 function reportSheet() {
   const sh = S.sheet;
@@ -465,6 +471,7 @@ function viewStats() {
     </div>
     ${drillBanner()}
     ${runs.length ? `
+    <div class="stats-toc" aria-label="目次">${['夜の王別', '夜渡り別', '相性表', 'どこで倒れたか', 'ビルド別', '型・メイン武器別', '効果別'].map(t => `<button class="chip mini" data-act="statJump" data-v="${t}">${t}</button>`).join('')}</div>
     <div class="tiles">
       <div class="tile"><div class="k">戦数</div><div class="v">${all.n}</div><div class="s">${all.w}勝 ${all.n - all.w}敗</div></div>
       <div class="tile"><div class="k">勝率</div><div class="v">${pct(all.p)}</div><div class="s">全体</div></div>
@@ -512,11 +519,11 @@ function heat(runs) {
     const cells = others.map(o => ({ o, ...rate(mine.filter(r => r[oKey] === o.id)) })).filter(x => x.n).sort((a, b) => b.n - a.n || b.p - a.p);
     return `<div class="match-group"><div class="match-head"><b>${ico(byLord ? 'lord' : 'char', g.id)}${g.name}</b><span>${rate(mine).n}戦</span></div><div class="match-cells">${cells.map(x => {
       const col = x.p >= .5 ? 'var(--win)' : 'var(--loss)';
-      const strength = Math.round(18 + Math.abs(x.p - .5) * 2 * 60);
+      const strength = x.n < STATS_MIN_RUNS ? 14 : Math.round(18 + Math.abs(x.p - .5) * 2 * 60);  // 戦数が少ないものは、色を薄くして目立たせない
       return `<span class="match ${x.n < STATS_MIN_RUNS ? 'few' : ''}" style="background:color-mix(in srgb, ${col} ${strength}%, var(--panel))"><span class="nm">${ico(byLord ? 'char' : 'lord', x.o.id)}${x.o.name}</span><b>${pct(x.p)}</b><small>${x.w}/${x.n}</small></span>`;
     }).join('')}</div></div>`;
   });
-  return `<p class="hint">${byLord ? '夜の王ごとに、使った夜渡りの勝率' : '夜渡りごとに、戦った夜の王との勝率'}。緑ほど勝ち越し、赤ほど負け越し。点線の札は${STATS_MIN_RUNS}戦未満（参考）です</p><div class="match-list">${rows.join('')}</div>`;
+  return `<p class="hint">${byLord ? '夜の王ごとに、使った夜渡りの勝率' : '夜渡りごとに、戦った夜の王との勝率'}。緑ほど勝ち越し、赤ほど負け越し。点線で色の薄い札は${STATS_MIN_RUNS}戦未満（参考）です</p><div class="match-list">${rows.join('')}</div>`;
 }
 
 function relicSub(r) { if (r.special) return SPECIAL[r.special].effects.join('・'); return r.effects.filter(Boolean).map(e => ALL_EFF[e].name).join('・') || '効果未登録'; }
@@ -781,8 +788,8 @@ function enemyPage(body, chip, q, list) {
   const E = S.enemy;
   return `<div class="stack-lg">
     <div class="enemy-tools">
-      <input type="search" id="enemy-q" data-enemyq value="${esc(E.q)}" placeholder="名前で探す（例：ガーゴイル、失地騎士）" enterkeyhint="search">
-      ${q ? '' : `<div class="chips one-row">${ENEMY_CATS.map((c, i) => chip('enemyCat', i, c, E.cat === i)).join('')}</div>`}
+      <input type="search" id="enemy-q" data-enemyq value="${esc(E.q)}" placeholder="名前で探す（例：ガーゴイル）" enterkeyhint="search">
+      ${q ? '' : `<div class="cat-tabs">${ENEMY_CATS.map((c, i) => chip('enemyCat', i, c, E.cat === i)).join('')}</div>`}
       <div class="filter-row">
         ${E.partyOpen
           ? `<div class="party-row"><span class="flag-label">人数</span>${[['solo', 'ソロ'], ['duo', 'デュオ'], ['trio', 'トリオ']].map(([v, l]) => chip('enemyParty', v, l, E.party === v)).join('')}</div>`
@@ -1044,7 +1051,7 @@ function guideSheet() {
       <p class="hint">ナイトレインの戦績を記録して、夜の王・夜渡り・ビルドごとの勝率を振り返るアプリです。</p>
       ${install}
       ${step(installed ? 1 : 2, '戦績を記録する', '「記録」タブで、常夜かどうか・夜の王・夜渡り・結果を選んで「記録する」。2戦目からは前回の夜渡りとビルドを覚えています。')}
-      ${step(installed ? 2 : 3, 'バックアップを取る', '記録はこのスマホの中だけに保存されます。機種変更の前などは、右上の「データ」→「バックアップを保存」をしてください。')}
+      ${step(installed ? 2 : 3, 'バックアップを取る', '記録はこのスマホの中だけに保存されます。機種変更の前などは、右上の円柱の絵のボタン（データ）→「バックアップを保存」をしてください。')}
     </div>
     <button class="primary" data-act="guideClose">はじめる</button></div>`;
 }
@@ -1075,7 +1082,13 @@ function menuSheet() {
     </div></div>`;
 }
 function replaceDb(next) {
+  const was = db.prefs.online;
   db.runs = next.runs; db.relics = next.relics; db.presets = next.presets; db.prefs = next.prefs || {};
+  if (was) {  // 参加の状態と端末の番号はこの端末のものを引き継ぎ、なくなった戦績は「消した」扱いで送る
+    const keep = new Set(db.runs.map(r => r.id));
+    const gone = Object.keys(was.sent || {}).filter(id => !keep.has(id));
+    db.prefs.online = { join: was.join, id: was.id, sent: {}, pendingDelete: [...new Set([...(was.pendingDelete || []), ...gone])] };
+  }
   S.edit = null; S.openRun = null; S.form = blankForm();
 }
 function csvRows() {
@@ -1136,7 +1149,7 @@ function render(keepId) {
   renderSheet();
   syncDraft();
   save(db);
-  if (prefs().online?.join) scheduleSync();
+  if (prefs().online?.join || prefs().online?.pendingDelete?.length) scheduleSync();
 }
 // プリセットの作りかけ（編集中のもの）は、操作のたびに prefs().draft に残す。別のタブへ行ったり、アプリが閉じたりしても、
 // ビルドタブの「未完成」から続きを再開できる。何も選んでいない新規や、保存済みから何も変えていない編集は残さない
@@ -1242,6 +1255,7 @@ document.addEventListener('click', e => {
     case 'undrillAll': S.stats.drill = {}; break;
     case 'heatBy': S.stats.heatBy = v; break;
     case 'statsScope': S.stats.scope = v; scrollTop(); break;
+    case 'statJump': { const h = [...document.querySelectorAll('.card-sec h2')].find(x => x.textContent === v); if (h) window.scrollTo({ top: h.closest('.card-sec').getBoundingClientRect().top + window.scrollY - 76, behavior: 'smooth' }); if (!h) toast('この条件では、その表はありません'); return; }
     case 'enemyCat': S.enemy.cat = +v; S.enemy.open = null; S.enemy.limit = ENEMY_PAGE; break;
     case 'enemyParty': S.enemy.party = v; S.enemy.partyOpen = false; break;
     case 'enemyPartyOpen': S.enemy.partyOpen = true; break;
