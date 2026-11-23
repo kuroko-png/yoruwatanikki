@@ -1,10 +1,10 @@
 // オフラインでも開けるようにするための service worker。
 // 画面やデータのファイルを直したら、下の VERSION を1つ上げてください（利用者の端末で新しい版に入れ替わります）。
-const VERSION = 'v36';
+const VERSION = 'v37';
 const CACHE = `yowatari-nikki-${VERSION}`;
 const FILES = [
   './', './index.html', './manifest.webmanifest',
-  './src/css/style.css', './src/app/app.js', './src/app/store.js',
+  './src/css/style.css', './src/app/app.js', './src/app/store.js', './src/app/scan.js',
   './src/data/lords.js', './src/data/characters.js', './src/data/effects.js',
   './src/data/vessels.js', './src/data/relics.js', './src/data/labels.js', './src/data/help.js', './src/data/enemies.js', './src/data/night_bosses.js',
   './icons/favicon.png', './icons/logo.png', ...['record', 'history', 'stats', 'builds', 'enemies'].map(id => `./icons/tabs/${id}.png`), './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',

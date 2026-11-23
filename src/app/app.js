@@ -1,4 +1,4 @@
-// 夜の痕跡 アプリ本体
+// 夜渡り日記 アプリ本体
 import { LORDS } from '../data/lords.js';
 import { CHARS } from '../data/characters.js';
 import { OPT, EFF_NORMAL_ROWS, EFF_DEEP_ROWS, DEMERIT_ROWS } from '../data/effects.js';
@@ -8,6 +8,7 @@ import { COLORS, SIZES, KINDS, STYLES, SPEC_SORC, SPEC_INC, WEAPON_TYPES, LOSS_A
 import { HELP } from '../data/help.js';
 import { NIGHT_BOSSES } from '../data/night_bosses.js';
 import { load, save, exportJson, exportCsv, readJsonFile } from './store.js';
+import { scanRelics } from './scan.js';
 
 // ---------- 遺物効果の組み立て ----------
 function optsFor(name) {
@@ -94,6 +95,8 @@ const charName = id => `${ico('char', id)}${CHAR[id]?.name ?? id}`;
 const pressed = b => `aria-pressed="${b ? 'true' : 'false'}"`;
 
 // ---------- sample data ----------
+// サンプルデータは、開発用の手元の画面（localhost）でだけ「データ管理」に出す。公開版の利用者には出さない
+const DEV_HOST = ['localhost', '127.0.0.1'].includes(location.hostname);
 function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 function seed() {
   const ids = (a, map) => [...a.map(n => { if (n && !map[n]) throw new Error('unknown effect ' + n); return n && map[n]; }), null, null, null].slice(0, 3);
@@ -678,6 +681,32 @@ function importSheet() {
     <div class="sheet-head"><h2>ビルドを取り込む</h2><button class="ghost" data-act="sClose">閉じる</button></div>
     <div class="sheet-list import-list">${body}</div></div>`;
 }
+// スクショの読み取り：読み取った遺物を枠に入れる。献器が未選択なら、色が合う献器を自動で選ぶ
+async function runScan(kind, file) {
+  const ed = S.edit, d = ed.data;
+  ed.scanning = kind; render();
+  if (!scanReady) toast('初回は読み取りの準備に少し時間がかかります');
+  try {
+    const famsFor = fams => fams.filter(f => !f.charName || f.charName === CHAR[d.charId]?.name)
+      .flatMap(f => f.levels.map(e => ({ id: e.id, base: f.opts ? e.name : f.name, lv: e.lv || 0 })));
+    const specials = kind === 'normal' ? SPECIALS.filter(x => x.type === 'lord' || x.who === d.charId || x.who === 'any') : [];
+    const relics = await scanRelics(file, kind, { effects: famsFor(kind === 'deep' ? DEEP_FAMS : NORMAL_FAMS), demerits: famsFor(DEMERIT_FAMS), specials });
+    scanReady = true;
+    if (!relics.some(Boolean)) { toast('遺物を読み取れませんでした。「遺物儀式」の画面のスクショか確かめてください'); return; }
+    if (!d.vesselId) {
+      const fitsAll = v => relics.every((r, i) => !r || fits(v[kind][i], r));
+      const v = vesselsFor(d.charId).find(fitsAll);
+      if (v) d.vesselId = v.id; else { toast('色が合う献器が見つかりません。先に献器を選んでください'); return; }
+    }
+    d[kind] = relics.map((r, i) => r && !fits(VESSEL[d.vesselId][kind][i], r) ? { ...r, check: true } : r);
+    ed.open[kind === 'deep' ? 'relicDeep' : 'relicNormal'] = true;
+    const unsure = d[kind].filter(r => r?.check).length;
+    toast(`${kind === 'deep' ? '深層' : '表'}の遺物を読み取りました。${unsure ? `「要確認」の${unsure}つは、とくに見直してください` : 'ゲームの画面と見比べて確かめてください'}`);
+  } catch (err) {
+    toast(err.message === 'aspect' ? 'ゲームのスクショ（横長16:9）を、切り取らずにそのまま選んでください' : '読み取れませんでした。通信できる所で、もう一度お試しください');
+  } finally { ed.scanning = null; if (S.edit === ed) render(); }
+}
+let scanReady = false;
 function slotDots(p) {
   const v = p.vesselId && VESSEL[p.vesselId];
   const d = (r, deep, i) => {
@@ -957,8 +986,16 @@ function editPreset() {
     const sc = v[kind][i];
     return `<button class="slot-btn ${r ? 'filled' : ''}" data-act="openSlot" data-k="${kind}" data-v="${i}">
       <span class="slot-color ${kind === 'deep' ? 'deep' : ''} c-${r ? r.color : sc}" title="${sc === 'any' ? '全色' : COLOR[sc].name}"></span>
-      ${r ? `<span class="rname"><span>${relicName(r)}</span><small>${esc(relicSub(r))}</small></span>` : `<span class="empty">空き（${sc === 'any' ? 'どの色でも可' : COLOR[sc].name + 'の枠'}）</span>`}</button>`;
+      ${r ? `<span class="rname"><span>${relicName(r)}${r.check ? '<span class="badge check">要確認</span>' : ''}</span><small>${esc(relicSub(r))}</small></span>` : `<span class="empty">空き（${sc === 'any' ? 'どの色でも可' : COLOR[sc].name + 'の枠'}）</span>`}</button>`;
   };
+  // スクショから読み取る（表・深層を1枚ずつ）
+  const scanBtn = (kind, label) => S.edit.scanning === kind
+    ? `<span class="ghost scan-btn busy">${label}を読み取り中…</span>`
+    : `<label class="ghost scan-btn ${p.charId && !S.edit.scanning ? '' : 'disabled'}">${label}のスクショ<input type="file" accept="image/*" data-scan="${kind}" hidden ${p.charId && !S.edit.scanning ? '' : 'disabled'}></label>`;
+  const scanCard = `<section class="card-sec scan-card"><div class="sec-head"><h2>スクショから読み取る</h2></div>
+    <div class="scan-btns">${scanBtn('normal', '表')}${scanBtn('deep', '深層')}</div>
+    <p class="hint">${p.charId ? 'ゲームの「遺物儀式」画面のスクショを、表（スロット1〜3を選んだ画面）と深層（スロット4〜6を選んだ画面）で1枚ずつ選ぶと、遺物を自動で入れます。' : '先に夜渡りを選んでください。'}</p>
+    <p class="hint scan-note">※ 端末の中で文字を読み取るので、とくに「＋」のあとの数字は間違っていることがあります。読み取ったあとは、ゲームの画面と見比べて確かめてください。</p></section>`;
   const vRow = x => `<button class="vessel" data-act="eVessel" data-v="${esc(x.id)}" ${pressed(p.vesselId === x.id)}><span>${esc(x.name)}</span><span class="cols">${vesselCols(x, 'normal')}<span class="sep"></span>${vesselCols(x, 'deep')}</span></button>`;
   const list = p.charId ? vesselsFor(p.charId) : [];
   const vesselBody = `<div class="vessel-list">${list.filter(x => x.charId !== 'common').map(vRow).join('')}
@@ -991,6 +1028,7 @@ function editPreset() {
     ${disc('style', '型', styleName ? val(styleName, true) : val('未設定', false), styleBody)}
     ${disc('weapon', 'メイン武器', p.weaponType ? val(p.weaponName ? `${p.weaponName}（${p.weaponType}）` : p.weaponType, true) : val('未設定', false), weaponBody)}
     ${nameRow}
+    ${scanCard}
     ${v ? disc('relicNormal', '表の遺物', relicValue('normal'), `<div class="section">${[0, 1, 2].map(i => slot('normal', i)).join('')}</div>`, false, true)
       + disc('relicDeep', '深層の遺物', relicValue('deep'), `<div class="section">${[0, 1, 2].map(i => slot('deep', i)).join('')}</div><p class="hint">深き夜で使う遺物です。</p>`, false, true)
       + '<p class="hint">枠は空いたままでも保存できます。</p>' : ''}
@@ -1149,7 +1187,7 @@ function guideSheet() {
       ? step(1, 'ホーム画面に追加する', 'Safariの下にある共有ボタン（□に↑）→「ホーム画面に追加」。<br><b>追加しないと、しばらく開かなかったときに記録が消えることがあります。</b>Safariとホーム画面のアプリは記録が別々なので、追加したあとはホーム画面から開いてください。')
       : step(1, 'ホーム画面に追加する', `ブラウザのメニュー →「ホーム画面に追加」または「アプリをインストール」。アプリのように全画面で使えます。${installPrompt ? '<br><button class="ghost" data-act="install" style="margin-top:6px">今すぐ追加する</button>' : ''}`);
   return `<div class="scrim" data-act="guideClose"></div><div class="sheet guide" role="dialog" aria-label="はじめに">
-    <div class="sheet-head"><h2>夜の痕跡へようこそ</h2></div>
+    <div class="sheet-head"><h2>夜渡り日記へようこそ</h2></div>
     <div class="sheet-list guide-list">
       <p class="hint">ナイトレインの戦績を記録して、夜の王・夜渡り・ビルドごとの勝率を振り返るアプリです。</p>
       ${install}
@@ -1195,7 +1233,7 @@ function menuSheet() {
       <label class="pick" for="importFile"><span><b>バックアップから復元</b><br><span class="hint">今のデータは、ファイルの内容に置き換わります</span></span><span class="cat">›</span></label>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
       ${item('exportCsv', 'CSVで書き出す', '戦績をExcelなどで開ける形にします')}
-      ${item('loadSample', S.confirmDel === 'sample' ? 'もう一度押すとサンプルに置き換えます' : 'サンプルデータを入れる', '今のデータは消えて、試し用の戦績64件とプリセット3件になります', S.confirmDel === 'sample' ? 'danger' : '')}
+      ${DEV_HOST ? item('loadSample', S.confirmDel === 'sample' ? 'もう一度押すとサンプルに置き換えます' : 'サンプルデータを入れる', '（開発用）今のデータは消えて、試し用の戦績64件とプリセット3件になります', S.confirmDel === 'sample' ? 'danger' : '') : ''}
       ${item('wipe', S.confirmDel === 'wipe' ? 'もう一度押すとすべて削除します' : 'すべてのデータを削除', '戦績とプリセットをすべて消します。元に戻せません', 'danger')}
     </div></div>`;
 }
@@ -1311,6 +1349,7 @@ document.addEventListener('click', e => {
     case 'backupLater': prefs().backupSnoozeUntil = Date.now() + 7 * 864e5; toast('7日後にまたお知らせします'); break;
     case 'exportCsv': exportCsv(csvRows()).then(res => toast(res === 'cancelled' ? '書き出しをやめました' : 'CSVを書き出しました')); return;
     case 'loadSample':
+      if (!DEV_HOST) return;
       if (S.confirmDel !== 'sample') { S.confirmDel = 'sample'; break; }
       replaceDb(seed()); db.runs.forEach(r => { r.sample = true; }); S.confirmDel = null; S.sheet = null; toast('サンプルデータを入れました'); break;
     case 'wipe':
@@ -1451,9 +1490,9 @@ document.addEventListener('click', e => {
         if (!r.special) { toast('遺物を選んでください'); break; }
         const sp = SPECIAL[r.special], sc = VESSEL[S.edit.data.vesselId][k][i];
         S.edit.data[k][i] = { special: sp.id, color: sp.color || (sc === 'any' ? 'red' : sc), kind: 'normal', effects: [null, null, null], demerits: [null, null, null], size: sp.effects.length };
-        S.edit.slot = null; scrollTop(); break;
+        S.edit.slot = null; scrollTop(); break;  // 置き換えたので「要確認」も外れる
       }
-      r.special = null;
+      r.special = null; delete r.check;
       // 効果のある行だけを詰めて保存し、大きさは効果の数から決める
       const rows = [0, 1, 2].filter(j => r.effects[j]).map(j => [r.effects[j], k === 'deep' && demeritAllowed(ALL_EFF[r.effects[j]]) ? r.demerits[j] : null]);
       r.effects = [0, 1, 2].map(j => rows[j] ? rows[j][0] : null);
@@ -1500,7 +1539,7 @@ document.addEventListener('click', e => {
       const sp = presetById(S.edit.data.id);
       const url = shareUrl(sp);
       const changed = JSON.stringify(buildSnapshot(sp)) !== JSON.stringify(buildSnapshot(S.edit.data));
-      if (navigator.share) navigator.share({ title: `ビルド「${presetName(sp)}」`, text: `夜の痕跡のビルド「${presetName(sp)}」`, url }).catch(() => {});
+      if (navigator.share) navigator.share({ title: `ビルド「${presetName(sp)}」`, text: `夜渡り日記のビルド「${presetName(sp)}」`, url }).catch(() => {});
       else navigator.clipboard?.writeText(url).then(() => toast('共有リンクをコピーしました'), () => toast('コピーできませんでした'));
       if (changed) toast('保存済みの内容を共有します（直した分は、保存してから共有してください）');
       return;
@@ -1523,8 +1562,8 @@ document.addEventListener('click', e => {
       S.sheet = null; S.tab = 'record'; scrollTop(); toast(`戻しました（戦績 ${liveRuns().length}件）`); break;
     }
     case 'codeCopy': {
-      const code = cloud().code, text = `夜の痕跡の引き継ぎコード：${code}`;
-      if (navigator.share) navigator.share({ title: '夜の痕跡の引き継ぎコード', text }).catch(() => {});
+      const code = cloud().code, text = `夜渡り日記の引き継ぎコード：${code}`;
+      if (navigator.share) navigator.share({ title: '夜渡り日記の引き継ぎコード', text }).catch(() => {});
       else navigator.clipboard?.writeText(code).then(() => toast('コピーしました'), () => toast('コピーできませんでした'));
       return;
     }
@@ -1608,6 +1647,7 @@ if (location.hash.startsWith('#build=')) {
 render();
 
 document.addEventListener('change', e => {
+  if (e.target.dataset?.scan && e.target.files[0] && S.edit?.type === 'preset') { runScan(e.target.dataset.scan, e.target.files[0]); return; }
   if (e.target.dataset?.hf) { S.hist[e.target.dataset.hf] = e.target.value; S.openRun = null; render(); return; }
   if (e.target.id !== 'importFile' || !e.target.files[0]) return;
   readJsonFile(e.target.files[0])
