@@ -939,11 +939,35 @@ function appSub() {
   if (S.tab === 'stats') { const a = rate(runs); return `通算 ${a.n}戦・勝率 ${pct(a.p)}`; }
   return `プリセット ${activePresets().length}件`;
 }
-function render() {
+// 画面を作り直すときに、入力中の欄（keepId）だけはそのまま残し、周りだけ入れ替える。
+// iPhone の日本語キーボードは、変換中に入力欄が入れ替わると文字が二重になったり順番が崩れたりするため
+function patchKeeping(root, html, keepId) {
+  const tpl = document.createElement('template'); tpl.innerHTML = html;
+  const live = document.getElementById(keepId), fresh = tpl.content.getElementById(keepId);
+  const depth = (n, top) => { let d = 0; while (n && n !== top) { n = n.parentNode; d++; } return n === top ? d : -1; };
+  if (!live || !fresh || depth(live, root) < 0 || depth(live, root) !== depth(fresh, tpl.content)) { root.innerHTML = html; return; }
+  let l = live, f = fresh;
+  while (l !== root) {
+    const lp = l.parentNode, fp = f.parentNode;
+    const before = [], after = [];
+    for (let n = fp.firstChild; n !== f; n = n.nextSibling) before.push(n);
+    for (let n = f.nextSibling; n; n = n.nextSibling) after.push(n);
+    while (l.previousSibling) l.previousSibling.remove();
+    while (l.nextSibling) l.nextSibling.remove();
+    l.before(...before); l.after(...after);
+    if (lp !== root) {
+      [...lp.attributes].forEach(a => { if (!fp.hasAttribute(a.name)) lp.removeAttribute(a.name); });
+      [...fp.attributes].forEach(a => lp.setAttribute(a.name, a.value));
+    }
+    l = lp; f = fp;
+  }
+}
+function render(keepId) {
   document.getElementById('tabs').innerHTML = TABS.map(t => `<button data-act="tab" data-v="${t.id}" ${S.tab === t.id ? 'aria-current="page"' : ''}><span class="tab-ico" style="-webkit-mask-image:url('icons/tabs/${t.id}.png');mask-image:url('icons/tabs/${t.id}.png')" aria-hidden="true"></span>${t.name}</button>`).join('');
   BAR = '';
   const v = { record: viewRecord, history: viewHistory, stats: viewStats, builds: viewBuilds, enemies: viewEnemies }[S.tab];
-  document.getElementById('view').innerHTML = v();
+  if (keepId) patchKeeping(document.getElementById('view'), v(), keepId);
+  else document.getElementById('view').innerHTML = v();
   document.getElementById('appsub').textContent = appSub();
   // 右上のボタンは「（今のタブ名）の使い方」
   const helpLabel = document.querySelector('[data-act=help] span');
@@ -1182,11 +1206,9 @@ document.addEventListener('input', e => {
   if (t.dataset.field === 'date') { render(); document.getElementById('f-date')?.focus(); }
   if (t.dataset.edit) { S.edit.data[t.dataset.edit] = t.value; if (t.dataset.edit === 'name') S.edit.data.nameAuto = !t.value.trim(); }
   if (t.hasAttribute('data-enemyq')) {
-    // 名前で探す：入力のたびに一覧を作り直し、入力欄のカーソルはそのまま
+    // 名前で探す：入力のたびに一覧を作り直す。入力欄そのものは入れ替えない（変換中の文字を壊さないため）
     S.enemy.q = t.value; S.enemy.open = null; S.enemy.limit = ENEMY_PAGE;
-    const pos = t.selectionStart;
-    render();
-    const el = document.getElementById('enemy-q'); el.focus(); el.setSelectionRange(pos, pos);
+    render('enemy-q');
   }
   if (t.hasAttribute('data-sheetq')) {
     S.sheet.q = t.value;
