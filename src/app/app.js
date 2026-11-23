@@ -96,7 +96,7 @@ function dateLabel(s) {
   if (s === daysAgo(1)) return '昨日';
   const [y, m, d] = s.split('-').map(Number);
   const wd = '日月火水木金土'[new Date(y, m - 1, d).getDay()];
-  return `${m}/${d}（${wd}）`;
+  return `${y === new Date().getFullYear() ? '' : `${y}/`}${m}/${d}（${wd}）`;  // 今年以外は年も出す
 }
 const pct = p => Math.round(p * 100) + '%';
 // 夜の王・夜渡りのアイコン（名前の左に置く）。画像は icons/lords, icons/chars（tools/make_unit_icons.py で作る）
@@ -211,7 +211,7 @@ function viewRecord() {
     <section class="card-sec mode-card"><div class="sec-head"><h2>モード</h2><div class="chips mode-toggle">${MODES.map(m => chip('mode', m.id, m.name, f.mode === m.id, 'chip small')).join('')}</div></div>
       ${f.mode === 'deep' ? `<div class="depth-line"><span class="label">深度${f.depth ? '' : '<span class="need-mark">（選んでください）</span>'}</span>
         <div class="depth-row compact">${DEPTHS.map(d => chip('depth', d, d, f.depth === d, 'chip depth')).join('')}</div></div>` : ''}</section>
-    ${f.charId ? card('ビルド', `<div class="chips one-line">${chip('preset', '', '記録無し', !f.presetId)}${presets.map(p => chip('preset', p.id, esc(presetLabel(p)), f.presetId === p.id)).join('')}</div>
+    ${f.charId ? card('ビルド', `<div class="chips one-line">${chip('preset', '', 'ビルドなし', !f.presetId)}${presets.map(p => chip('preset', p.id, esc(presetLabel(p)), f.presetId === p.id)).join('')}</div>
       ${presets.length ? '' : `<p class="hint">${CHAR[f.charId].name}のプリセットはまだありません。「ビルド」タブで作れます。</p>`}`) : ''}
     ${card('結果', `<div class="result-row">
         <button class="result-btn win" data-act="result" data-v="win" ${pressed(f.result === 'win')}>勝利</button>
@@ -336,7 +336,7 @@ const DRILL = {
   lord: { label: '夜の王', match: (r, id) => r.lordId === id, name: id => LORD[id]?.name ?? id },
   char: { label: '夜渡り', match: (r, id) => r.charId === id, name: id => CHAR[id]?.name ?? id },
   preset: { label: 'ビルド', match: (r, id) => id === '__none' ? !r.presetId : id === '__gone' ? !!r.presetId && !presetById(r.presetId) : r.presetId === id,
-    name: id => id === '__none' ? '記録無し' : id === '__gone' ? '削除済み（詳細不明）' : presetById(id) ? presetLabel(presetById(id)) : '削除済み' },
+    name: id => id === '__none' ? 'ビルドなし' : id === '__gone' ? '削除済み（詳細不明）' : presetById(id) ? presetLabel(presetById(id)) : '削除済み' },
   style: { label: '型', match: (r, id) => runBuild(r)?.style === id, name: id => STYLES.find(x => x.id === id)?.name ?? id },
   weapon: { label: 'メイン武器', match: (r, id) => runBuild(r)?.weaponType === id, name: id => id },
   effect: { label: '効果', match: (r, id) => presetHasEffect(r, id), name: id => id.startsWith('sp:') ? `《${SPECIAL[id.slice(3)]?.name ?? '?'}》` : ALL_EFF[id]?.label ?? id },
@@ -511,8 +511,9 @@ function loadGlobal() {
   if (!GLOBAL.data) GLOBAL.data = readCache('stats');  // 前回の結果をすぐ出す
   if (GLOBAL.loading || Date.now() - GLOBAL.at < 3 * 60e3) return;
   GLOBAL.loading = true;
+  // 失敗したときは1分あけてからやり直す（すぐにやり直すと、通信できないときに読み込みが止まらず画面が固まるため）
   fetch(`${ONLINE_URL}?type=stats`).then(r => r.json()).then(d => { if (!d.ok) throw new Error('bad'); GLOBAL.data = d; GLOBAL.failed = false; GLOBAL.at = Date.now(); writeCache('stats', d); },
-    () => { GLOBAL.failed = true; GLOBAL.at = Date.now() - 4 * 60e3; })
+    () => { GLOBAL.failed = true; GLOBAL.at = Date.now() - 2 * 60e3; })
     .finally(() => { GLOBAL.loading = false; if (S.tab === 'stats') render(); });
 }
 // 統計の項目は、上のボタンで表示・非表示を切り替えられる（端末に覚えておく）
@@ -531,7 +532,7 @@ function globalStats() {
     ? `<div class="online-join on"><span>参加中：あなたの戦績も集計に入っています</span><button class="ghost small-btn ${S.confirmDel === 'onlineLeave' ? 'danger' : ''}" data-act="onlineLeave">${S.confirmDel === 'onlineLeave' ? 'もう一度押すとやめる' : 'やめる'}</button></div>`
     : `<div class="online-join"><p class="hint">参加すると、あなたの戦績（夜の王・夜渡り・勝敗など）を名前なしで送り、みんなの統計に加えます。メモや遺物は送りません。これまでの戦績も送ります。</p>
        <button class="primary" data-act="onlineJoin">参加する</button></div>`;
-  if (!g || !g.total.n) return card('みんなの統計', `<p class="hint">${GLOBAL.loading || !GLOBAL.at ? '読み込んでいます…' : GLOBAL.failed ? '読み込めませんでした。通信できる所でもう一度開いてください。' : 'まだ集まった戦績がありません。'}</p>${join}`);
+  if (!g || !g.total.n) return card('みんなの統計', `<p class="hint">${GLOBAL.loading || !GLOBAL.at ? '読み込んでいます…' : GLOBAL.failed ? '読み込めませんでした。通信できる所で「もう一度読み込む」を押してください。' : 'まだ集まった戦績がありません。'}</p>${GLOBAL.failed && !GLOBAL.loading ? '<button class="ghost small" data-act="globalRetry">もう一度読み込む</button>' : ''}${join}`);
   const total = g.total.n, td = (g.byDate || {})[today()] || { n: 0, w: 0 };
   // ダッシュボード：今日の出撃・これまでの出撃・勝率・参加者
   const dash = `<div class="tiles dash">
@@ -618,8 +619,8 @@ function requestSheet() {
 }
 function reportSheet() {
   const sh = S.sheet;
-  return `<div class="scrim" data-act="sClose"></div><div class="sheet" role="dialog" aria-label="誤植を知らせる">
-    <div class="sheet-head"><h2>誤植を知らせる</h2><button class="ghost" data-act="sClose">閉じる</button></div>
+  return `<div class="scrim" data-act="sClose"></div><div class="sheet" role="dialog" aria-label="誤りを知らせる">
+    <div class="sheet-head"><h2>誤りを知らせる</h2><button class="ghost" data-act="sClose">閉じる</button></div>
     <div class="sheet-list import-list">
       <label class="label" for="report-enemy">敵の名前</label>
       <input type="text" id="report-enemy" value="${esc(sh.enemy || '')}" placeholder="例：夜の獣、グラディウス" maxlength="100">
@@ -667,7 +668,7 @@ function viewStats() {
     ${secToggles(STATS_MINE)}
     <div class="tiles">
       <div class="tile"><div class="k">戦数</div><div class="v">${all.n}</div><div class="s">${all.w}勝 ${all.n - all.w}敗</div></div>
-      <div class="tile"><div class="k">勝率</div><div class="v">${pct(all.p)}</div><div class="s">全体</div></div>
+      <div class="tile"><div class="k">勝率</div><div class="v">${pct(all.p)}</div><div class="s">${{ all: '全期間', 30: '直近30日', 7: '直近7日' }[S.stats.period]}</div></div>
       <div class="tile"><div class="k">連勝</div><div class="v">${streak}</div><div class="s">最高 ${best}</div></div>
     </div>
     ${cardIf('勝率の推移', `<p class="hint">直近10戦ごとの勝率。点線は50%</p>${spark(chrono)}`)}
@@ -676,7 +677,7 @@ function viewStats() {
     ${dr.lord || dr.char ? '' : cardIf('相性表', heat(runs), `<div class="chips">${[['lord', '夜の王ごと'], ['char', '夜渡りごと']].map(([v, l]) => `<button class="chip small" data-act="heatBy" data-v="${v}" ${pressed(S.stats.heatBy === v)}>${l}</button>`).join('')}</div>`)}
     ${cardIf('どこで倒れたか', lossTotal ? `<div class="stack">${lossCounts.filter(x => x.n).map(x => `<div style="flex:${x.n};background:${lossColors[x.id]}">${x.n >= lossTotal * .12 ? pct(x.n / lossTotal) : ''}</div>`).join('')}</div>
       <div class="legend">${lossCounts.map(x => `<span><i style="background:${lossColors[x.id]}"></i>${x.name} ${x.n}回</span>`).join('')}</div>` : `<p class="hint">敗北の記録はありません</p>`)}
-    ${dr.preset ? '' : cardIf('ビルド別', barRows([...db.presets.map(p => ({ id: p.id, name: presetLabel(p) })), { id: '__none', name: '記録無し' }, { id: '__gone', name: '削除済み（詳細不明）' }],
+    ${dr.preset ? '' : cardIf('ビルド別', barRows([...db.presets.map(p => ({ id: p.id, name: presetLabel(p) })), { id: '__none', name: 'ビルドなし' }, { id: '__gone', name: '削除済み（詳細不明）' }],
       p => runs.filter(r => DRILL.preset.match(r, p.id)), { drill: 'preset' }))}
     ${dr.style && dr.weapon ? '' : cardIf('型・メイン武器別', `${dr.style ? '' : barRows(STYLES, st => runs.filter(r => runBuild(r)?.style === st.id), { drill: 'style' })}
       ${dr.weapon ? '' : barRows(WEAPON_TYPES.map(w => ({ id: w, name: w })), w => runs.filter(r => runBuild(r)?.weaponType === w.id), { drill: 'weapon' })}`)}
@@ -817,8 +818,9 @@ function loadPublic(force) {
   if (!PUB.list) PUB.list = readCache('builds');  // 前回の一覧をすぐ出す
   if (PUB.loading || (!force && PUB.at && Date.now() - PUB.at < 120e3)) return;
   PUB.loading = true;
+  // 失敗したときも時刻を残し、すぐにはやり直さない（通信できないときに読み込みが止まらず画面が固まるため）
   fetch(`${ONLINE_URL}?type=builds`).then(r => r.json()).then(d => { if (!d.ok) throw new Error(); PUB.list = d.builds || []; PUB.failed = false; PUB.at = Date.now(); writeCache('builds', PUB.list); },
-    () => { PUB.failed = true; }).finally(() => { PUB.loading = false; if (S.buildView === 'public') render(); });
+    () => { PUB.failed = true; PUB.at = Date.now() - 60e3; }).finally(() => { PUB.loading = false; if (S.buildView === 'public') render(); });
 }
 // 公開用の中身（共有リンクと同じ形）
 const publicPayload = p => JSON.stringify({ v: 1, ...Object.fromEntries(SHARE_FIELDS.map(k => [k, p[k] ?? null])) });
@@ -829,7 +831,7 @@ function publicBuilds() {
   const mine = new Set(db.presets.map(p => p.id));
   const items = (PUB.list || []).map(b => ({ ...b, p: parsePublic(b.data) })).filter(b => b.p && (!f || b.p.charId === f));
   const chips = `<div class="pub-filter">${[['', 'すべて'], ...CHARS.map(c => [c.id, c.name])].map(([v, l]) => `<button class="chip small" data-act="pubChar" data-v="${v}" ${pressed(f === v)}>${l}</button>`).join('')}</div>`;
-  const body = !PUB.list ? `<div class="empty-state">${PUB.failed ? '読み込めませんでした。通信できる所でもう一度開いてください。' : '読み込んでいます…'}</div>`
+  const body = !PUB.list ? `<div class="empty-state">${PUB.failed && !PUB.loading ? '読み込めませんでした。通信できる所で、もう一度読み込んでください。<br><button class="ghost small" data-act="publicOpen" style="margin-top:8px">もう一度読み込む</button>' : '読み込んでいます…'}</div>`
     : items.length ? items.map((b, i) => `<button class="card" data-act="pubPick" data-v="${(PUB.list || []).indexOf(PUB.list.find(x => x.data === b.data))}">
         <span class="title"><span>${esc(presetName(b.p))}${mine.has(b.presetId) ? '<span class="badge pub">あなた</span>' : ''}</span><span class="rate none">取り込む ›</span></span>
         <span class="sub">${b.p.charId ? charName(b.p.charId) : '夜渡り未設定'}${styleText(b.p) ? '・' + esc(styleText(b.p)) : ''}</span>
@@ -889,7 +891,8 @@ function loadEnemies() {
   if (S.enemy.loading) return;
   S.enemy.loading = true;
   // 読み込みに失敗したときだけ「読み込めませんでした」を出す（画面を作るときのエラーとは分ける）
-  import('../data/enemies.js').then(m => { ENEMY_DATA = m.ENEMIES; }, err => { console.error(err); S.enemy.loading = false; S.enemy.failed = true; })
+  // やり直しのときは名前に印を付ける（一度失敗した読み込みを、ブラウザが覚えていて再び失敗するのを避ける）
+  import(S.enemy.retry ? `../data/enemies.js?r=${S.enemy.retry}` : '../data/enemies.js').then(m => { ENEMY_DATA = m.ENEMIES; }, err => { console.error(err); S.enemy.loading = false; S.enemy.failed = true; })
     .then(() => render());
 }
 const fmtN = n => n == null ? '–' : n.toLocaleString('ja-JP');
@@ -899,7 +902,7 @@ function viewEnemies() {
   const E = S.enemy;
   if (!ENEMY_DATA) {
     if (!E.failed) loadEnemies();
-    return `<div class="empty-state">${E.failed ? '読み込めませんでした。通信できる所でもう一度開いてください。' : '敵のデータを読み込んでいます…'}</div>`;
+    return `<div class="empty-state">${E.failed ? '読み込めませんでした。通信できる所で、もう一度読み込んでください。<br><button class="ghost small" data-act="enemyRetry" style="margin-top:8px">もう一度読み込む</button>' : '敵のデータを読み込んでいます…'}</div>`;
   }
   const q = E.q.trim();
   const p = PARTY_IDX[E.party] ?? 0;
@@ -1008,7 +1011,8 @@ function headsOf(cat) {
 // 見出しの色：フィールドの通常＝青、恐るべき強敵＝赤。拠点の砦は別の色
 const headClass = (cat, h) => cat === 2 ? ({ 通常: 'normal', 恐るべき強敵: 'dread', 封牢: 'gaol' }[h] || 'rest') : cat === 3 ? (h.startsWith('砦(') ? 'roof' : 'base') : 'mob';
 // ひらがなをカタカナにそろえる（検索用）
-const toKata = s => s.replace(/[ぁ-ゖ]/g, c => String.fromCharCode(c.charCodeAt(0) + 0x60));
+// 半角カナ・全角英数・空白の違いもそろえる（例：ｶﾞｰｺﾞｲﾙ、「夜の 獣」でも見つかる）
+const toKata = s => s.normalize('NFKC').replace(/\s+/g, '').replace(/[ぁ-ゖ]/g, c => String.fromCharCode(c.charCodeAt(0) + 0x60));
 const jaSort = new Intl.Collator('ja');
 const byKey = (rows, keyOf) => [...rows.reduce((m, x) => { const k = keyOf(x[0]); (m.get(k) || m.set(k, []).get(k)).push(x); return m; }, new Map())];
 const baseName = name => name.replace(/[(（].*[)）]$/, '');
@@ -1077,7 +1081,7 @@ function enemyPage(body, chip, q, list) {
     ${body}
     <div class="hint source-note"><p>「Elden Ring Nightreign - PvE Stats（Calibrations Ver 1.02.3）」を参照。DLC未対応。更新をお待ちください。</p>
       <p>HPや崩し値の数値は不正確の可能性があります。参考程度としてください。</p>
-      <p>誤植の修正は<button class="link-btn" data-act="reportOpen">こちら</button>にてお知らせください。</p></div>
+      <p>数値や名前の誤りは<button class="link-btn" data-act="reportOpen">こちら</button>からお知らせください。</p></div>
   </div>`;
 }
 // 色分け（数値の色だけ変える）
@@ -1327,7 +1331,7 @@ function guideSheet() {
   const installed = isStandalone();
   const step = (n, title, body) => `<div class="guide-step"><span class="num">${n}</span><div><b>${title}</b><p class="hint">${body}</p></div></div>`;
   const install = installed
-    ? `<div class="guide-ok">✓ ホーム画面から開いています</div><p class="hint">アイコンの名前が前の「夜の痕跡」のままでも、そのまま使えます。</p>`
+    ? `<div class="guide-ok">✓ ホーム画面から開いています</div>`
     : isIOS
       ? step(1, 'ホーム画面に追加する', 'Safariの下にある共有ボタン（□に↑）→「ホーム画面に追加」。<br><b>追加しないと、しばらく開かなかったときに記録が消えることがあります。</b>Safariとホーム画面のアプリは記録が別々なので、追加したあとはホーム画面から開いてください。')
       : step(1, 'ホーム画面に追加する', `ブラウザのメニュー →「ホーム画面に追加」または「アプリをインストール」。アプリのように全画面で使えます。${installPrompt ? '<br><button class="ghost" data-act="install" style="margin-top:6px">今すぐ追加する</button>' : ''}`);
@@ -1404,7 +1408,8 @@ function csvRows() {
   const rows = [['日付', '夜の王', '常夜', '地図欠損など', 'モード', '深度', '人数', '夜渡り', '結果', '倒れた場所', 'ビルド', 'メモ']];
   liveRuns().sort((a, b) => a.date.localeCompare(b.date) || a.updatedAt - b.updatedAt).forEach(r => rows.push([
     r.date, LORD[r.lordId]?.name ?? r.lordId, r.everdark ? '常夜' : '', (r.flags || []).map(x => flagName(x, r)).join('/'), MODE[r.mode]?.name ?? r.mode, r.depth ?? '', PARTYM[r.party]?.name ?? r.party,
-    CHAR[r.charId]?.name ?? r.charId, r.result === 'win' ? '勝利' : '敗北', r.lossAt ? LOSS[r.lossAt].name : '', presetById(r.presetId) ? presetLabel(presetById(r.presetId)) : (r.presetId ? '削除済み' : ''), r.note]));
+    CHAR[r.charId]?.name ?? r.charId, r.result === 'win' ? '勝利' : '敗北', r.lossAt ? LOSS[r.lossAt].name : '', presetById(r.presetId) ? presetLabel(presetById(r.presetId)) : (r.presetId ? '削除済み' : ''),
+    r.note]));
   return rows;
 }
 
@@ -1415,8 +1420,8 @@ function appSub() {
   const runs = liveRuns();
   if (S.tab === 'enemies') return '敵のデータを調べる';
   if (S.tab === 'record') { const t = rate(runs.filter(r => r.date === today())); return t.n ? `今日 ${t.n}戦 ${t.w}勝 ${t.n - t.w}敗` : '今日の夜を記録する'; }
-  if (S.tab === 'history') return `${runs.length}戦の記録`;
-  if (S.tab === 'stats') { const a = rate(runs); return `通算 ${a.n}戦・勝率 ${pct(a.p)}`; }
+  if (S.tab === 'history') return runs.length ? `${runs.length}戦の記録` : 'まだ記録がありません';
+  if (S.tab === 'stats') { const a = rate(runs); return a.n ? `通算 ${a.n}戦・勝率 ${pct(a.p)}` : 'まだ記録がありません'; }
   return `プリセット ${activePresets().length}件`;
 }
 // 画面を作り直すときに、入力中の欄（keepId）だけはそのまま残し、周りだけ入れ替える。
@@ -1542,7 +1547,8 @@ document.addEventListener('click', e => {
       }
       const newId = uid();
       db.runs.push({ id: newId, ...fields, presetRev: p ? presetRev(p) : null, updatedAt: Date.now(), deleted: false });
-      toast(`${LORD[f.lordId].name}戦の${f.result === 'win' ? '勝利' : '敗北'}を記録しました`);
+      S.undo = { type: 'add', id: newId };
+      toast(`${LORD[f.lordId].name}戦の${f.result === 'win' ? '勝利' : '敗北'}を記録しました`, { act: 'undo', label: '取り消す' });
       // 日付は「今日」以外（昨日・指定）を選んでいたら、続けて記録しやすいようにそのまま残す
       Object.assign(f, { lordId: null, everdark: null, flags: [], shift: null, result: null, lossAt: null, note: '' }); S.recOpen = {};
       break;
@@ -1558,7 +1564,8 @@ document.addEventListener('click', e => {
     case 'openRun': S.openRun = S.openRun === v ? null : v; break;
     case 'delRun':
       if (S.confirmDel !== v) { S.confirmDel = v; break; }
-      { const r = db.runs.find(r => r.id === v); r.deleted = true; r.updatedAt = Date.now(); } S.confirmDel = null; S.openRun = null; toast('削除しました'); break;
+      { const r = db.runs.find(r => r.id === v); r.deleted = true; r.updatedAt = Date.now(); } S.confirmDel = null; S.openRun = null;
+      S.undo = { type: 'del', id: v }; toast('削除しました', { act: 'undo', label: '元に戻す' }); break;
     case 'hf': S.hist.result = v; S.openRun = null; break;
     case 'hfClear': S.hist = { result: 'all', lord: '', char: '' }; S.openRun = null; break;
     case 'sf': S.stats[t.dataset.k] = v; break;
@@ -1572,6 +1579,12 @@ document.addEventListener('click', e => {
     case 'gEver': S.stats.gEver = !S.stats.gEver; break;
     case 'gFold': { const c = (prefs().gClosed ||= {}); if (c[v]) delete c[v]; else c[v] = true; break; }
     case 'statJump': { const h = [...document.querySelectorAll('.card-sec h2')].find(x => x.textContent === v); if (h) window.scrollTo({ top: h.closest('.card-sec').getBoundingClientRect().top + window.scrollY - 76, behavior: 'smooth' }); if (!h) toast('この条件では、その表はありません'); return; }
+    case 'enemyRetry': S.enemy.failed = false; S.enemy.retry = (S.enemy.retry || 0) + 1; break;
+    case 'globalRetry': GLOBAL.at = 0; GLOBAL.failed = false; break;
+    case 'undo': { const u = S.undo; S.undo = null; document.getElementById('toast').innerHTML = ''; clearTimeout(toastTimer);
+      const r = u && db.runs.find(x => x.id === u.id); if (!r) return;
+      r.deleted = u.type === 'add'; r.updatedAt = Date.now(); if (u.type === 'del') r.editedAt = Date.now();
+      toast(u.type === 'add' ? '記録を取り消しました' : '戦績を元に戻しました'); break; }
     case 'enemyCat': S.enemy.cat = +v; S.enemy.open = null; S.enemy.limit = ENEMY_PAGE; break;
     case 'enemyParty': S.enemy.party = v; S.enemy.partyOpen = false; break;
     case 'enemyPartyOpen': S.enemy.partyOpen = true; break;
@@ -1800,6 +1813,7 @@ document.addEventListener('click', e => {
     case 'reportSend': {
       const sh = S.sheet, text = document.getElementById('report-text')?.value.trim(), enemy = document.getElementById('report-enemy')?.value.trim();
       if (!text) { toast('内容を書いてください'); return; }
+      if (ngHit(text) || ngHit(enemy)) { toast('不適切な言葉が含まれているため送れません'); return; }
       sh.enemy = enemy; sh.sending = true; renderSheet();
       const box = document.getElementById('report-text'); if (box) box.value = text;
       postOnline({ type: 'report', enemy, text })
@@ -1841,7 +1855,7 @@ document.addEventListener('input', e => {
   }
 });
 document.addEventListener('toggle', e => { if (e.target.dataset?.details === 'opt') S.optOpen = e.target.open; }, true);
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && S.sheet) { S.sheet = null; renderSheet(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && S.sheet) { if (S.sheet.type === 'guide') prefs().onboarded = true; S.sheet = null; renderSheet(); save(db); } });
 if (!prefs().onboarded && !db.runs.length) S.sheet = { type: 'guide' };
 // v32 より前に入れたサンプルデータには印がないので、見分けて印を付け直す。
 // サンプルの戦績は一度に作るので、記録時刻の「ミリ秒の端数」が全部そろう（本物の記録はばらばら）。サンプルのプリセット（p1〜p3）がある端末だけ調べる

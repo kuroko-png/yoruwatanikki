@@ -67,7 +67,8 @@ export function exportJson(data) {
 
 // rows: 見出し行を含む2次元配列。Excelで文字化けしないよう BOM を付ける
 export function exportCsv(rows) {
-  const cell = v => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  // メモやビルド名が「=」などで始まると、Excelが計算式として扱ってしまうので、先頭に ' を付けて文字のままにする
+  const cell = v => { let s = String(v ?? ''); if (/^[=+\-@]/.test(s)) s = `'${s}`; return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const text = '﻿' + rows.map(r => r.map(cell).join(',')).join('\r\n');
   return saveFile(`夜渡り日記_戦績_${stamp()}.csv`, new Blob([text], { type: 'text/csv' }), '夜渡り日記の戦績');
 }

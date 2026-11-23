@@ -31,4 +31,4 @@ export const DEPTHS = [1, 2, 3, 4, 5];
 export const RUN_FLAGS = [{ id: 'mapLoss', name: '地図欠損' }, { id: 'bossUnknown', name: 'ボス不明' }, { id: 'shift', name: '地変' }];
 
 // 地変の種類（地変を選んだときだけ選べる）
-export const SHIFTS = [{ id: 'crater', name: '火口' }, { id: 'mountaintop', name: '山嶺' }, { id: 'rotwood', name: '腐敗森' }, { id: 'noklateo', name: 'ノクラテオ' }];
+export const SHIFTS = [{ id: 'crater', name: '火口' }, { id: 'mountaintop', name: '山嶺' }, { id: 'rotwood', name: '腐れ森' }, { id: 'noklateo', name: 'ノクラテオ' }];

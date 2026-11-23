@@ -1,13 +1,13 @@
 // オフラインでも開けるようにするための service worker。
 // 画面やデータのファイルを直したら、下の VERSION を1つ上げてください（利用者の端末で新しい版に入れ替わります）。
-const VERSION = 'v44';
+const VERSION = 'v45';
 const CACHE = `yowatari-nikki-${VERSION}`;
 const FILES = [
   './', './index.html', './manifest.webmanifest',
   './src/css/style.css', './src/app/app.js', './src/app/store.js', './src/app/scan.js',
   './src/data/lords.js', './src/data/characters.js', './src/data/effects.js',
   './src/data/vessels.js', './src/data/relics.js', './src/data/ngwords.js', './src/data/privacy.js', './src/data/labels.js', './src/data/help.js', './src/data/enemies.js', './src/data/night_bosses.js',
-  './icons/favicon.png', './icons/logo.png', ...['record', 'history', 'stats', 'builds', 'enemies'].map(id => `./icons/tabs/${id}.png`), './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
+  './icons/favicon.png', './icons/logo.png', ...['record', 'history', 'stats', 'builds', 'enemies'].map(id => `./icons/tabs/${id}.png`), './icons/icon-192.png', './icons/icon-512.png', './icons/icon-512-maskable.png', './icons/apple-touch-icon.png',
   // 夜の王・夜渡りのアイコン（tools/make_unit_icons.py で作る）
   ...['gladius', 'adel', 'gnoster', 'maris', 'libra', 'fulghor', 'caligo', 'final', 'harmonia', 'strages'].map(id => `./icons/lords/${id}.png`),
   ...['wylder', 'guardian', 'ironeye', 'duchess', 'raider', 'revenant', 'recluse', 'executor', 'scholar', 'undertaker'].map(id => `./icons/chars/${id}.png`),
@@ -33,6 +33,8 @@ self.addEventListener('fetch', e => {
         caches.open(CACHE).then(c => c.put(req, copy));
       }
       return res;
-    }).catch(() => caches.match(req, { ignoreSearch: true }).then(r => r || caches.match('./index.html')))
+    // つながらないとき：保存しておいた版を使う。アプリの画面そのもの（ページを開くとき）だけは、なければ index.html で代わりにする
+    // （通信の受け取り口などに index.html を返すと、読み込みに失敗し続けてしまうため）
+    }).catch(() => caches.match(req, { ignoreSearch: true }).then(r => r || (req.mode === 'navigate' ? caches.match('./index.html') : Response.error())))
   );
 });
