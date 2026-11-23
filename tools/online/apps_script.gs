@@ -102,7 +102,7 @@ function doGet(e) {
   const latest = {};
   values.forEach(v => { const k = v[1] + '/' + v[2]; if (!latest[k] || v[13] >= latest[k][13]) latest[k] = v; });
   const add = (map, key, win) => { const x = map[key] || (map[key] = { n: 0, w: 0 }); x.n++; if (win) x.w++; };
-  const out = { ok: true, updatedAt: Date.now(), players: 0, total: { n: 0, w: 0 }, lord: {}, char: {}, lordChar: {}, style: {}, weapon: {} };
+  const out = { ok: true, updatedAt: Date.now(), players: 0, total: { n: 0, w: 0 }, lord: {}, char: {}, lordChar: {}, style: {}, weapon: {}, depth: {}, party: {} };
   const players = {};
   Object.keys(latest).forEach(k => {
     const v = latest[k];
@@ -114,6 +114,10 @@ function doGet(e) {
     // よく使われている型・武器（使われた数だけ）
     if (v[14]) out.style[v[14]] = (out.style[v[14]] || 0) + 1;
     if (v[15]) out.weapon[v[15]] = (out.weapon[v[15]] || 0) + 1;
+    // 深度ごと・人数ごとの出撃回数
+    const dk = v[6] === 'deep' ? 'deep' + (v[7] || '') : 'normal';
+    out.depth[dk] = (out.depth[dk] || 0) + 1;
+    if (v[8]) out.party[v[8]] = (out.party[v[8]] || 0) + 1;
   });
   out.players = Object.keys(players).length;
   const text = JSON.stringify(out);

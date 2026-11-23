@@ -58,6 +58,16 @@ const VC = { r: 'red', b: 'blue', y: 'yellow', g: 'green', '*': 'any' };
 const VESSELS = VESSEL_ROWS.map(([charId, name, s, d]) => ({ id: name, charId, name, normal: [...s].map(c => VC[c]), deep: [...d].map(c => VC[c]) }));
 const VESSEL = Object.fromEntries(VESSELS.map(v => [v.id, v]));
 const vesselsFor = charId => VESSELS.filter(v => v.charId === charId || v.charId === 'common');
+// 献器は選ばない。入っている遺物の色がすべて収まる献器（夜渡りの献器と共通の聖杯）を自動で探す。
+// override：{ k, i, r } を渡すと「その枠をその遺物にしたら」で調べる（置ける色かどうかの判定に使う）
+function fitVessel(d, override) {
+  if (!d.charId) return null;
+  const at = (k, j) => override && override.k === k && override.i === j ? override.r : d[k][j];
+  return vesselsFor(d.charId).find(v => ['normal', 'deep'].every(k => [0, 1, 2].every(j => { const r = at(k, j); return !r || fits(v[k][j], r); }))) || null;
+}
+// 今編集中の枠に、その色の遺物を置いても、どれかの献器に収まるか
+const canColor = color => { const { k, i } = S.edit.slot; return !!fitVessel(S.edit.data, { k, i, r: { color } }); };
+const specialOk = x => !x.color || canColor(x.color);
 const fits = (slotColor, relic) => slotColor === 'any' || !relic.color || slotColor === relic.color;
 
 // 夜の王（常夜含む）の遺物・夜渡りの固有遺物（出典: 神攻略wiki 遺物ページ）
@@ -499,6 +509,53 @@ function loadGlobal() {
     () => { GLOBAL.failed = true; GLOBAL.at = Date.now() - 4 * 60e3; })
     .finally(() => { GLOBAL.loading = false; if (S.tab === 'stats') render(); });
 }
+// 統計の項目は、上のボタンで表示・非表示を切り替えられる（端末に覚えておく）
+const STATS_MINE = ['勝率の推移', '夜の王別', '夜渡り別', '相性表', 'どこで倒れたか', 'ビルド別', '型・メイン武器別', '効果別'];
+const STATS_ALL = ['夜渡り', '夜の王', 'よく使われている武器', '深度', '出撃人数'];
+const statHidden = () => (prefs().statsHidden ||= {});
+const cardIf = (title, ...rest) => statHidden()[title] ? '' : card(title, ...rest);
+const secToggles = list => `<div class="stats-toc" aria-label="表示する項目">${list.map(t => `<button class="chip mini" data-act="statToggle" data-v="${t}" ${pressed(!statHidden()[t])}>${t}</button>`).join('')}</div>`;
+// みんなの統計：参加・概要のカードと、項目ごとのカード
+function globalStats() {
+  const o = onlinePrefs(), g = GLOBAL.data;
+  loadGlobal();
+  const join = o.join
+    ? `<div class="online-join on"><span>参加中：あなたの戦績も集計に入っています</span><button class="ghost small-btn ${S.confirmDel === 'onlineLeave' ? 'danger' : ''}" data-act="onlineLeave">${S.confirmDel === 'onlineLeave' ? 'もう一度押すとやめる' : 'やめる'}</button></div>`
+    : `<div class="online-join"><p class="hint">参加すると、あなたの戦績（夜の王・夜渡り・勝敗など）を名前なしで送り、みんなの統計に加えます。メモや遺物は送りません。これまでの戦績も送ります。</p>
+       <button class="primary" data-act="onlineJoin">参加する</button></div>`;
+  if (!g || !g.total.n) return card('みんなの統計', `<p class="hint">${GLOBAL.loading || !GLOBAL.at ? '読み込んでいます…' : GLOBAL.failed ? '読み込めませんでした。通信できる所でもう一度開いてください。' : 'まだ集まった戦績がありません。'}</p>${join}`);
+  const total = g.total.n;
+  // 1行：名前・数・割合・勝率と、棒（color で色を決める）
+  const row = (icon, name, n, right, width, color, dim = false) => `<div class="bar-row ${dim ? 'dim' : ''}"><span class="name">${icon}${esc(name)}</span><span class="num">${right}</span>
+    <span class="bar-track no-mid"><span class="bar-fill" style="width:${width * 100}%;background:${color}"></span></span></div>`;
+  const rateTxt = x => `<b>${pct(x.w / x.n)}</b> ${x.n}戦`;
+  // 夜渡り：使われた数と勝率
+  const chars = Object.entries(g.char || {}).filter(([k]) => CHAR[k]).sort((a, b) => b[1].n - a[1].n);
+  const charBody = chars.map(([k, x]) => row(ico('char', k), CHAR[k].name, x.n, `使用 ${pct(x.n / total)}・勝率 ${rateTxt(x)}`, x.w / x.n, x.w / x.n >= .5 ? 'var(--grad-win)' : 'var(--grad-loss)', x.n < STATS_MIN_RUNS)).join('');
+  // 夜の王：出現と勝率。通常は緑、常夜は紫の棒。出現率・勝率・出撃画面の並び順で並べ替え
+  const order = id => LORDS.findIndex(l => l.id === id);
+  const sorters = { appear: (a, b) => b[1].n - a[1].n, rate: (a, b) => b[1].w / b[1].n - a[1].w / a[1].n || b[1].n - a[1].n,
+    order: (a, b) => order(a[0].split(':')[0]) - order(b[0].split(':')[0]) || (a[0].includes(':') - b[0].includes(':')) };
+  const lords = Object.entries(g.lord || {}).filter(([k]) => LORD[k.split(':')[0]]).sort(sorters[S.stats.lordSort] || sorters.order);
+  const lordBody = `<div class="chips">${[['order', '出撃時の並び順'], ['appear', '出現率'], ['rate', '勝率']].map(([v, l]) => `<button class="chip small" data-act="lordSort" data-v="${v}" ${pressed((S.stats.lordSort || 'order') === v)}>${l}</button>`).join('')}</div>
+    <p class="hint">棒の長さは勝率。<span class="lg-normal">■</span>通常　<span class="lg-ever">■</span>常夜</p>
+    <div class="bars">${lords.map(([k, x]) => { const [id, ev] = k.split(':');
+      return row(ico('lord', id), LORD[id].name + (ev ? '（常夜）' : ''), x.n, `出現 ${pct(x.n / total)}・勝率 ${rateTxt(x)}`, x.w / x.n, ev ? 'var(--grad-ever)' : 'var(--grad-win)', x.n < STATS_MIN_RUNS); }).join('')}</div>`;
+  // 数を数えるだけの項目（割合の棒）
+  const countBody = (list, hint = '') => { const sum = list.reduce((a, [, n]) => a + n, 0), top = Math.max(1, ...list.map(([, n]) => n));
+    return sum ? `${hint}<div class="bars">${list.map(([name, n]) => row('', name, n, `<b>${pct(n / sum)}</b> ${n}戦`, n / top, 'var(--accent)')).join('')}</div>` : '<p class="hint">まだデータがありません。</p>'; };
+  const weapons = Object.entries(g.weapon || {}).filter(([k]) => WEAPON_TYPES.includes(k)).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const depthList = g.depth ? [['通常', g.depth.normal || 0], ...[1, 2, 3, 4, 5].map(n => [`深き夜 深度${n}`, g.depth['deep' + n] || 0])].filter(([, n]) => n) : null;
+  const partyList = g.party ? [['ソロ', g.party.solo || 0], ['デュオ', g.party.duo || 0], ['トリオ', g.party.trio || 0]].filter(([, n]) => n) : null;
+  const later = '<p class="hint">スプレッドシート側の更新後に表示されます。</p>';
+  return `${card('みんなの統計', `<p class="hint">${g.players}人・${total}戦の合計（勝率 ${pct(g.total.w / total)}）。数分ごとに更新されます。</p>${join}`)}
+    ${secToggles(STATS_ALL)}
+    ${cardIf('夜渡り', charBody ? `<p class="hint">使われた割合と勝率（使われた数の多い順）</p><div class="bars">${charBody}</div>` : '<p class="hint">まだデータがありません。</p>')}
+    ${cardIf('夜の王', lordBody)}
+    ${cardIf('よく使われている武器', countBody(weapons, '<p class="hint">ビルドを登録して記録された戦績のうち、メイン武器の割合（上位10）</p>'))}
+    ${cardIf('深度', depthList ? countBody(depthList, '<p class="hint">通常と深き夜（深度ごと）の出撃回数</p>') : later)}
+    ${cardIf('出撃人数', partyList ? countBody(partyList) : later)}`;
+}
 function globalCard() {
   const o = onlinePrefs(), g = GLOBAL.data;
   loadGlobal();
@@ -566,8 +623,8 @@ function viewStats() {
   const lossColors = { d1: '#f0b46a', d2: '#e3835e', final: '#cf5a55' };
   const lossTotal = lossCounts.reduce((s, x) => s + x.n, 0);
   const filterChips = (key, opts) => opts.map(([v, l]) => `<button class="chip small" data-act="sf" data-k="${key}" data-v="${v}" ${pressed(S.stats[key] === v)}>${l}</button>`).join('');
-  const scopeSeg = `<div class="seg scope-seg">${[['mine', '自分の戦績'], ['all', 'みんなの戦績']].map(([v, l]) => `<button data-act="statsScope" data-v="${v}" ${pressed(S.stats.scope === v)}>${l}</button>`).join('')}</div>`;
-  if (S.stats.scope === 'all') return `<div class="stack-lg">${scopeSeg}${globalCard()}</div>`;
+  const scopeSeg = `<div class="seg scope-seg">${[['mine', '自分の統計'], ['all', 'みんなの統計']].map(([v, l]) => `<button data-act="statsScope" data-v="${v}" ${pressed(S.stats.scope === v)}>${l}</button>`).join('')}</div>`;
+  if (S.stats.scope === 'all') return `<div class="stack-lg">${scopeSeg}${globalStats()}</div>`;
   return `<div class="stack-lg">
     ${scopeSeg}
     <div class="filters">
@@ -576,23 +633,23 @@ function viewStats() {
     </div>
     ${drillBanner()}
     ${runs.length ? `
-    <div class="stats-toc" aria-label="目次">${['夜の王別', '夜渡り別', '相性表', 'どこで倒れたか', 'ビルド別', '型・メイン武器別', '効果別'].map(t => `<button class="chip mini" data-act="statJump" data-v="${t}">${t}</button>`).join('')}</div>
+    ${secToggles(STATS_MINE)}
     <div class="tiles">
       <div class="tile"><div class="k">戦数</div><div class="v">${all.n}</div><div class="s">${all.w}勝 ${all.n - all.w}敗</div></div>
       <div class="tile"><div class="k">勝率</div><div class="v">${pct(all.p)}</div><div class="s">全体</div></div>
       <div class="tile"><div class="k">連勝</div><div class="v">${streak}</div><div class="s">最高 ${best}</div></div>
     </div>
-    ${card('勝率の推移', `<p class="hint">直近10戦ごとの勝率。点線は50%</p>${spark(chrono)}`)}
-    ${dr.lord ? '' : card('夜の王別', barRows(LORDS, l => runs.filter(r => r.lordId === l.id), { drill: 'lord' }))}
-    ${dr.char ? '' : card('夜渡り別', barRows(CHARS, c => runs.filter(r => r.charId === c.id), { drill: 'char' }))}
-    ${dr.lord || dr.char ? '' : card('相性表', heat(runs), `<div class="chips">${[['lord', '夜の王ごと'], ['char', '夜渡りごと']].map(([v, l]) => `<button class="chip small" data-act="heatBy" data-v="${v}" ${pressed(S.stats.heatBy === v)}>${l}</button>`).join('')}</div>`)}
-    ${card('どこで倒れたか', lossTotal ? `<div class="stack">${lossCounts.filter(x => x.n).map(x => `<div style="flex:${x.n};background:${lossColors[x.id]}">${x.n >= lossTotal * .12 ? pct(x.n / lossTotal) : ''}</div>`).join('')}</div>
+    ${cardIf('勝率の推移', `<p class="hint">直近10戦ごとの勝率。点線は50%</p>${spark(chrono)}`)}
+    ${dr.lord ? '' : cardIf('夜の王別', barRows(LORDS, l => runs.filter(r => r.lordId === l.id), { drill: 'lord' }))}
+    ${dr.char ? '' : cardIf('夜渡り別', barRows(CHARS, c => runs.filter(r => r.charId === c.id), { drill: 'char' }))}
+    ${dr.lord || dr.char ? '' : cardIf('相性表', heat(runs), `<div class="chips">${[['lord', '夜の王ごと'], ['char', '夜渡りごと']].map(([v, l]) => `<button class="chip small" data-act="heatBy" data-v="${v}" ${pressed(S.stats.heatBy === v)}>${l}</button>`).join('')}</div>`)}
+    ${cardIf('どこで倒れたか', lossTotal ? `<div class="stack">${lossCounts.filter(x => x.n).map(x => `<div style="flex:${x.n};background:${lossColors[x.id]}">${x.n >= lossTotal * .12 ? pct(x.n / lossTotal) : ''}</div>`).join('')}</div>
       <div class="legend">${lossCounts.map(x => `<span><i style="background:${lossColors[x.id]}"></i>${x.name} ${x.n}回</span>`).join('')}</div>` : `<p class="hint">敗北の記録はありません</p>`)}
-    ${dr.preset ? '' : card('ビルド別', barRows([...db.presets.map(p => ({ id: p.id, name: presetLabel(p) })), { id: '__none', name: '記録無し' }, { id: '__gone', name: '削除済み（詳細不明）' }],
+    ${dr.preset ? '' : cardIf('ビルド別', barRows([...db.presets.map(p => ({ id: p.id, name: presetLabel(p) })), { id: '__none', name: '記録無し' }, { id: '__gone', name: '削除済み（詳細不明）' }],
       p => runs.filter(r => DRILL.preset.match(r, p.id)), { drill: 'preset' }))}
-    ${dr.style && dr.weapon ? '' : card('型・メイン武器別', `${dr.style ? '' : barRows(STYLES, st => runs.filter(r => runBuild(r)?.style === st.id), { drill: 'style' })}
+    ${dr.style && dr.weapon ? '' : cardIf('型・メイン武器別', `${dr.style ? '' : barRows(STYLES, st => runs.filter(r => runBuild(r)?.style === st.id), { drill: 'style' })}
       ${dr.weapon ? '' : barRows(WEAPON_TYPES.map(w => ({ id: w, name: w })), w => runs.filter(r => runBuild(r)?.weaponType === w.id), { drill: 'weapon' })}`)}
-    ${card('効果別', `<p class="hint">その効果を積んでいた試合の勝率。プリセットに登録した効果だけが対象です</p>
+    ${cardIf('効果別', `<p class="hint">その効果を積んでいた試合の勝率。プリセットに登録した効果だけが対象です</p>
       ${barRows(usedEffects(runs).filter(ef => ef.id !== dr.effect), ef => runs.filter(r => presetHasEffect(r, ef.id)), { limit: 10, key: 'effects', drill: 'effect' })}`)}` : `<div class="empty-state">この条件の記録はありません</div>`}
   </div>`;
 }
@@ -681,7 +738,7 @@ function importSheet() {
     <div class="sheet-head"><h2>ビルドを取り込む</h2><button class="ghost" data-act="sClose">閉じる</button></div>
     <div class="sheet-list import-list">${body}</div></div>`;
 }
-// スクショの読み取り：読み取った遺物を枠に入れる。献器が未選択なら、色が合う献器を自動で選ぶ
+// スクショの読み取り：読み取った遺物を枠に入れる（献器は遺物の色から自動で決まる）
 async function runScan(kind, file) {
   const ed = S.edit, d = ed.data;
   ed.scanning = kind; render();
@@ -693,12 +750,8 @@ async function runScan(kind, file) {
     const relics = await scanRelics(file, kind, { effects: famsFor(kind === 'deep' ? DEEP_FAMS : NORMAL_FAMS), demerits: famsFor(DEMERIT_FAMS), specials });
     scanReady = true;
     if (!relics.some(Boolean)) { toast('遺物を読み取れませんでした。「遺物儀式」の画面のスクショか確かめてください'); return; }
-    if (!d.vesselId) {
-      const fitsAll = v => relics.every((r, i) => !r || fits(v[kind][i], r));
-      const v = vesselsFor(d.charId).find(fitsAll);
-      if (v) d.vesselId = v.id; else { toast('色が合う献器が見つかりません。先に献器を選んでください'); return; }
-    }
-    d[kind] = relics.map((r, i) => r && !fits(VESSEL[d.vesselId][kind][i], r) ? { ...r, check: true } : r);
+    d[kind] = relics;
+    if (!fitVessel(d)) { ed.open[kind === 'deep' ? 'relicDeep' : 'relicNormal'] = true; toast('読み取りましたが、この色の組み合わせに適合する献器がありません。遺物を見直してください'); return; }
     ed.open[kind === 'deep' ? 'relicDeep' : 'relicNormal'] = true;
     const unsure = d[kind].filter(r => r?.check).length;
     toast(`${kind === 'deep' ? '深層' : '表'}の遺物を読み取りました。${unsure ? `「要確認」の${unsure}つは、とくに見直してください` : 'ゲームの画面と見比べて確かめてください'}`);
@@ -980,13 +1033,13 @@ function disc(key, label, value, body, disabled = false, defOpen = false) {
 }
 function editPreset() {
   const p = S.edit.data;
-  const v = p.vesselId && VESSEL[p.vesselId];
+  const fv = fitVessel(p);
+  p.vesselId = fv?.id || null;  // 献器は遺物の色から自動で決める
   const slot = (kind, i) => {
     const r = p[kind][i];
-    const sc = v[kind][i];
     return `<button class="slot-btn ${r ? 'filled' : ''}" data-act="openSlot" data-k="${kind}" data-v="${i}">
-      <span class="slot-color ${kind === 'deep' ? 'deep' : ''} c-${r ? r.color : sc}" title="${sc === 'any' ? '全色' : COLOR[sc].name}"></span>
-      ${r ? `<span class="rname"><span>${relicName(r)}${r.check ? '<span class="badge check">要確認</span>' : ''}</span><small>${esc(relicSub(r))}</small></span>` : `<span class="empty">空き（${sc === 'any' ? 'どの色でも可' : COLOR[sc].name + 'の枠'}）</span>`}</button>`;
+      <span class="slot-color ${kind === 'deep' ? 'deep' : ''} ${r ? 'c-' + r.color : 'c-none'}"></span>
+      ${r ? `<span class="rname"><span>${relicName(r)}${r.check ? '<span class="badge check">要確認</span>' : ''}</span><small>${esc(relicSub(r))}</small></span>` : `<span class="empty">空き（タップして遺物を入れる）</span>`}</button>`;
   };
   // スクショから読み取る（表・深層を1枚ずつ）
   const scanBtn = (kind, label) => S.edit.scanning === kind
@@ -996,11 +1049,6 @@ function editPreset() {
     <div class="scan-btns">${scanBtn('normal', '表')}${scanBtn('deep', '深層')}</div>
     <p class="hint">${p.charId ? 'ゲームの「遺物儀式」画面のスクショを、表（スロット1〜3を選んだ画面）と深層（スロット4〜6を選んだ画面）で1枚ずつ選ぶと、遺物を自動で入れます。' : '先に夜渡りを選んでください。'}</p>
     <p class="hint scan-note">※ 端末の中で文字を読み取るので、とくに「＋」のあとの数字は間違っていることがあります。読み取ったあとは、ゲームの画面と見比べて確かめてください。</p></section>`;
-  const vRow = x => `<button class="vessel" data-act="eVessel" data-v="${esc(x.id)}" ${pressed(p.vesselId === x.id)}><span>${esc(x.name)}</span><span class="cols">${vesselCols(x, 'normal')}<span class="sep"></span>${vesselCols(x, 'deep')}</span></button>`;
-  const list = p.charId ? vesselsFor(p.charId) : [];
-  const vesselBody = `<div class="vessel-list">${list.filter(x => x.charId !== 'common').map(vRow).join('')}
-      <div class="sub-group">共通の聖杯</div>${list.filter(x => x.charId === 'common').map(vRow).join('')}</div>
-      <p class="hint">左3つが表の遺物、右3つが深層の遺物の枠の色です。虹色の枠はどの色でも装備できます。</p>`;
   const styleName = p.style ? STYLES.find(x => x.id === p.style).name + ((p.spec || []).length ? `・${p.spec.join('/')}` : '') : '';
   const styleBody = `<div class="chips">${STYLES.map(x => `<button class="chip" data-act="eStyle" data-v="${x.id}" ${pressed(p.style === x.id)}>${x.name}</button>`).join('')}</div>
       ${p.style === 'caster' || p.style === 'hybrid' ? `<div class="subpanel"><div class="label">何特化？（複数選べます）</div>
@@ -1011,7 +1059,7 @@ function editPreset() {
   const val = (txt, set) => ({ html: `<span class="txt">${esc(txt)}</span>`, set });
   // 遺物の枠：埋まっている数と色を、畳んだ行の右側に出す
   const relicValue = kind => { const n = p[kind].filter(Boolean).length;
-    return { html: `<span class="txt">${n}/3</span><span class="slots">${p[kind].map((r, i) => `<span class="slot-dot ${kind === 'deep' ? 'deep' : ''} ${r ? 'c-' + r.color : 'o-' + v[kind][i]}"></span>`).join('')}</span>`, set: n > 0 }; };
+    return { html: `<span class="txt">${n}/3</span><span class="slots">${p[kind].map(r => `<span class="slot-dot ${kind === 'deep' ? 'deep' : ''} ${r ? 'c-' + r.color : ''}"></span>`).join('')}</span>`, set: n > 0 }; };
   const name = presetName(p);
   const nameRow = S.edit.editingName
     ? `<section class="card-sec"><div class="sec-head"><h2>プリセット名</h2></div>
@@ -1024,21 +1072,19 @@ function editPreset() {
     <div class="page-title">${S.edit.isNew ? 'プリセットを作る' : 'プリセットを編集'}</div>
     ${disc('char', '夜渡り', p.charId ? { html: `${ico('char', p.charId)}<span class="txt">${CHAR[p.charId].name}</span>`, set: true } : val('未選択', false),
       `<div class="grid-btns">${CHARS.map(c => `<button class="tile-btn with-ico" data-act="eChar" data-v="${c.id}" ${pressed(p.charId === c.id)}>${charName(c.id)}</button>`).join('')}</div>`)}
-    ${disc('vessel', '献器', !p.charId ? val('先に夜渡りを選択', false) : v ? { html: `<span class="txt">${esc(v.name)}</span>${vesselCols(v, 'normal')}`, set: true } : val('未選択', false), vesselBody, !p.charId)}
+    ${scanCard}
+    ${p.charId ? disc('relicNormal', '表の遺物', relicValue('normal'), `<div class="section">${[0, 1, 2].map(i => slot('normal', i)).join('')}</div>`, false, true)
+      + disc('relicDeep', '深層の遺物', relicValue('deep'), `<div class="section">${[0, 1, 2].map(i => slot('deep', i)).join('')}</div><p class="hint">深き夜で使う遺物です。</p>`, false, true)
+      + `<p class="hint vessel-note">${[...p.normal, ...p.deep].some(Boolean) ? (fv ? `適合する献器：<b>${esc(fv.name)}</b>（遺物の色から自動で判定）` : '<span class="bad">この色の組み合わせに適合する献器がありません。遺物を見直してください。</span>') : '読み取らずに、枠をタップして手で入れることもできます。枠は空いたままでも保存できます。'}</p>` : ''}
     ${disc('style', '型', styleName ? val(styleName, true) : val('未設定', false), styleBody)}
     ${disc('weapon', 'メイン武器', p.weaponType ? val(p.weaponName ? `${p.weaponName}（${p.weaponType}）` : p.weaponType, true) : val('未設定', false), weaponBody)}
     ${nameRow}
-    ${scanCard}
-    ${v ? disc('relicNormal', '表の遺物', relicValue('normal'), `<div class="section">${[0, 1, 2].map(i => slot('normal', i)).join('')}</div>`, false, true)
-      + disc('relicDeep', '深層の遺物', relicValue('deep'), `<div class="section">${[0, 1, 2].map(i => slot('deep', i)).join('')}</div><p class="hint">深き夜で使う遺物です。</p>`, false, true)
-      + '<p class="hint">枠は空いたままでも保存できます。</p>' : ''}
     <div class="form-actions"><button class="ghost" data-act="eCancel">キャンセル</button><button class="primary" data-act="eSave">保存する</button></div>
     ${S.edit.isNew ? '' : `<div class="row-actions" style="justify-content:center"><button class="ghost" data-act="eShare">共有する</button><button class="ghost" data-act="eDup">複製して新しく作る</button><button class="ghost danger" data-act="eDel">${S.confirmDel === 'edit' ? 'もう一度押すと削除' : 'このプリセットを削除'}</button></div>`}
   </div>`;
 }
 function editSlot() {
   const { k, i, data: r, existed, mode } = S.edit.slot;
-  const sc = VESSEL[S.edit.data.vesselId][k][i];
   const slot = (kind, j) => {
     const e = r[kind][j] && ALL_EFF[r[kind][j]]; const dem = kind === 'demerits';
     return `<button class="slot-btn ${dem ? 'demerit' : ''} ${e ? 'filled' : ''}" data-act="pickEff" data-k="${kind}" data-v="${j}">
@@ -1052,11 +1098,13 @@ function editSlot() {
   }
   BAR = `<button class="ghost" data-act="eSlotCancel">戻る</button><button class="primary" data-act="eSlotSave">この遺物で決定</button>`;
   return `<div class="stack-lg">
-    <div class="eyebrow">${esc(S.edit.data.name || 'プリセット')} ／ ${k === 'deep' ? '深層の遺物' : '表の遺物'}の${i + 1}枠目（${sc === 'any' ? 'どの色でも可' : COLOR[sc].name + 'の枠'}）</div>
+    <div class="eyebrow">${esc(S.edit.data.name || 'プリセット')} ／ ${k === 'deep' ? '深層の遺物' : '表の遺物'}の${i + 1}枠目</div>
     ${r.special ? specialCard(r) : `
     <section class="card-sec">
       <div class="relic-title"><span class="color-dot c-${r.color}"></span>${relicName(r)}</div>
-      ${sc === 'any' ? `<div class="chips">${COLORS.map(c => `<button class="chip small" data-act="eColor" data-v="${c.id}" ${pressed(r.color === c.id)}><span class="color-dot c-${c.id}" style="width:10px;height:10px;vertical-align:0;margin-right:6px"></span>${c.word}</button>`).join('')}</div>` : ''}
+      <div class="chips">${COLORS.map(c => canColor(c.id)
+        ? `<button class="chip small" data-act="eColor" data-v="${c.id}" ${pressed(r.color === c.id)}><span class="color-dot c-${c.id}" style="width:10px;height:10px;vertical-align:0;margin-right:6px"></span>${c.word}</button>`
+        : `<button class="chip small" disabled title="適合する献器がありません"><span class="color-dot c-${c.id}" style="width:10px;height:10px;vertical-align:0;margin-right:6px;opacity:.4"></span>${c.word}（適合する献器なし）</button>`).join('')}</div>
       <div class="section">${pairs.join('')}</div>
       <p class="hint">大きさ（壮大・端正・繊細）は効果の数で自動で決まります。${k === 'deep' ? 'デメリットは、付く効果・段階を選んだときだけ入力欄が出ます。' : ''}</p>
     </section>`}
@@ -1085,7 +1133,7 @@ function specialCard(r) {
 function specialPicker(mode, sc, r) {
   const charId = S.edit.data.charId;
   const list = SPECIALS.filter(x => x.type === mode && (mode === 'lord' || x.who === charId || x.who === 'any'));
-  const ok = list.filter(x => fitsSpecial(sc, x)), ng = list.filter(x => !fitsSpecial(sc, x));
+  const ok = list.filter(specialOk), ng = list.filter(x => !specialOk(x));
   const card = x => `<button class="card special ${r.special === x.id ? 'on' : ''}" data-act="eSpecial" data-v="${x.id}" ${pressed(r.special === x.id)}>
     <span class="title"><span style="display:flex;gap:8px;align-items:center"><span class="color-dot ${x.color ? 'c-' + x.color : 'c-any'}" style="width:14px;height:14px"></span>${x.name}</span>
     <span class="badge">${mode === 'lord' ? LORD[x.who].name : x.who === 'any' ? '共通' : CHAR[x.who].name}</span></span>
@@ -1163,16 +1211,15 @@ function renderSheet() {
 // 夜の王の遺物・固有遺物は、選ぶだけでその枠に決まる
 function specialRows(type) {
   const { k, i, data: r } = S.edit.slot;
-  const sc = VESSEL[S.edit.data.vesselId][k][i];
   const charId = S.edit.data.charId;
   const list = SPECIALS.filter(x => x.type === type && (type === 'lord' || x.who === charId || x.who === 'any'));
-  const ok = list.filter(x => fitsSpecial(sc, x)), ng = list.filter(x => !fitsSpecial(sc, x));
+  const ok = list.filter(specialOk), ng = list.filter(x => !specialOk(x));
   const who = x => type === 'lord' ? LORD[x.who].name : x.who === 'any' ? '共通' : CHAR[x.who].name;
   return (ok.length ? ok.map(x => `<button class="pick special-pick" data-act="sPickSpecial" data-v="${x.id}" ${pressed(r.special === x.id)}>
       <span class="sp-main"><span class="sp-name"><span class="color-dot c-${x.color}"></span>${x.name}<span class="badge">${who(x)}</span></span>
       <small>${x.effects.map(esc).join('・')}</small></span></button>`).join('')
-    : `<p class="hint">この枠の色に合う${type === 'lord' ? '夜の王の' : '固有'}遺物はありません</p>`)
-    + (ng.length ? `<p class="hint" style="padding:8px">色が合わないため装備できない：${ng.map(x => x.name).join('、')}</p>` : '');
+    : `<p class="hint">適合する献器がある${type === 'lord' ? '夜の王の' : '固有'}遺物はありません</p>`)
+    + (ng.length ? `<p class="hint" style="padding:8px">適合する献器がないため選べない：${ng.map(x => x.name).join('、')}</p>` : '');
 }
 const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -1414,6 +1461,8 @@ document.addEventListener('click', e => {
     case 'undrillAll': S.stats.drill = {}; break;
     case 'heatBy': S.stats.heatBy = v; break;
     case 'statsScope': S.stats.scope = v; scrollTop(); break;
+    case 'statToggle': { const h = statHidden(); if (h[v]) delete h[v]; else h[v] = true; break; }
+    case 'lordSort': S.stats.lordSort = v; break;
     case 'statJump': { const h = [...document.querySelectorAll('.card-sec h2')].find(x => x.textContent === v); if (h) window.scrollTo({ top: h.closest('.card-sec').getBoundingClientRect().top + window.scrollY - 76, behavior: 'smooth' }); if (!h) toast('この条件では、その表はありません'); return; }
     case 'enemyCat': S.enemy.cat = +v; S.enemy.open = null; S.enemy.limit = ENEMY_PAGE; break;
     case 'enemyParty': S.enemy.party = v; S.enemy.partyOpen = false; break;
@@ -1438,9 +1487,7 @@ document.addEventListener('click', e => {
     case 'newPreset': if (prefs().draft && S.confirmDel !== 'newPreset') { S.confirmDel = 'newPreset'; break; } S.confirmDel = null; S.edit = { type: 'preset', isNew: true, open: { char: true }, data: { id: uid(), name: '', nameAuto: true, charId: null, vesselId: null, normal: [null, null, null], deep: [null, null, null] } }; scrollTop(); break;
     case 'editPreset': S.edit = { type: 'preset', open: {}, data: structuredClone(presetById(v)) }; scrollTop(); break;
     case 'eChar': {
-      const d = S.edit.data; d.charId = v; S.edit.open.char = false;
-      if (d.vesselId && !vesselsFor(v).some(x => x.id === d.vesselId)) { d.vesselId = null; d.normal = [null, null, null]; d.deep = [null, null, null]; }
-      if (!d.vesselId) S.edit.open.vessel = true;
+      const d = S.edit.data; d.charId = v; S.edit.open.char = false;  // 遺物はそのまま。献器は遺物の色から自動で決め直す
       break;
     }
     case 'eVessel': {
@@ -1460,8 +1507,10 @@ document.addEventListener('click', e => {
     case 'eSlotMode': { const sl = S.edit.slot; if (sl.mode !== v) { sl.mode = v; sl.data.special = null; } break; }
     case 'eSpecial': S.edit.slot.data.special = v; break;
     case 'openSlot': {
-      const k = t.dataset.k, i = +v, cur = S.edit.data[k][i], sc = VESSEL[S.edit.data.vesselId][k][i];
-      S.edit.slot = { k, i, existed: !!cur, fresh: !cur, mode: cur && cur.special ? SPECIAL[cur.special].type : 'normal', data: cur ? structuredClone(cur) : { size: 3, color: sc === 'any' ? 'red' : sc, kind: k, effects: [null, null, null], demerits: [null, null, null] } };
+      const k = t.dataset.k, i = +v, cur = S.edit.data[k][i];
+      S.edit.slot = { k, i, existed: !!cur, fresh: !cur, mode: cur && cur.special ? SPECIAL[cur.special].type : 'normal', data: cur ? structuredClone(cur) : { size: 3, color: 'red', kind: k, effects: [null, null, null], demerits: [null, null, null] } };
+      // 新しい枠は、適合する献器がある色から始める
+      if (!cur) S.edit.slot.data.color = COLORS.map(c => c.id).find(canColor) || 'red';
       // 空き枠・固定効果の遺物は、そのまま効果選択を開く（1タップで選べるように）
       if (!cur) S.sheet = { type: 'eff', kind: 'effects', idx: 0, cat: null, q: '', open: null };
       else if (cur.special) S.sheet = { type: 'eff', kind: 'effects', idx: 0, cat: '__' + SPECIAL[cur.special].type, q: '', open: null };
@@ -1469,12 +1518,13 @@ document.addEventListener('click', e => {
     }
     case 'pickSpecial': S.sheet = { type: 'eff', kind: 'effects', idx: 0, cat: '__' + SPECIAL[S.edit.slot.data.special].type, q: '', open: null }; break;
     case 'sPickSpecial': {
-      const { k, i } = S.edit.slot; const sp = SPECIAL[v], sc = VESSEL[S.edit.data.vesselId][k][i];
-      S.edit.data[k][i] = { special: sp.id, color: sp.color || (sc === 'any' ? 'red' : sc), kind: 'normal', effects: [null, null, null], demerits: [null, null, null], size: sp.effects.length };
+      const { k, i } = S.edit.slot; const sp = SPECIAL[v];
+      if (!specialOk(sp)) { toast('適合する献器がないため選べません'); return; }
+      S.edit.data[k][i] = { special: sp.id, color: sp.color || S.edit.slot.data.color || 'red', kind: 'normal', effects: [null, null, null], demerits: [null, null, null], size: sp.effects.length };
       S.edit.slot = null; S.sheet = null; toast(`${sp.name}を入れました`); scrollTop(); break;
     }
     case 'eSize': S.edit.slot.data.size = +v; break;
-    case 'eColor': S.edit.slot.data.color = v; break;
+    case 'eColor': if (canColor(v)) S.edit.slot.data.color = v; break;
     case 'pickEff': { const cur = S.edit.slot.data[t.dataset.k][+v]; const e = cur && ALL_EFF[cur]; S.sheet = { type: 'eff', kind: t.dataset.k, idx: +v, cat: e ? e.cat : null, q: '', open: e && FAM[e.fid].opts ? e.fid : null }; break; }
     case 'sCat': S.sheet.cat = v || null; renderSheet(); return;
     case 'sPickEff': { const sd = S.edit.slot.data; if (sd.special && S.sheet.kind === 'effects') { sd.special = null; S.edit.slot.mode = 'normal'; } S.edit.slot.fresh = false; sd[S.sheet.kind][S.sheet.idx] = v || null; if (S.sheet.kind === 'effects' && !demeritAllowed(ALL_EFF[v])) sd.demerits[S.sheet.idx] = null; S.sheet = null; break; }
@@ -1488,11 +1538,13 @@ document.addEventListener('click', e => {
       const { k, i, data: r, mode } = S.edit.slot;
       if (mode !== 'normal') {
         if (!r.special) { toast('遺物を選んでください'); break; }
-        const sp = SPECIAL[r.special], sc = VESSEL[S.edit.data.vesselId][k][i];
-        S.edit.data[k][i] = { special: sp.id, color: sp.color || (sc === 'any' ? 'red' : sc), kind: 'normal', effects: [null, null, null], demerits: [null, null, null], size: sp.effects.length };
+        const sp = SPECIAL[r.special];
+        if (!specialOk(sp)) { toast('適合する献器がないため選べません'); break; }
+        S.edit.data[k][i] = { special: sp.id, color: sp.color || r.color || 'red', kind: 'normal', effects: [null, null, null], demerits: [null, null, null], size: sp.effects.length };
         S.edit.slot = null; scrollTop(); break;  // 置き換えたので「要確認」も外れる
       }
       r.special = null; delete r.check;
+      if (!canColor(r.color)) { toast('この色だと適合する献器がありません。色を選び直してください'); break; }
       // 効果のある行だけを詰めて保存し、大きさは効果の数から決める
       const rows = [0, 1, 2].filter(j => r.effects[j]).map(j => [r.effects[j], k === 'deep' && demeritAllowed(ALL_EFF[r.effects[j]]) ? r.demerits[j] : null]);
       r.effects = [0, 1, 2].map(j => rows[j] ? rows[j][0] : null);
