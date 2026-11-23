@@ -717,3 +717,39 @@ body { min-height: calc(100vh + 1px); min-height: calc(100lvh + 1px); }
 
 /* 記録：深度を選び忘れたとき */
 .need-mark { color: #f0b46a; font-weight: 400; font-size: 12px; margin-left: 4px; }
+
+/* データ管理：自動バックアップの欄（コンパクト） */
+.cloud-box.compact { gap: 6px; padding: 10px 12px; }
+.cloud-box.compact .cloud-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.cloud-box.compact .code-row .code { padding: 6px 8px; font-size: 16px; }
+.cloud-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 11px; }
+.cloud-foot .hint { font-size: 11px; flex: 1 1 100%; }
+.cloud-foot .link-btn { font-size: 12px; }
+.cloud-foot .ok { flex: none; color: var(--win); }
+.link-btn.dim-link { color: var(--dim); }
+.link-btn.danger-text { color: var(--loss); }
+
+/* みんなの統計：ダッシュボード・切り替え */
+.tiles.dash .v { font-size: 26px; }
+.join-wrap .online-join { margin-top: 0; }
+.mini-select { background: rgba(0,0,0,.3); color: var(--fg); border: 1px solid var(--line-strong); border-radius: 10px; padding: 5px 26px 5px 10px; font: inherit; font-size: 13px;
+  appearance: none; -webkit-appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--dim) 50%), linear-gradient(135deg, var(--dim) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
+.head-tools { display: flex; align-items: center; gap: 6px; }
+.ever-switch { border: 1px solid var(--line-strong); background: rgba(0,0,0,.25); color: var(--dim); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.ever-switch.on { background: linear-gradient(90deg, #6a4bc4, #a77cf0); color: #fff; border-color: transparent; font-weight: 700; }
+.build-row { display: grid; gap: 2px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.build-row .name { display: flex; align-items: center; gap: 6px; font-weight: 700; }
+.bar-track.stacked { display: flex; overflow: hidden; background: none; }
+.dseg { display: inline-block; height: 100%; }
+.depth-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; color: var(--dim); margin-bottom: 6px; }
+.depth-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+.dseg.d0 { background: #4f8be0; } .dseg.d1 { background: #8f7be0; } .dseg.d2 { background: #b26ad6; } .dseg.d3 { background: #d65fa8; } .dseg.d4 { background: #e3835e; } .dseg.d5 { background: #cf5a55; }
+/* ビルド：みんなのビルド・公開 */
+.build-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.build-actions .import-btn { font-size: 13px; padding: 10px 6px; }
+.badge.pub { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, transparent); margin-left: 6px; }
+.back-btn { justify-self: start; padding: 6px 12px; font-size: 13px; }
+.pub-card .hint { margin-top: 6px; }
+.tiles.dash .k { white-space: nowrap; font-size: 11px; letter-spacing: 0; }
+@media (max-width: 359px) { .head-tools .mini-select { padding-right: 22px; font-size: 12px; } .ever-switch { padding: 5px 9px; font-size: 12px; } }

@@ -9,6 +9,7 @@ import { HELP } from '../data/help.js';
 import { NIGHT_BOSSES } from '../data/night_bosses.js';
 import { load, save, exportJson, exportCsv, readJsonFile } from './store.js';
 import { scanRelics } from './scan.js';
+import { ngHit } from '../data/ngwords.js';
 
 // ---------- 遺物効果の組み立て ----------
 function optsFor(name) {
@@ -262,7 +263,7 @@ function backupState() {
   const added = n - (prefs().lastBackupRuns || 0);
   const days = last ? Math.floor((Date.now() - last) / 864e5) : null;
   const auto = prefs().cloud?.on && prefs().cloud.savedAt && !prefs().cloud.failed;  // 自動バックアップが効いていれば、ファイルの保存は急がない
-  const due = !auto && n > 0 && (added >= BACKUP_EVERY_RUNS || (added > 0 && (days === null ? n >= 5 : days >= BACKUP_EVERY_DAYS)));
+  const due = false && !auto && n > 0 && (added >= BACKUP_EVERY_RUNS || (added > 0 && (days === null ? n >= 5 : days >= BACKUP_EVERY_DAYS)));  // ファイルのバックアップはやめた（自動バックアップに一本化）
   return { n, last, days, added, due };
 }
 const backupAgo = b => !b.last ? 'まだ一度も保存していません' : b.days === 0 ? '今日' : `${b.days}日前`;
@@ -525,37 +526,62 @@ function globalStats() {
     : `<div class="online-join"><p class="hint">参加すると、あなたの戦績（夜の王・夜渡り・勝敗など）を名前なしで送り、みんなの統計に加えます。メモや遺物は送りません。これまでの戦績も送ります。</p>
        <button class="primary" data-act="onlineJoin">参加する</button></div>`;
   if (!g || !g.total.n) return card('みんなの統計', `<p class="hint">${GLOBAL.loading || !GLOBAL.at ? '読み込んでいます…' : GLOBAL.failed ? '読み込めませんでした。通信できる所でもう一度開いてください。' : 'まだ集まった戦績がありません。'}</p>${join}`);
-  const total = g.total.n;
-  // 1行：名前・数・割合・勝率と、棒（color で色を決める）
-  const row = (icon, name, n, right, width, color, dim = false) => `<div class="bar-row ${dim ? 'dim' : ''}"><span class="name">${icon}${esc(name)}</span><span class="num">${right}</span>
-    <span class="bar-track no-mid"><span class="bar-fill" style="width:${width * 100}%;background:${color}"></span></span></div>`;
-  const rateTxt = x => `<b>${pct(x.w / x.n)}</b> ${x.n}戦`;
-  // 夜渡り：使われた数と勝率
-  const chars = Object.entries(g.char || {}).filter(([k]) => CHAR[k]).sort((a, b) => b[1].n - a[1].n);
-  const charBody = chars.map(([k, x]) => row(ico('char', k), CHAR[k].name, x.n, `使用 ${pct(x.n / total)}・勝率 ${rateTxt(x)}`, x.w / x.n, x.w / x.n >= .5 ? 'var(--grad-win)' : 'var(--grad-loss)', x.n < STATS_MIN_RUNS)).join('');
-  // 夜の王：出現と勝率。通常は緑、常夜は紫の棒。出現率・勝率・出撃画面の並び順で並べ替え
-  const order = id => LORDS.findIndex(l => l.id === id);
-  const sorters = { appear: (a, b) => b[1].n - a[1].n, rate: (a, b) => b[1].w / b[1].n - a[1].w / a[1].n || b[1].n - a[1].n,
-    order: (a, b) => order(a[0].split(':')[0]) - order(b[0].split(':')[0]) || (a[0].includes(':') - b[0].includes(':')) };
-  const lords = Object.entries(g.lord || {}).filter(([k]) => LORD[k.split(':')[0]]).sort(sorters[S.stats.lordSort] || sorters.order);
-  const lordBody = `<div class="chips">${[['order', '出撃時の並び順'], ['appear', '出現率'], ['rate', '勝率']].map(([v, l]) => `<button class="chip small" data-act="lordSort" data-v="${v}" ${pressed((S.stats.lordSort || 'order') === v)}>${l}</button>`).join('')}</div>
-    <p class="hint">棒の長さは勝率。<span class="lg-normal">■</span>通常　<span class="lg-ever">■</span>常夜</p>
-    <div class="bars">${lords.map(([k, x]) => { const [id, ev] = k.split(':');
-      return row(ico('lord', id), LORD[id].name + (ev ? '（常夜）' : ''), x.n, `出現 ${pct(x.n / total)}・勝率 ${rateTxt(x)}`, x.w / x.n, ev ? 'var(--grad-ever)' : 'var(--grad-win)', x.n < STATS_MIN_RUNS); }).join('')}</div>`;
+  const total = g.total.n, td = (g.byDate || {})[today()] || { n: 0, w: 0 };
+  // ダッシュボード：今日の出撃・これまでの出撃・勝率・参加者
+  const dash = `<div class="tiles dash">
+      <div class="tile"><div class="k">今日の出撃</div><div class="v">${td.n}</div><div class="s">${td.n ? `勝率 ${pct(td.w / td.n)}` : 'まだなし'}</div></div>
+      <div class="tile"><div class="k">これまでの出撃</div><div class="v">${total}</div><div class="s">${g.players}人の合計</div></div>
+      <div class="tile"><div class="k">勝率</div><div class="v">${pct(g.total.w / total)}</div><div class="s">${g.total.w}勝 ${total - g.total.w}敗</div></div>
+    </div>`;
+  const row = (icon, name, right, width, color, dim = false) => `<div class="bar-row ${dim ? 'dim' : ''}"><span class="name">${icon}${esc(name)}</span><span class="num">${right}</span>
+    <span class="bar-track no-mid"><span class="bar-fill" style="width:${Math.max(0, Math.min(1, width)) * 100}%;background:${color}"></span></span></div>`;
+  const sel = (key, opts, cur) => `<select class="mini-select" data-gsel="${key}" aria-label="表示の切り替え">${opts.map(([v, l]) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+  const DEPTH_KEYS = [['normal', '通常'], ['deep1', '深1'], ['deep2', '深2'], ['deep3', '深3'], ['deep4', '深4'], ['deep5', '深5']];
+  // 夜渡り：勝率／使用数／ビルド／深度ごとの使用数 を切り替え
+  const cMode = S.stats.gChar || 'rate';
+  const chars = Object.entries(g.char || {}).filter(([k]) => CHAR[k]);
+  let charBody = '';
+  if (cMode === 'rate') charBody = chars.sort((a, b) => b[1].w / b[1].n - a[1].w / a[1].n || b[1].n - a[1].n)
+    .map(([k, x]) => row(ico('char', k), CHAR[k].name, `<b>${pct(x.w / x.n)}</b> ${x.w}/${x.n}`, x.w / x.n, x.w / x.n >= .5 ? 'var(--grad-win)' : 'var(--grad-loss)', x.n < STATS_MIN_RUNS)).join('');
+  if (cMode === 'use') { const top = Math.max(...chars.map(([, x]) => x.n));
+    charBody = chars.sort((a, b) => b[1].n - a[1].n).map(([k, x]) => row(ico('char', k), CHAR[k].name, `<b>${x.n}</b>戦（${pct(x.n / total)}）`, x.n / top, 'var(--accent)')).join(''); }
+  if (cMode === 'build') charBody = chars.sort((a, b) => b[1].n - a[1].n).map(([k]) => {
+    const top3 = obj => Object.entries(obj || {}).sort((a, b) => b[1] - a[1]).slice(0, 3);
+    const w = top3((g.charWeapon || {})[k]).map(([n, c]) => `${esc(n)} ${c}`).join('・');
+    const st = top3((g.charStyle || {})[k]).map(([n, c]) => `${esc(STYLES.find(x => x.id === n)?.name || n)} ${c}`).join('・');
+    return `<div class="build-row"><span class="name">${ico('char', k)}${CHAR[k].name}</span><span class="hint">${w || st ? `武器：${w || '—'}<br>型：${st || '—'}` : 'ビルドの記録なし'}</span></div>`; }).join('');
+  if (cMode === 'depth') { const top = Math.max(...chars.map(([, x]) => x.n));
+    charBody = `<div class="depth-legend">${DEPTH_KEYS.map(([kk, l], i) => `<span><i class="dseg d${i}"></i>${l}</span>`).join('')}</div>` + chars.sort((a, b) => b[1].n - a[1].n).map(([k, x]) => {
+      const d = (g.charDepth || {})[k] || {};
+      const segs = DEPTH_KEYS.map(([kk], i) => d[kk] ? `<span class="dseg d${i}" style="flex:${d[kk]}" title="${d[kk]}"></span>` : '').join('');
+      return `<div class="bar-row"><span class="name">${ico('char', k)}${CHAR[k].name}</span><span class="num">${DEPTH_KEYS.filter(([kk]) => d[kk]).map(([kk, l]) => `${l} ${d[kk]}`).join('・')}</span>
+        <span class="bar-track no-mid stacked" style="width:${x.n / top * 100}%">${segs}</span></div>`; }).join(''); }
+  const charSel = sel('gChar', [['rate', '勝率'], ['use', '使用数'], ['build', 'ビルド'], ['depth', '深度ごとの使用数']], cMode);
+  // 夜の王：出現数／討伐数／勝率 を切り替え、常夜かどうかのスイッチ
+  const lMode = S.stats.gLord || 'appear', ever = !!S.stats.gEver;
+  const lords = Object.entries(g.lord || {}).filter(([k]) => LORD[k.split(':')[0]] && k.includes(':ever') === ever);
+  const metric = x => lMode === 'appear' ? x.n : lMode === 'win' ? x.w : x.w / x.n;
+  const lTop = Math.max(1e-9, ...lords.map(([, x]) => metric(x)));
+  const lordBody = lords.length ? lords.sort((a, b) => metric(b[1]) - metric(a[1]) || b[1].n - a[1].n).map(([k, x]) => { const id = k.split(':')[0];
+    const right = lMode === 'appear' ? `<b>${x.n}</b>回（${pct(x.n / total)}）` : lMode === 'win' ? `<b>${x.w}</b>回（${x.n}戦中）` : `<b>${pct(x.w / x.n)}</b> ${x.w}/${x.n}`;
+    return row(ico('lord', id), LORD[id].name, right, lMode === 'rate' ? x.w / x.n : metric(x) / lTop, ever ? 'var(--grad-ever)' : 'var(--grad-win)', x.n < STATS_MIN_RUNS); }).join('')
+    : `<p class="hint">${ever ? '常夜の王' : '通常の夜の王'}の戦績はまだありません。</p>`;
+  const lordHead = `<div class="head-tools">${sel('gLord', [['appear', '出現数'], ['win', '討伐数'], ['rate', '勝率']], lMode)}
+    <button class="ever-switch ${ever ? 'on' : ''}" data-act="gEver" aria-pressed="${ever}">常夜</button></div>`;
   // 数を数えるだけの項目（割合の棒）
   const countBody = (list, hint = '') => { const sum = list.reduce((a, [, n]) => a + n, 0), top = Math.max(1, ...list.map(([, n]) => n));
-    return sum ? `${hint}<div class="bars">${list.map(([name, n]) => row('', name, n, `<b>${pct(n / sum)}</b> ${n}戦`, n / top, 'var(--accent)')).join('')}</div>` : '<p class="hint">まだデータがありません。</p>'; };
+    return sum ? `${hint}<div class="bars">${list.map(([name, n]) => row('', name, `<b>${pct(n / sum)}</b> ${n}戦`, n / top, 'var(--accent)')).join('')}</div>` : '<p class="hint">まだデータがありません。</p>'; };
   const weapons = Object.entries(g.weapon || {}).filter(([k]) => WEAPON_TYPES.includes(k)).sort((a, b) => b[1] - a[1]).slice(0, 10);
   const depthList = g.depth ? [['通常', g.depth.normal || 0], ...[1, 2, 3, 4, 5].map(n => [`深き夜 深度${n}`, g.depth['deep' + n] || 0])].filter(([, n]) => n) : null;
   const partyList = g.party ? [['ソロ', g.party.solo || 0], ['デュオ', g.party.duo || 0], ['トリオ', g.party.trio || 0]].filter(([, n]) => n) : null;
   const later = '<p class="hint">スプレッドシート側の更新後に表示されます。</p>';
-  return `${card('みんなの統計', `<p class="hint">${g.players}人・${total}戦の合計（勝率 ${pct(g.total.w / total)}）。数分ごとに更新されます。</p>${join}`)}
-    ${secToggles(STATS_ALL)}
-    ${cardIf('夜渡り', charBody ? `<p class="hint">使われた割合と勝率（使われた数の多い順）</p><div class="bars">${charBody}</div>` : '<p class="hint">まだデータがありません。</p>')}
-    ${cardIf('夜の王', lordBody)}
-    ${cardIf('よく使われている武器', countBody(weapons, '<p class="hint">ビルドを登録して記録された戦績のうち、メイン武器の割合（上位10）</p>'))}
-    ${cardIf('深度', depthList ? countBody(depthList, '<p class="hint">通常と深き夜（深度ごと）の出撃回数</p>') : later)}
-    ${cardIf('出撃人数', partyList ? countBody(partyList) : later)}`;
+  return `${dash}
+    <div class="join-wrap">${join}</div>
+    ${card('夜渡り', `<div class="bars">${charBody || '<p class="hint">まだデータがありません。</p>'}</div>`, charSel)}
+    ${card('夜の王', `<div class="bars">${lordBody}</div>`, lordHead)}
+    ${card('よく使われている武器', countBody(weapons, '<p class="hint">ビルドを登録して記録された戦績のうち、メイン武器の割合（上位10）</p>'))}
+    ${card('深度', depthList ? countBody(depthList, '<p class="hint">通常と深き夜（深度ごと）の出撃回数</p>') : later)}
+    ${card('出撃人数', partyList ? countBody(partyList) : later)}`;
 }
 function globalCard() {
   const o = onlinePrefs(), g = GLOBAL.data;
@@ -585,6 +611,17 @@ function globalCard() {
     : `<div class="online-join"><p class="hint">参加すると、あなたの戦績（夜の王・夜渡り・勝敗など）を名前なしで送り、みんなの勝率に加えます。メモやビルドは送りません。これまでの戦績も送ります。</p>
        <button class="primary" data-act="onlineJoin">参加する</button></div>`;
   return card('みんなの戦績', `${body}${join}`);
+}
+function requestSheet() {
+  const sh = S.sheet;
+  return `<div class="scrim" data-act="sClose"></div><div class="sheet" role="dialog" aria-label="機能の実装リクエスト">
+    <div class="sheet-head"><h2>機能の実装リクエスト</h2><button class="ghost" data-act="sClose">閉じる</button></div>
+    <div class="sheet-list import-list">
+      <label class="label" for="request-text">ほしい機能・直してほしいところ</label>
+      <textarea id="request-text" placeholder="例：統計で、人数ごとの勝率も見たい" maxlength="1000"></textarea>
+      <p class="hint">名前などは送られません。すべてに対応できるとは限らず、返事もできないので、ご了承ください。</p>
+      <div class="form-actions"><button class="ghost" data-act="sClose">やめる</button><button class="primary" data-act="requestSend" ${sh.sending ? 'disabled' : ''}>${sh.sending ? '送っています…' : '送る'}</button></div>
+    </div></div>`;
 }
 function reportSheet() {
   const sh = S.sheet;
@@ -761,6 +798,35 @@ async function runScan(kind, file) {
   } finally { ed.scanning = null; if (S.edit === ed) render(); }
 }
 let scanReady = false;
+// ---------- みんなのビルド（みんなに公開されたプリセット） ----------
+const PUB = { list: null, at: 0, loading: false, failed: false };
+function loadPublic(force) {
+  if (PUB.loading || (!force && PUB.list && Date.now() - PUB.at < 120e3)) return;
+  PUB.loading = true;
+  fetch(`${ONLINE_URL}?type=builds`).then(r => r.json()).then(d => { if (!d.ok) throw new Error(); PUB.list = d.builds || []; PUB.failed = false; PUB.at = Date.now(); },
+    () => { PUB.failed = true; }).finally(() => { PUB.loading = false; if (S.buildView === 'public') render(); });
+}
+// 公開用の中身（共有リンクと同じ形）
+const publicPayload = p => JSON.stringify({ v: 1, ...Object.fromEntries(SHARE_FIELDS.map(k => [k, p[k] ?? null])) });
+const parsePublic = data => { try { return parseShare('build=' + b64u(data)); } catch { return null; } };
+function publicBuilds() {
+  loadPublic();
+  const f = S.pubChar || '';
+  const mine = new Set(db.presets.map(p => p.id));
+  const items = (PUB.list || []).map(b => ({ ...b, p: parsePublic(b.data) })).filter(b => b.p && (!f || b.p.charId === f));
+  const chips = `<div class="chips one-line">${[['', 'すべて'], ...CHARS.map(c => [c.id, c.name])].map(([v, l]) => `<button class="chip small" data-act="pubChar" data-v="${v}" ${pressed(f === v)}>${v ? ico('char', v) : ''}${l}</button>`).join('')}</div>`;
+  const body = !PUB.list ? `<div class="empty-state">${PUB.failed ? '読み込めませんでした。通信できる所でもう一度開いてください。' : '読み込んでいます…'}</div>`
+    : items.length ? items.map((b, i) => `<button class="card" data-act="pubPick" data-v="${(PUB.list || []).indexOf(PUB.list.find(x => x.data === b.data))}">
+        <span class="title"><span>${esc(presetName(b.p))}${mine.has(b.presetId) ? '<span class="badge pub">あなた</span>' : ''}</span><span class="rate none">取り込む ›</span></span>
+        <span class="sub">${b.p.charId ? charName(b.p.charId) : '夜渡り未設定'}${styleText(b.p) ? '・' + esc(styleText(b.p)) : ''}</span>
+        <span class="preset-use">${[...b.p.normal, ...b.p.deep].filter(Boolean).map(r => esc(relicName(r))).join('・') || '遺物の登録なし'}</span></button>`).join('')
+    : `<div class="empty-state">${f ? 'この夜渡りの' : ''}公開されたビルドはまだありません。</div>`;
+  return `<div class="stack-lg">
+    <button class="ghost back-btn" data-act="pubClose">‹ 自分のビルドに戻る</button>
+    <div class="page-title">みんなのビルド</div>
+    <p class="hint">みんなが「みんなに公開」にしたプリセットです。タップすると、自分のプリセットに取り込めます。作った人の名前などは表示されません。</p>
+    ${chips}${body}</div>`;
+}
 function slotDots(p) {
   const v = p.vesselId && VESSEL[p.vesselId];
   const d = (r, deep, i) => {
@@ -772,6 +838,7 @@ function slotDots(p) {
 const vesselCols = (v, which) => `<span class="cols">${v[which].map(c => `<span class="slot-color ${which === 'deep' ? 'deep' : ''} c-${c}"></span>`).join('')}</span>`;
 function viewBuilds() {
   if (S.edit) return S.edit.slot ? editSlot() : editPreset();
+  if (S.buildView === 'public') return publicBuilds();
   const dr = prefs().draft;
   const draftCard = dr ? `<div class="card draft-card"><button class="draft-main" data-act="draftResume">
       <span class="title"><span><span class="badge draft">${dr.isNew ? '未完成' : '編集途中'}</span>${esc(presetName(dr.data))}</span><span class="rate none">続きから ›</span></span>
@@ -781,9 +848,9 @@ function viewBuilds() {
     <p class="hint">ビルドの登録は任意です。登録しなくても戦績は記録できます。遺物の効果まで入れておくと、ビルドや効果ごとの勝率が見られます。</p>
     ${draftCard}
     <button class="btn-add ${S.confirmDel === 'newPreset' ? 'danger' : ''}" data-act="newPreset">${S.confirmDel === 'newPreset' ? 'もう一度押すと、未完成のものを破棄して新しく作ります' : '＋ プリセットを作る'}</button>
-    <button class="ghost import-btn" data-act="importOpen">共有されたビルドを取り込む</button>
+    <div class="build-actions"><button class="ghost import-btn" data-act="publicOpen">みんなのビルドを見る</button><button class="ghost import-btn" data-act="importOpen">共有リンクから取り込む</button></div>
     ${activePresets().map(p => { const x = rate(liveRuns().filter(r => r.presetId === p.id)); return `<button class="card" data-act="editPreset" data-v="${p.id}">
-      <span class="title"><span>${esc(p.name)}</span><span class="rate ${x.n ? '' : 'none'}">${x.n ? `勝率 ${pct(x.p)}` : '未使用'}</span></span>
+      <span class="title"><span>${esc(p.name)}${p.public ? '<span class="badge pub">公開中</span>' : ''}</span><span class="rate ${x.n ? '' : 'none'}">${x.n ? `勝率 ${pct(x.p)}` : '未使用'}</span></span>
       <span class="sub">${p.charId ? charName(p.charId) : '夜渡り未設定'}${styleText(p) ? '・' + esc(styleText(p)) : ''}</span>
       <span class="preset-use">${x.n ? `使用 <b>${x.n}</b>戦（${x.w}勝 ${x.n - x.w}敗）` : 'まだ戦績で使っていません'}</span></button>`; }).join('')}
   </div>`;
@@ -1081,6 +1148,8 @@ function editPreset() {
     ${disc('style', '型', styleName ? val(styleName, true) : val('未設定', false), styleBody)}
     ${disc('weapon', 'メイン武器', p.weaponType ? val(p.weaponName ? `${p.weaponName}（${p.weaponType}）` : p.weaponType, true) : val('未設定', false), weaponBody)}
     ${nameRow}
+    <section class="card-sec pub-card"><div class="sec-head"><h2>みんなに公開</h2><button class="ever-switch ${p.public ? 'on' : ''}" data-act="ePublic" aria-pressed="${!!p.public}">${p.public ? '公開する' : '公開しない'}</button></div>
+      <p class="hint">公開すると、保存したときに「みんなのビルド」に載り、ほかの人が取り込めるようになります。作った人の名前などは出ません。不適切な言葉を含む名前は公開できません。</p></section>
     <div class="form-actions"><button class="ghost" data-act="eCancel">キャンセル</button><button class="primary" data-act="eSave">保存する</button></div>
     ${S.edit.isNew ? '' : `<div class="row-actions" style="justify-content:center"><button class="ghost" data-act="eShare">共有する</button><button class="ghost" data-act="eDup">複製して新しく作る</button><button class="ghost danger" data-act="eDel">${S.confirmDel === 'edit' ? 'もう一度押すと削除' : 'このプリセットを削除'}</button></div>`}
   </div>`;
@@ -1171,6 +1240,7 @@ function renderSheet() {
   if (sh.type === 'help') { el.innerHTML = helpSheet(); return; }
   if (sh.type === 'import') { el.innerHTML = importSheet(); return; }
   if (sh.type === 'report') { el.innerHTML = reportSheet(); return; }
+  if (sh.type === 'request') { el.innerHTML = requestSheet(); return; }
   if (sh.type === 'restore') { el.innerHTML = restoreSheet(); return; }
   // 隠しの夜の王の画像を画面いっぱいに出す（どこをタップしても閉じる）
   if (sh.type === 'scanSample') { el.innerHTML = `<div class="img-view sample-view" data-act="sClose" role="dialog" aria-label="スクショの見本">
@@ -1266,12 +1336,12 @@ function cloudBox() {
   const cl = cloud();
   if (!cl.on) return `<div class="cloud-box off"><b>自動バックアップ：オフ</b><p class="hint">オンにすると、記録が自動でネット上に保存され、機種変更のときに引き継ぎコードで戻せます。</p>
     <button class="primary" data-act="cloudOn">オンにする</button></div>`;
-  const status = cl.failed ? '<span class="bad">保存できませんでした（通信できるときに、自動でやり直します）</span>' : `最後の保存：${agoText(cl.savedAt)}`;
-  return `<div class="cloud-box"><div class="cloud-head"><b>自動バックアップ：オン</b><span class="hint">${status}</span></div>
-    <p class="hint">記録は自動で暗号化してネット上に保存しています。機種変更のときは、このコードで戻せます。<b>コードをなくすと誰にも戻せない</b>ので、スクショなどで控えてください。</p>
+  const status = cl.failed ? '<span class="bad">保存できませんでした（自動でやり直します）</span>' : `最後の保存：${agoText(cl.savedAt)}`;
+  return `<div class="cloud-box compact"><div class="cloud-head"><b>自動バックアップ：オン</b><span class="hint">${status}</span></div>
     <div class="code-row"><span class="code" aria-label="引き継ぎコード">${esc(cl.code)}</span><button class="ghost small" data-act="codeCopy">${navigator.share ? '送る' : 'コピー'}</button></div>
-    <div class="row-actions">${cl.confirmed ? '<span class="hint">✓ 控え済み</span>' : '<button class="ghost small" data-act="codeConfirm">控えた</button>'}
-      <button class="ghost small ${S.confirmDel === 'cloudOff' ? 'danger' : ''}" data-act="cloudOff">${S.confirmDel === 'cloudOff' ? 'もう一度押すとオフ' : 'オフにする'}</button></div></div>`;
+    <div class="cloud-foot"><span class="hint">機種変更のときはこのコードで戻せます（なくすと戻せません）</span>
+      ${cl.confirmed ? '<span class="hint ok">✓ 控え済み</span>' : '<button class="link-btn" data-act="codeConfirm">控えた</button>'}
+      <button class="link-btn ${S.confirmDel === 'cloudOff' ? 'danger-text' : 'dim-link'}" data-act="cloudOff">${S.confirmDel === 'cloudOff' ? 'もう一度押すとオフ' : 'オフにする'}</button></div></div>`;
 }
 function menuSheet() {
   const n = liveRuns().length;
@@ -1281,12 +1351,10 @@ function menuSheet() {
     <div class="sheet-list">
       ${cloudBox()}
       ${item('restoreOpen', '引き継ぎコードで戻す', '機種変更した・アプリを入れ直したときに、前のデータを戻します')}
+      ${item('requestOpen', '機能の実装リクエスト', '「こんな機能がほしい」を開発者に送れます')}
       ${item('guide', '使い方・ホーム画面に追加', 'はじめに出た案内をもう一度見る')}
-      <div class="sub-group">ファイルで保存する</div>
-      <p class="hint" style="padding:0 4px">この端末の記録：戦績 ${n}件・プリセット ${activePresets().length}件。ファイルでも手元に残しておけます。</p>
-      ${item('exportJson', 'バックアップを保存', `最後のバックアップ：${backupAgo(backupState())}${backupState().due ? '（おすすめ）' : ''}`, backupState().due ? 'recommend' : '')}
-      <label class="pick" for="importFile"><span><b>バックアップから復元</b><br><span class="hint">今のデータは、ファイルの内容に置き換わります</span></span><span class="cat">›</span></label>
-      <input type="file" id="importFile" accept="application/json,.json" hidden>
+      <div class="sub-group">その他</div>
+      <p class="hint" style="padding:0 4px">この端末の記録：戦績 ${n}件・プリセット ${activePresets().length}件</p>
       ${item('exportCsv', 'CSVで書き出す', '戦績をExcelなどで開ける形にします')}
       ${DEV_HOST ? item('loadSample', S.confirmDel === 'sample' ? 'もう一度押すとサンプルに置き換えます' : 'サンプルデータを入れる', '（開発用）今のデータは消えて、試し用の戦績64件とプリセット3件になります', S.confirmDel === 'sample' ? 'danger' : '') : ''}
       ${item('wipe', S.confirmDel === 'wipe' ? 'もう一度押すとすべて削除します' : 'すべてのデータを削除', '戦績とプリセットをすべて消します。元に戻せません', 'danger')}
@@ -1472,6 +1540,7 @@ document.addEventListener('click', e => {
     case 'statsScope': S.stats.scope = v; scrollTop(); break;
     case 'statToggle': { const h = statHidden(); if (h[v]) delete h[v]; else h[v] = true; break; }
     case 'lordSort': S.stats.lordSort = v; break;
+    case 'gEver': S.stats.gEver = !S.stats.gEver; break;
     case 'statJump': { const h = [...document.querySelectorAll('.card-sec h2')].find(x => x.textContent === v); if (h) window.scrollTo({ top: h.closest('.card-sec').getBoundingClientRect().top + window.scrollY - 76, behavior: 'smooth' }); if (!h) toast('この条件では、その表はありません'); return; }
     case 'enemyCat': S.enemy.cat = +v; S.enemy.open = null; S.enemy.limit = ENEMY_PAGE; break;
     case 'enemyParty': S.enemy.party = v; S.enemy.partyOpen = false; break;
@@ -1567,7 +1636,9 @@ document.addEventListener('click', e => {
     case 'eSlotCancel': S.edit.slot = null; break;
     case 'eSave': {
       const d = S.edit.data;
+      if (d.public && (ngHit(d.nameAuto ? '' : d.name) || ngHit(d.weaponName))) { toast('名前や武器名に不適切な言葉が含まれているため、公開できません。直してから保存してください'); return; }
       if (d.nameAuto || !d.name.trim()) { d.nameAuto = true; d.name = autoName(d); }
+      const wasPublic = !!presetById(d.id)?.public;
       const old = presetById(d.id);
       if (old && JSON.stringify(buildSnapshot(old)) !== JSON.stringify(buildSnapshot(d)) && db.runs.some(r => r.presetId === d.id && (r.presetRev || 1) === presetRev(old))) {
         d.history = [...(old.history || []), { rev: presetRev(old), ...buildSnapshot(old) }];
@@ -1575,11 +1646,18 @@ document.addEventListener('click', e => {
       }
       const i = db.presets.findIndex(x => x.id === d.id);
       i >= 0 ? (db.presets[i] = d) : db.presets.push(d);
-      toast('保存しました'); S.edit = null; delete prefs().draft; break;
+      toast('保存しました'); S.edit = null; delete prefs().draft;
+      // みんなに公開：載せる・更新する・取り下げる
+      if (d.public) postOnline({ type: 'build_put', id: d.id, name: presetName(d), charId: d.charId || '', data: publicPayload(d) })
+        .then(res => { if (res?.error === 'ng') { d.public = false; toast('不適切な言葉が含まれているため、公開できませんでした'); render(); } else if (!res?.ok) throw new Error(); else { PUB.at = 0; toast('保存して、みんなに公開しました'); } })
+        .catch(() => toast('公開できませんでした。通信できる所で、もう一度保存してください'));
+      else if (wasPublic) postOnline({ type: 'build_del', id: d.id }).then(() => { PUB.at = 0; toast('公開を取り下げました'); }, () => {});
+      break;
     }
     case 'eDel': {
       if (S.confirmDel !== 'edit') { S.confirmDel = 'edit'; break; }
       const id = S.edit.data.id;
+      if (presetById(id)?.public) postOnline({ type: 'build_del', id }).then(() => { PUB.at = 0; }, () => {});
       const target = presetById(id);
       if (db.runs.some(r => r.presetId === id)) target.deleted = true;  // 戦績で使っていれば「削除済み」として残す
       else db.presets = db.presets.filter(p => p.id !== id);
@@ -1591,7 +1669,7 @@ document.addEventListener('click', e => {
       const src = structuredClone(presetById(S.edit.data.id));
       const { rev, history, deleted, ...rest } = src;
       const named = !rest.nameAuto && rest.name?.trim();
-      S.edit = { type: 'preset', isNew: true, open: {}, data: { ...rest, id: uid(), name: named ? `${rest.name}（コピー）` : '', nameAuto: !named } };
+      S.edit = { type: 'preset', isNew: true, open: {}, data: { ...rest, id: uid(), name: named ? `${rest.name}（コピー）` : '', nameAuto: !named, public: false } };
       scrollTop(); toast('複製しました。直して保存すると新しいプリセットになります'); break;
     }
     case 'eCancel': S.edit = null; delete prefs().draft; break;
@@ -1606,6 +1684,11 @@ document.addEventListener('click', e => {
       return;
     }
     case 'importOpen': S.sheet = { type: 'import' }; break;
+    case 'publicOpen': S.buildView = 'public'; loadPublic(true); scrollTop(); break;
+    case 'pubClose': S.buildView = 'presets'; scrollTop(); break;
+    case 'pubChar': S.pubChar = v; break;
+    case 'pubPick': { const b = PUB.list?.[+v], d = b && parsePublic(b.data); if (!d) return; S.sheet = { type: 'import', data: d }; break; }
+    case 'ePublic': { const d = S.edit.data; d.public = !d.public; break; }
     case 'restoreOpen': prefs().onboarded = true; S.sheet = { type: 'restore' }; break;
     case 'restoreFind': {
       const code = document.getElementById('restore-code')?.value || '';
@@ -1642,6 +1725,17 @@ document.addEventListener('click', e => {
       if (!ids.length) { done(); return; }
       postOnline({ type: 'runs', runs: ids.map(id => ({ id, deleted: true, updatedAt: now })) })
         .then(res => res?.ok ? done() : Promise.reject(), () => toast('通信できませんでした。通信できる所でもう一度押してください'));
+      return;
+    }
+    case 'requestOpen': S.sheet = { type: 'request' }; break;
+    case 'requestSend': {
+      const sh = S.sheet, text = document.getElementById('request-text')?.value.trim();
+      if (!text) { toast('内容を書いてください'); return; }
+      if (ngHit(text)) { toast('不適切な言葉が含まれているため送れません'); return; }
+      sh.sending = true; renderSheet(); document.getElementById('request-text').value = text;
+      postOnline({ type: 'request', text })
+        .then(res => { if (!res?.ok) throw new Error(); S.sheet = null; render(); toast('送りました。ありがとうございます'); })
+        .catch(() => { sh.sending = false; renderSheet(); const b = document.getElementById('request-text'); if (b) b.value = text; toast('送れませんでした。通信できる所でもう一度お試しください'); });
       return;
     }
     case 'reportOpen': S.sheet = { type: 'report', enemy: document.querySelector('.enemy.open .enemy-head b')?.textContent || '' }; break;
@@ -1708,6 +1802,7 @@ if (location.hash.startsWith('#build=')) {
 render();
 
 document.addEventListener('change', e => {
+  if (e.target.dataset?.gsel) { S.stats[e.target.dataset.gsel] = e.target.value; render(); return; }
   if (e.target.dataset?.scan && e.target.files[0] && S.edit?.type === 'preset') { runScan(e.target.dataset.scan, e.target.files[0]); return; }
   if (e.target.dataset?.hf) { S.hist[e.target.dataset.hf] = e.target.value; S.openRun = null; render(); return; }
   if (e.target.id !== 'importFile' || !e.target.files[0]) return;
