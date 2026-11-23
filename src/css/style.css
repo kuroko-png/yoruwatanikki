@@ -611,3 +611,9 @@ html { overflow-anchor: none; }
 /* iPhoneのホーム画面版で、画面より短いタブ（履歴・統計・ビルドなど）に切り替えると下のタブの列が上にずれる対策：
    どのタブでも、ページの高さを常に画面より少しだけ高くして、記録タブ（長いページ）と同じ状態にそろえる */
 body { min-height: calc(100vh + 1px); min-height: calc(100lvh + 1px); }
+/* 隠しの夜の王：耐性の下の薄い「画像を見る」と、画面いっぱいの画像 */
+.secret-img-btn { justify-self: center; background: none; border: 0; padding: 6px 12px; color: var(--dim); opacity: .45; font-size: 11px; letter-spacing: .08em; cursor: pointer; }
+.img-view { position: fixed; inset: 0; z-index: 40; background: rgba(2, 3, 10, .94); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  padding: max(12px, env(safe-area-inset-top, 0px)) 12px max(12px, env(safe-area-inset-bottom, 0px)); touch-action: none; cursor: pointer; }
+.img-view img { max-width: 100%; max-height: calc(100% - 30px); object-fit: contain; }
+.img-view span { font-size: 12px; color: var(--dim); }

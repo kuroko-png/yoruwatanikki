@@ -467,6 +467,12 @@ const NEG_LABELS = ['標準', '斬撃', '打撃', '刺突', '魔力', '炎', '�
 const RES_LABELS = ['毒', '腐敗', '出血', '冷気', '睡眠', '発狂', '死'];
 const PARTY_IDX = { solo: 0, duo: 1, trio: 2 };
 const ENEMY_PAGE = 60;  // 一度に並べる数（多いと重くなるので「もっと見る」で増やす）
+// 隠しコマンド：名前で探すに「ワサガキ」（ひらがな可）と入れたときだけ出る遊びの夜の王。敵データ（enemies.js）とは別に持つ
+// アイコン・画像は tools/make_glibra.py で Images/Glibra.webp から作る
+const SECRET_WORD = 'ワサガキ';
+const SECRET_ENEMY = [0, 'ゲーミングリブラ', '', '', 'glibra', [0, 1, 2].map(() => Array(4).fill(999999999)),
+  Array(8).fill(700000000), [13e9, 13e9, 13e9, 13e9, 13e9, -1e8, 13e9], Array(3).fill(20000000), null, null];
+const SECRET_IMAGE = 'icons/secret/glibra.webp';
 function loadEnemies() {
   if (S.enemy.loading) return;
   S.enemy.loading = true;
@@ -523,7 +529,8 @@ function viewEnemies() {
   // 名前で探す：ひらがなでもカタカナでも見つかる。同じ名前はまとめて1行にし、中で種類・場所を選ぶ
   if (q) {
     const key = toKata(q.toLowerCase());
-    const hits = all.filter(([e]) => toKata((e[1] + e[2] + e[3] + (e[9] || '')).toLowerCase()).includes(key));
+    const hits = key === SECRET_WORD ? [[SECRET_ENEMY, -1]]
+      : all.filter(([e]) => toKata((e[1] + e[2] + e[3] + (e[9] || '')).toLowerCase()).includes(key));
     const groups = searchGroups(hits);
     const shown = groups.slice(0, E.limit);
     return enemyPage(`${shown.length ? `<div class="enemy-list">${shown.map(group).join('')}</div>` : `<div class="empty-state">見つかりませんでした</div>`}
@@ -624,7 +631,7 @@ function enemyGroups(cat, rows) {
 function searchGroups(rows) {
   return byKey(rows, e => e[0] === 0 && e[4] ? 'lord:' + e[4] : baseName(e[1])).map(([key, items]) => {
     const lord = key.startsWith('lord:') ? key.slice(5) : null;
-    const title = lord ? (items.find(([e]) => e[1].includes(LORD[lord].name)) || items[0])[0][1] : key;
+    const title = lord ? (items.find(([e]) => LORD[lord] && e[1].includes(LORD[lord].name)) || items[0])[0][1] : key;
     const cats = [...new Set(items.map(([e]) => ENEMY_CATS[e[0]]))];
     return { key: 'q:' + key, title, icon: lord, sub: cats.join('・'), items,
       label: (e) => [cats.length > 1 ? ENEMY_CATS[e[0]] : '', shortName(e[1], title, /$^/), e[2]].filter(Boolean).join('・') || '通常',
@@ -659,15 +666,18 @@ function enemyPage(body, chip, q, list) {
 const negTone = v => v == null || v === 0 ? '' : v < 0 ? 'good' : v <= 40 ? 'mid' : 'bad';
 // 状態異常の耐性：154未満＝緑、154〜251＝黄、252〜539＝オレンジ、540以上＝赤、無効＝灰
 const resTone = v => v == null ? 'immune' : v < 154 ? 'good' : v < 252 ? 'mid' : v < 540 ? 'orange' : 'bad';
+// 1億以上のちょうどの数は「7億」のように短く書く（隠しの夜の王用。普通の敵の数値はそのまま）
+const oku = v => typeof v === 'number' && Math.abs(v) >= 1e8 && v % 1e8 === 0 ? `${v / 1e8}億` : v;
 function enemyDetail(e, p, merged = false) {
   const [, , , , , hp, neg, res, poise] = e;
   const h = hp[p];
+  const secret = e === SECRET_ENEMY;
   // カット率：マイナスは弱点（よく効く）、高いほど効きにくい
   const negCell = (v, i) => { const lo = Array.isArray(v) ? v[0] : v;
-    return `<div class="stat ${negTone(lo)}"><span>${NEG_LABELS[i]}</span><b>${v == null ? '–' : Array.isArray(v) ? `${v[0]}〜${v[1]}%` : v + '%'}</b></div>`; };
+    return `<div class="stat ${negTone(lo)}"><span>${NEG_LABELS[i]}</span><b>${v == null ? '–' : Array.isArray(v) ? `${v[0]}〜${v[1]}%` : oku(v) + '%'}</b></div>`; };
   // 状態異常耐性：低いほど早くかかる。null は無効
   const resCell = (v, i) => { const lo = Array.isArray(v) ? v[0] : v;
-    return `<div class="stat ${resTone(lo)}"><span>${RES_LABELS[i]}</span><b>${v == null ? '無効' : Array.isArray(v) ? `${v[0]}〜${v[1] == null ? '無効' : v[1]}` : v}</b></div>`; };
+    return `<div class="stat ${resTone(lo)}"><span>${RES_LABELS[i]}</span><b>${v == null ? '無効' : Array.isArray(v) ? `${v[0]}〜${v[1] == null ? '無効' : v[1]}` : oku(v)}</b></div>`; };
   return `<div class="enemy-detail">
     <div class="enemy-kv"><span>HP</span><b>${e[0] === 0 ? fmtR(h[0], h[1]) : `1日目 ${fmtR(h[0], h[1])}${h[2] != null && (h[2] !== h[0] || h[3] !== h[1]) ? `／2日目 ${fmtR(h[2], h[3])}` : ''}`}</b></div>
     <div class="enemy-kv"><span>崩し値</span><b>${poise[p] == null ? '<span class="unknown">不明（データなし）</span>' : fmtPoise(poise[p])}</b></div>
@@ -675,6 +685,7 @@ function enemyDetail(e, p, merged = false) {
     <div class="stat-grid g4">${neg.map(negCell).join('')}</div>
     <div class="label">状態異常の耐性<span class="hint">低いほどかかりやすい</span></div>
     <div class="stat-grid g4">${res.map(resCell).join('')}</div>
+    ${secret ? '<button class="secret-img-btn" data-act="secretImage">画像を見る</button>' : ''}
     ${merged ? '<p class="hint merged-note">同じ名前・場所で数値が少し違う個体をまとめています。違う数値は「〜」の幅で表示しています。</p>' : ''}</div>`;
 }
 
@@ -818,6 +829,8 @@ function renderSheet() {
   if (sh.type === 'menu') { el.innerHTML = menuSheet(); return; }
   if (sh.type === 'guide') { el.innerHTML = guideSheet(); return; }
   if (sh.type === 'help') { el.innerHTML = helpSheet(); return; }
+  // 隠しの夜の王の画像を画面いっぱいに出す（どこをタップしても閉じる）
+  if (sh.type === 'image') { el.innerHTML = `<div class="img-view" data-act="sClose" role="dialog" aria-label="ゲーミングリブラの画像"><img src="${SECRET_IMAGE}" alt="ゲーミングリブラ"><span>タップで閉じる</span></div>`; return; }
   const isDem = sh.kind === 'demerits';
   const deep = S.edit.slot.k === 'deep';
   const specialCats = !isDem && !deep ? [['__lord', '夜の王の遺物'], ['__char', '固有遺物']] : [];
@@ -995,6 +1008,7 @@ document.addEventListener('click', e => {
     case 'tab': S.tab = v; S.sheet = null; scrollTop(); break;
     case 'menu': S.sheet = { type: 'menu' }; break;
     case 'help': S.sheet = { type: 'help' }; break;
+    case 'secretImage': S.sheet = { type: 'image' }; break;
     case 'guide': S.sheet = { type: 'guide' }; break;
     case 'guideClose': prefs().onboarded = true; S.sheet = null; break;
     case 'install': installPrompt?.prompt(); installPrompt = null; return;
