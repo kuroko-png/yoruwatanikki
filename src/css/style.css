@@ -870,3 +870,33 @@ details.spare[open] { padding-bottom: 8px; }
 .cal-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 /* 本物の日付の入力欄をボタンの上に透明で重ねる（タップするとスマホの日付選択が開く） */
 .cal-btn input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: 0; padding: 0; margin: 0; }
+
+/* 記録：夜渡りより下を「条件」1枚にまとめる（1行に1項目。ボタンの大きさをそろえる） */
+.cond-card { padding-top: 6px; padding-bottom: 8px; }
+.cond-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); min-width: 0; }
+.cond-row:first-child { border-top: 0; }
+.cond-row .k { flex: none; width: 52px; font-size: 13.5px; font-weight: 800; }
+.cond-row.need .k { color: var(--accent); }
+.cond-row.need .k::after { content: "●"; font-size: 8px; vertical-align: 3px; margin-left: 3px; }
+.cond-row .chips { gap: 6px; min-width: 0; }
+.cond-row.sub { border-top: 0; padding-top: 0; }
+.cond-row.sub .k { font-weight: 500; color: var(--dim); font-size: 12.5px; }
+.cond-memo { display: block; margin: 4px 0 2px; font-size: 13px; }
+.cond-note { padding-top: 8px; border-top: 1px solid var(--line); }
+.cond-note textarea { min-height: 64px; }
+/* 画面の下：勝利・敗北を押すとそのまま記録 */
+.app.has-bar { padding-bottom: calc(var(--tabbar-h) + 150px + env(safe-area-inset-bottom, 0px)); }
+.rec-bar { flex: 1; display: grid; gap: 6px; min-width: 0; }
+.rec-need, .rec-q { text-align: center; font-size: 12.5px; color: var(--dim); }
+.rec-need.ok { color: var(--accent); }
+.rec-q { color: var(--fg); font-weight: 800; font-size: 13.5px; }
+.rec-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.loss-pick .rec-btns { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.rec-bar .result-btn { padding: 13px 6px; font-size: 18px; }
+.rec-bar .result-btn.win { background: var(--grad-win); color: #04140d; border-color: transparent; }
+.rec-bar .result-btn.loss { background: var(--grad-loss); color: #1c0603; border-color: transparent; }
+.loss-pick .result-btn { font-size: 15px; letter-spacing: .05em; }
+.rec-btns.not-yet .result-btn { opacity: .45; }
+.rec-bar .link-btn { justify-self: center; font-size: 12.5px; }
+.cond-row .chip.dchip { min-width: 32px; padding-left: 0; padding-right: 0; justify-content: center; text-align: center; }
+.cond-row:has(.dchip) .chips { gap: 5px; flex-wrap: nowrap; }

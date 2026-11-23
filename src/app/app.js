@@ -193,10 +193,16 @@ function viewRecord() {
   if (f.presetId && !activePresets().some(p => p.id === f.presetId) && !(S.editRun && f.presetId === S.form.origPresetId)) f.presetId = null;
   const presets = db.presets.filter(p => (!p.deleted && p.charId === f.charId) || p.id === f.presetId);
   const lords = lordsFor(f.everdark);
-  const missing = [!dateOk && '日付', !f.lordId && '夜の王', !f.charId && '夜渡り', f.everdark === null && '通常/常夜', !depthOk && '深度', !f.result && '結果'].filter(Boolean);
-  const label = S.editRun ? '更新する' : '記録する';
-  BAR = `${S.editRun ? '<button class="ghost" data-act="cancelEdit">やめる</button>' : ''}<button class="primary" data-act="save" ${canSave ? '' : 'disabled'}>${canSave ? label : `<span class="need">あと：${missing.join('・')}</span>`}</button>`;
+  const missing = recMissing(f);
   const chip = (act, v, label, on, cls = 'chip') => `<button class="${cls}" data-act="${act}" data-v="${v}" ${pressed(on)}>${label}</button>`;
+  // 画面の下：新しく記録するときは「勝利」「敗北」を押した時点で記録する（敗北は、どこで倒れたかを押すと記録）。
+  // 戦績の編集だけは、勝敗を選んでから「更新する」を押す（押しただけで書き換わらないように）
+  if (S.editRun) BAR = `<button class="ghost" data-act="cancelEdit">やめる</button><button class="primary" data-act="save" ${canSave ? '' : 'disabled'}>${canSave ? '更新する' : `<span class="need">あと：${[...missing, !f.result && '結果'].filter(Boolean).join('・')}</span>`}</button>`;
+  else if (S.lossPick) BAR = `<div class="rec-bar loss-pick"><span class="rec-q">どこで倒れた？</span>
+      <div class="rec-btns">${LOSS_AT.map(x => `<button class="result-btn loss" data-act="recLossAt" data-v="${x.id}">${x.name}</button>`).join('')}</div>
+      <button class="link-btn" data-act="recLossBack">戻る</button></div>`;
+  else BAR = `<div class="rec-bar">${missing.length ? `<span class="rec-need">あと：${missing.join('・')}</span>` : '<span class="rec-need ok">勝敗を押すと記録します</span>'}
+      <div class="rec-btns ${missing.length ? 'not-yet' : ''}"><button class="result-btn win" data-act="recWin">勝利</button><button class="result-btn loss" data-act="recLoss">敗北</button></div></div>`;
   return `<div class="stack-lg">
     ${S.editRun ? `<div class="edit-banner"><b>戦績を編集中</b><span>直したら「更新する」を押してください</span></div>` : ''}
     ${card('日付', dateStrip(f), `<span class="date-now">${dateLabel(recDate(f))}${recDate(f) !== today() ? '<button class="link-btn" data-act="pickDate" data-v="today">今日に戻す</button>' : ''}</span>`)}
@@ -205,32 +211,59 @@ function viewRecord() {
         <div class="wheel-col"><div class="wheel-label">夜の王</div>${wheel('lord', lords, f.lordId, lordName)}</div>
         <div class="wheel-col"><div class="wheel-label">夜渡り</div>${wheel('char', CHARS, f.charId, charName, true)}</div>
       </div>
-      <p class="hint wheel-hint">上下にスクロールして、真ん中の枠に合わせたものが選ばれます（タップでも選べます）</p>
       <div class="pick-build"><div class="label">ビルド</div>
         ${f.charId ? `<div class="chips one-line">${chip('preset', '', 'ビルドなし', !f.presetId)}${presets.map(p => chip('preset', p.id, esc(presetLabel(p)), f.presetId === p.id)).join('')}</div>
           ${presets.length ? '' : `<p class="hint">${CHAR[f.charId].name}のプリセットはまだありません。「ビルド」タブで作れます。</p>`}`
           : '<p class="hint">夜渡りを選ぶと、その夜渡りのビルドを選べます。</p>'}</div>
     </section>
-    ${card('夜の王の種類', f.lordId ? flagRow(f, chip) : '', `<div class="chips ever-toggle">${chip('everdark', 'no', '通常', f.everdark === false, 'chip')}${chip('everdark', 'yes', '常夜', f.everdark === true, 'chip')}</div>`)}
-    <section class="card-sec mode-card"><div class="sec-head"><h2>モード</h2><div class="chips mode-toggle">${MODES.map(m => chip('mode', m.id, m.name, f.mode === m.id, 'chip small')).join('')}</div></div>
-      ${f.mode === 'deep' ? `<div class="depth-line"><span class="label">深度${f.depth ? '' : '<span class="need-mark">（選んでください）</span>'}</span>
-        <div class="depth-row compact">${DEPTHS.map(d => chip('depth', d, d, f.depth === d, 'chip depth')).join('')}</div></div>` : ''}</section>
-    <details class="opt" ${S.optOpen ? 'open' : ''} data-details="opt">
-      <summary><span>詳細</span><span class="tag">${esc(optSummary())}</span></summary>
-      <div class="inner">
-        <div class="section"><div class="label">人数</div>
-          <div class="chips">${PARTY.map(m => chip('party', m.id, m.name, f.party === m.id)).join('')}</div></div>
-        <div class="section"><div class="label">メモ（任意）</div>
-          <textarea id="f-note" data-field="note" placeholder="例：最終戦で回復が足りなかった">${esc(f.note)}</textarea></div>
-        <p class="hint">人数は、次の記録でもそのまま使われます。</p>
-      </div>
-    </details>
-    ${card('結果', `<div class="result-row">
+    <section class="card-sec cond-card">
+      ${condRow('夜の王', chip('everdark', 'no', '通常', f.everdark === false, 'chip small') + chip('everdark', 'yes', '常夜', f.everdark === true, 'chip small'), f.everdark === null)}
+      ${condRow('モード', MODES.map(m => chip('mode', m.id, m.name, f.mode === m.id, 'chip small')).join(''))}
+      ${f.mode === 'deep' ? condRow('深度', DEPTHS.map(d => chip('depth', d, d, f.depth === d, 'chip small dchip')).join(''), !depthOk) : ''}
+      ${condRow('人数', PARTY.map(m => chip('party', m.id, m.name, f.party === m.id, 'chip small')).join(''))}
+      ${condRow('あれば', [RUN_FLAG.mapLoss, RUN_FLAG.bossUnknown, RUN_FLAG.shift].map(x => chip('flag', x.id, x.name, f.flags.includes(x.id), 'chip small')).join(''))}
+      ${f.flags.includes('shift') ? condRow('地変', SHIFTS.map(x => chip('shift', x.id, x.name, f.shift === x.id, 'chip small')).join(''), false, 'sub') : ''}
+      ${S.noteOpen || f.note ? `<div class="cond-note"><textarea id="f-note" data-field="note" placeholder="メモ（任意）例：最終戦で回復が足りなかった">${esc(f.note)}</textarea></div>`
+        : '<button class="link-btn cond-memo" data-act="noteOpen">＋ メモを書く</button>'}
+    </section>
+    ${S.editRun ? card('結果', `<div class="result-row">
         <button class="result-btn win" data-act="result" data-v="win" ${pressed(f.result === 'win')}>勝利</button>
         <button class="result-btn loss" data-act="result" data-v="loss" ${pressed(f.result === 'loss')}>敗北</button></div>
       ${f.result === 'loss' ? `<div class="subpanel"><div class="label">どこで倒れた？</div>
-        <div class="chips">${LOSS_AT.map(x => chip('lossAt', x.id, x.name, f.lossAt === x.id)).join('')}</div></div>` : ''}`)}
+        <div class="chips">${LOSS_AT.map(x => chip('lossAt', x.id, x.name, f.lossAt === x.id)).join('')}</div></div>` : ''}`) : ''}
   </div>`;
+}
+// 記録する（新しい戦績）・更新する（編集中の戦績）。勝敗は呼ぶ前に S.form に入れておく
+function saveRecord() {
+  const f = S.form;
+  if (recMissing(f).length || !f.result) return;
+  const date = recDate(f);
+  const p = f.presetId && presetById(f.presetId);
+  const fields = { date, lordId: f.lordId, everdark: f.everdark, flags: f.flags, shift: f.flags.includes('shift') ? f.shift : null, mode: f.mode, depth: f.mode === 'deep' ? f.depth : null, party: f.party,
+    charId: f.charId, result: f.result, lossAt: f.result === 'loss' ? f.lossAt : null, presetId: f.presetId, note: f.note.trim() };
+  if (S.editRun) {
+    const r = db.runs.find(x => x.id === S.editRun);
+    const keepRev = r.presetId === f.presetId ? r.presetRev : (p ? presetRev(p) : null);
+    Object.assign(r, fields, { presetRev: keepRev, editedAt: Date.now() });
+    S.editRun = null; S.form = blankForm();
+    S.tab = 'history'; S.openRun = r.id; toast('戦績を更新しました'); return;
+  }
+  const newId = uid();
+  document.querySelectorAll('.wheel').forEach(w => { w._moving = false; clearTimeout(w._t); });  // 記録したら、動いている途中の欄も最初の形に戻す
+  db.runs.push({ id: newId, ...fields, presetRev: p ? presetRev(p) : null, updatedAt: Date.now(), deleted: false });
+  S.undo = { type: 'add', id: newId };
+  toast(`${LORD[f.lordId].name}戦の${f.result === 'win' ? '勝利' : '敗北'}を記録しました`, { act: 'undo', label: '取り消す' });
+  // 日付は、過去の日を選んでいたら、続けて記録しやすいようにそのまま残す（「今日」のままなら次も今日）
+  // 夜の王はグラディウス、夜渡りは「未選択」に戻す（前回のまま記録してしまわないように）。ビルドは夜渡りを選ぶと、その夜渡りで前回使ったものが入る
+  S.noteOpen = false;
+  Object.assign(f, { lordId: DEFAULT_LORD, everdark: null, flags: [], shift: null, charId: null, presetId: null, result: null, lossAt: null, note: '' });
+}
+// 記録の「条件」カードの1行（左に項目名、右にボタン）。need＝まだ選んでいない（項目名を目立たせる）
+const condRow = (k, body, need = false, cls = '') => `<div class="cond-row ${cls} ${need ? 'need' : ''}"><span class="k">${k}</span><div class="chips">${body}</div></div>`;
+// 記録するのに足りないもの（勝敗は別）
+function recMissing(f) {
+  const dateOk = f.dateMode !== 'pick' || (/^\d{4}-\d{2}-\d{2}$/.test(f.date) && f.date <= today());
+  return [!dateOk && '日付', !f.lordId && '夜の王', !f.charId && '夜渡り', f.everdark === null && '通常/常夜', f.mode === 'deep' && !f.depth && !S.editRun && '深度'].filter(Boolean);
 }
 // 日付：横にスクロールする日付の列（左端が今日、右へ行くほど前の日）。右端のカレンダーから、もっと前の日も選べる
 // dateMode が 'today' のときは、記録した時点の今日になる（日をまたいで開きっぱなしでもずれない）。過去の日は記録したあともそのまま残る
@@ -305,11 +338,6 @@ function flagRow(f, chip) {
 }
 // 常夜の王を選んだときは、常夜にいない夜の王を外す（lords.js の everdark: false）
 const lordsFor = everdark => LORDS.filter(l => everdark !== true || l.everdark !== false);
-function optSummary() {
-  const f = S.form;
-  const parts = [PARTYM[f.party].name, f.note.trim() ? 'メモあり' : ''].filter(Boolean);
-  return parts.join('・');
-}
 
 // ---------- バックアップの声かけ ----------
 // 前回のバックアップから「戦績が20件増えた」または「14日たって1件以上増えた」ら、そっと知らせる
@@ -1406,7 +1434,7 @@ function guideSheet() {
     <div class="sheet-list guide-list">
       <p class="hint">ナイトレインの戦績を記録して、夜の王・夜渡り・ビルドごとの勝率を振り返るアプリです。<b>まずは「記録」タブだけ使えばOK</b>。ビルド・敵・みんなの統計は、気になったときにどうぞ。</p>
       ${install}
-      ${step(installed ? 1 : 2, '戦績を記録する', '「記録」タブで、夜の王と夜渡り（スクロールして真ん中に合わせる。夜の王は最初グラディウス）・通常か常夜か・結果を選んで「記録する」。ビルドは、夜渡りごとに前回使ったものが自動で選ばれます。')}
+      ${step(installed ? 1 : 2, '戦績を記録する', '「記録」タブで、夜の王と夜渡り（スクロールして真ん中に合わせる。夜の王は最初グラディウス）・通常か常夜かを選んで、画面の下の「勝利」か「敗北」を押すだけ。ビルドは、夜渡りごとに前回使ったものが自動で選ばれます。')}
       ${step(installed ? 2 : 3, '記録は自動でバックアップ', '記録は自動で暗号化して、ネット上にも保存されます。機種変更のときは、右上の円柱の絵のボタン（データ）に出ている「引き継ぎコード」で戻せます。')}
       <button class="ghost" data-act="restoreOpen">機種変更した方：引き継ぎコードで戻す</button>
     </div>
@@ -1557,7 +1585,7 @@ document.addEventListener('click', e => {
   const a = t.dataset.act, v = t.dataset.v, f = S.form;
   if (a !== 'delRun' && a !== 'eDel' && a !== 'loadSample' && a !== 'wipe' && a !== 'draftDel' && a !== 'newPreset' && a !== 'onlineLeave' && a !== 'cloudOff' && a !== 'buildReport') S.confirmDel = null;
   switch (a) {
-    case 'tab': if (S.edit && v !== 'builds') S.edit = null; S.tab = v; S.sheet = null; scrollTop(); break;  // 作りかけは prefs().draft に残っている
+    case 'tab': if (S.edit && v !== 'builds') S.edit = null; S.tab = v; S.sheet = null; S.lossPick = false; scrollTop(); break;  // 作りかけは prefs().draft に残っている
     case 'menu': S.sheet = { type: 'menu' }; break;
     case 'help': S.sheet = { type: 'help' }; break;
     case 'secretImage': S.sheet = { type: 'image' }; break;
@@ -1597,30 +1625,16 @@ document.addEventListener('click', e => {
     case 'depth': f.depth = +v; if (!S.editRun) { prefs().depth = f.depth; prefs().lastDepth = f.depth; } break;
     case 'party': f.party = v; if (!S.editRun) prefs().party = v; break;
     case 'preset': f.presetId = v || null; if (!S.editRun) (prefs().presetByChar ||= {})[f.charId] = f.presetId; break;
-    case 'save': {
-      const dateOk = f.dateMode !== 'pick' || (/^\d{4}-\d{2}-\d{2}$/.test(f.date) && f.date <= today());
-      if (!(dateOk && f.everdark !== null && f.lordId && f.charId && f.result && (f.mode !== 'deep' || f.depth || S.editRun))) return;
-      const date = recDate(f);
-      const p = f.presetId && presetById(f.presetId);
-      const fields = { date, lordId: f.lordId, everdark: f.everdark, flags: f.flags, shift: f.flags.includes('shift') ? f.shift : null, mode: f.mode, depth: f.mode === 'deep' ? f.depth : null, party: f.party,
-        charId: f.charId, result: f.result, lossAt: f.result === 'loss' ? f.lossAt : null, presetId: f.presetId, note: f.note.trim() };
-      if (S.editRun) {
-        const r = db.runs.find(x => x.id === S.editRun);
-        const keepRev = r.presetId === f.presetId ? r.presetRev : (p ? presetRev(p) : null);
-        Object.assign(r, fields, { presetRev: keepRev, editedAt: Date.now() });
-        S.editRun = null; S.form = blankForm();
-        S.tab = 'history'; S.openRun = r.id; toast('戦績を更新しました'); break;
-      }
-      const newId = uid();
-      document.querySelectorAll('.wheel').forEach(w => { w._moving = false; clearTimeout(w._t); });  // 記録したら、動いている途中の欄も最初の形に戻す
-      db.runs.push({ id: newId, ...fields, presetRev: p ? presetRev(p) : null, updatedAt: Date.now(), deleted: false });
-      S.undo = { type: 'add', id: newId };
-      toast(`${LORD[f.lordId].name}戦の${f.result === 'win' ? '勝利' : '敗北'}を記録しました`, { act: 'undo', label: '取り消す' });
-      // 日付は、過去の日を選んでいたら、続けて記録しやすいようにそのまま残す（「今日」のままなら次も今日）
-      // 夜の王はグラディウス、夜渡りは「未選択」に戻す（前回のまま記録してしまわないように）。ビルドは夜渡りを選ぶと、その夜渡りで前回使ったものが入る
-      Object.assign(f, { lordId: DEFAULT_LORD, everdark: null, flags: [], shift: null, charId: null, presetId: null, result: null, lossAt: null, note: '' });
-      break;
+    case 'recWin': case 'recLoss': {
+      const miss = recMissing(f);
+      if (miss.length) { toast(`先に「${miss.join('・')}」を選んでください`); return; }
+      if (a === 'recLoss') { S.lossPick = true; break; }
+      f.result = 'win'; f.lossAt = null; saveRecord(); break;
     }
+    case 'recLossAt': f.result = 'loss'; f.lossAt = v; S.lossPick = false; saveRecord(); break;
+    case 'recLossBack': S.lossPick = false; break;
+    case 'noteOpen': S.noteOpen = true; render(); document.getElementById('f-note')?.focus(); return;
+    case 'save': saveRecord(); break;
     case 'editRun': {
       const r = db.runs.find(x => x.id === v);
       S.editRun = r.id;
@@ -1939,7 +1953,6 @@ document.addEventListener('input', e => {
     const q = document.getElementById('eff-q'); q.focus(); q.setSelectionRange(pos, pos);
   }
 });
-document.addEventListener('toggle', e => { if (e.target.dataset?.details === 'opt') S.optOpen = e.target.open; }, true);
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && S.sheet) { if (S.sheet.type === 'guide') prefs().onboarded = true; S.sheet = null; renderSheet(); save(db); } });
 if (!prefs().onboarded && !db.runs.length) S.sheet = { type: 'guide' };
 // v32 より前に入れたサンプルデータには印がないので、見分けて印を付け直す。
