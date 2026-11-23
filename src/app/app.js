@@ -914,7 +914,7 @@ function publicBuilds() {
   const f = S.pubChar || '';
   const mine = new Set(db.presets.map(p => p.id));
   const items = (PUB.list || []).map(b => ({ ...b, p: parsePublic(b.data) })).filter(b => b.p && (!f || b.p.charId === f));
-  const chips = `<div class="pub-filter">${[['', 'すべて'], ...CHARS.map(c => [c.id, c.name])].map(([v, l]) => `<button class="chip small" data-act="pubChar" data-v="${v}" ${pressed(f === v)}>${l}</button>`).join('')}</div>`;
+  const chips = charGrid('pubChar', f, id => (PUB.list || []).filter(b => parsePublic(b.data)?.charId === id).length);
   const body = !PUB.list ? `<div class="empty-state">${PUB.failed && !PUB.loading ? '読み込めませんでした。通信できる所で、もう一度読み込んでください。<br><button class="ghost small" data-act="publicOpen" style="margin-top:8px">もう一度読み込む</button>' : '読み込んでいます…'}</div>`
     : items.length ? items.map((b, i) => `<button class="card" data-act="pubPick" data-v="${(PUB.list || []).indexOf(PUB.list.find(x => x.data === b.data))}">
         <span class="title"><span>${esc(presetName(b.p))}${mine.has(b.presetId) ? '<span class="badge pub">あなた</span>' : ''}</span><span class="rate none">取り込む ›</span></span>
@@ -938,6 +938,13 @@ function slotDots(p) {
   return `<span class="slots">${p.normal.map((r, i) => d(r, false, i)).join('')}<span class="sep"></span>${p.deep.map((r, i) => d(r, true, i)).join('')}</span>`;
 }
 const vesselCols = (v, which) => `<span class="cols">${v[which].map(c => `<span class="slot-color ${which === 'deep' ? 'deep' : ''} c-${c}"></span>`).join('')}</span>`;
+// 夜渡りのアイコンの四角いボタン（5列×2行）。押すとその夜渡りに絞り込み、もう一度押すと解除。count を渡すと右上に件数を出す
+function charGrid(act, cur, count) {
+  return `<div class="char-grid" role="group" aria-label="夜渡りで絞り込む">${CHARS.map(c => { const n = count ? count(c.id) : null;
+    return `<button class="char-sq" data-act="${act}" data-v="${c.id}" ${pressed(cur === c.id)} aria-label="${c.name}で絞り込む">${ico('char', c.id)}<span>${c.name}</span>${n ? `<i>${n}</i>` : ''}</button>`; }).join('')}</div>
+    ${cur ? `<p class="hint char-grid-note">${CHAR[cur].name}だけを表示中<button class="link-btn" data-act="${act}" data-v="${cur}">すべて表示</button></p>` : ''}`;
+}
+const shownPresets = () => activePresets().filter(p => !S.buildChar || p.charId === S.buildChar);
 function viewBuilds() {
   if (S.edit) return S.edit.slot ? editSlot() : editPreset();
   if (S.buildView === 'public') return publicBuilds();
@@ -950,8 +957,10 @@ function viewBuilds() {
     <p class="hint">ビルドの登録は任意です。登録しなくても戦績は記録できます。遺物の効果まで入れておくと、ビルドや効果ごとの勝率が見られます。</p>
     ${draftCard}
     <button class="btn-add ${S.confirmDel === 'newPreset' ? 'danger' : ''}" data-act="newPreset">${S.confirmDel === 'newPreset' ? 'もう一度押すと、未完成のものを破棄して新しく作ります' : '＋ プリセットを作る'}</button>
+    ${charGrid('buildChar', S.buildChar || '', id => activePresets().filter(p => p.charId === id).length)}
     <div class="build-actions"><button class="ghost import-btn" data-act="publicOpen">みんなのビルドを見る</button><button class="ghost import-btn" data-act="importOpen">共有リンクから取り込む</button></div>
-    ${activePresets().map(p => { const x = rate(liveRuns().filter(r => r.presetId === p.id)); return `<button class="card" data-act="editPreset" data-v="${p.id}">
+    ${S.buildChar && !shownPresets().length ? `<div class="empty-state">${CHAR[S.buildChar].name}のプリセットはまだありません。</div>` : ''}
+    ${shownPresets().map(p => { const x = rate(liveRuns().filter(r => r.presetId === p.id)); return `<button class="card" data-act="editPreset" data-v="${p.id}">
       <span class="title"><span>${esc(p.name)}${p.public ? '<span class="badge pub">公開中</span>' : ''}</span><span class="rate ${x.n ? '' : 'none'}">${x.n ? `勝率 ${pct(x.p)}` : '未使用'}</span></span>
       <span class="sub">${p.charId ? charName(p.charId) : '夜渡り未設定'}${styleText(p) ? '・' + esc(styleText(p)) : ''}</span>
       <span class="preset-use">${x.n ? `使用 <b>${x.n}</b>戦（${x.w}勝 ${x.n - x.w}敗）` : 'まだ戦績で使っていません'}</span></button>`; }).join('')}
@@ -1829,7 +1838,8 @@ document.addEventListener('click', e => {
     case 'importOpen': S.sheet = { type: 'import' }; break;
     case 'publicOpen': S.buildView = 'public'; loadPublic(true); scrollTop(); break;
     case 'pubClose': S.buildView = 'presets'; scrollTop(); break;
-    case 'pubChar': S.pubChar = v; break;
+    case 'pubChar': S.pubChar = S.pubChar === v ? '' : v; break;
+    case 'buildChar': S.buildChar = S.buildChar === v ? '' : v; break;
     case 'pubPick': { const b = PUB.list?.[+v], d = b && parsePublic(b.data); if (!d) return; S.sheet = { type: 'import', data: d, pub: b }; break; }
     case 'buildReport': {
       const b = S.sheet?.pub; if (!b) return;
