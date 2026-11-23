@@ -150,8 +150,10 @@ function seed() {
 const db = load() ?? { runs: [], relics: [], presets: [] };
 db.prefs ||= {};
 const prefs = () => db.prefs;
-const blankForm = () => ({ dateMode: 'today', date: today(), lordId: null, everdark: null, flags: [], shift: null, mode: prefs().mode || 'normal', depth: prefs().depth || null,
-  party: prefs().party || 'trio', charId: null, result: null, lossAt: null, presetId: null, note: '' });
+// 夜の王と夜渡りは「未選択」にしない。最初はグラディウスと追跡者（ビルドは追跡者で前回使ったもの）
+const DEFAULT_LORD = 'gladius', DEFAULT_CHAR = 'wylder';
+const blankForm = () => ({ dateMode: 'today', date: today(), lordId: DEFAULT_LORD, everdark: null, flags: [], shift: null, mode: prefs().mode || 'normal', depth: prefs().depth || null,
+  party: prefs().party || 'trio', charId: DEFAULT_CHAR, result: null, lossAt: null, presetId: lastPresetFor(DEFAULT_CHAR), note: '' });
 const lastPresetFor = charId => { const id = (prefs().presetByChar || {})[charId]; return id && db.presets.some(p => p.id === id && !p.deleted) ? id : null; };
 const S = {
   tab: 'record', form: blankForm(), openRun: null, confirmDel: null,
@@ -231,13 +233,13 @@ function viewRecord() {
         <div class="chips">${LOSS_AT.map(x => chip('lossAt', x.id, x.name, f.lossAt === x.id)).join('')}</div></div>` : ''}`)}
   </div>`;
 }
-// 夜の王・夜渡りの縦スクロールの選択欄（ドラム式）。先頭は「未選択」。真ん中の枠に止まったものが選ばれる
+// 夜の王・夜渡りの縦スクロールの選択欄（ドラム式）。真ん中の枠に止まったものが選ばれる
 const WHEEL_H = 40;  // 1行の高さ（style.css の .wheel-item と同じ）
 function wheel(kind, items, cur, label) {
-  const idx = cur ? items.findIndex(x => x.id === cur) + 1 : 0;
+  const idx = Math.max(0, items.findIndex(x => x.id === cur));
   const item = (i, v, html) => `<button class="wheel-item ${i === idx ? 'center' : ''} ${v ? '' : 'none'}" data-act="wheelPick" data-i="${i}" data-v="${v}" role="option" aria-selected="${i === idx}">${html}</button>`;
   return `<div class="wheel-wrap"><div class="wheel" data-wheel="${kind}" data-idx="${idx}" role="listbox" aria-label="${kind === 'lord' ? '夜の王' : '夜渡り'}を選ぶ">
-    <div class="wheel-pad"></div>${item(0, '', '未選択')}${items.map((x, i) => item(i + 1, x.id, label(x.id))).join('')}<div class="wheel-pad"></div>
+    <div class="wheel-pad"></div>${items.map((x, i) => item(i, x.id, label(x.id))).join('')}<div class="wheel-pad"></div>
   </div><span class="wheel-band" aria-hidden="true"></span></div>`;
 }
 // 画面を作り直したあと、選んでいるものが真ん中に来るように位置を戻す
@@ -248,8 +250,9 @@ let wheelTouch = false;  // 止まったかどうかを待つタイマーは、�
 function commitWheel(w) {
   if (wheelTouch || !w.isConnected) return;
   w._moving = false; w._target = undefined;
-  const i = Math.round(w.scrollTop / WHEEL_H), v = w.querySelectorAll('.wheel-item')[i]?.dataset.v || null, f = S.form;
-  if (w.dataset.wheel === 'lord') { if (f.lordId === v) return; f.lordId = v; if (!v) { f.flags = []; f.shift = null; } }
+  const i = Math.round(w.scrollTop / WHEEL_H), v = w.querySelectorAll('.wheel-item')[i]?.dataset.v, f = S.form;
+  if (!v) return;
+  if (w.dataset.wheel === 'lord') { if (f.lordId === v) return; f.lordId = v; }
   else { if (f.charId === v) return; f.presetId = v ? lastPresetFor(v) : null; f.charId = v; }
   render();
 }
@@ -1373,7 +1376,7 @@ function guideSheet() {
     <div class="sheet-list guide-list">
       <p class="hint">ナイトレインの戦績を記録して、夜の王・夜渡り・ビルドごとの勝率を振り返るアプリです。<b>まずは「記録」タブだけ使えばOK</b>。ビルド・敵・みんなの統計は、気になったときにどうぞ。</p>
       ${install}
-      ${step(installed ? 1 : 2, '戦績を記録する', '「記録」タブで、夜の王と夜渡り（スクロールして真ん中に合わせる）・通常か常夜か・結果を選んで「記録する」。ビルドは、夜渡りごとに前回使ったものが自動で選ばれます。')}
+      ${step(installed ? 1 : 2, '戦績を記録する', '「記録」タブで、夜の王と夜渡り（スクロールして真ん中に合わせる。最初はグラディウスと追跡者）・通常か常夜か・結果を選んで「記録する」。ビルドは、夜渡りごとに前回使ったものが自動で選ばれます。')}
       ${step(installed ? 2 : 3, '記録は自動でバックアップ', '記録は自動で暗号化して、ネット上にも保存されます。機種変更のときは、右上の円柱の絵のボタン（データ）に出ている「引き継ぎコード」で戻せます。')}
       <button class="ghost" data-act="restoreOpen">機種変更した方：引き継ぎコードで戻す</button>
     </div>
@@ -1550,7 +1553,7 @@ document.addEventListener('click', e => {
       replaceDb({ runs: [], relics: [], presets: [] }); S.confirmDel = null; S.sheet = null; toast('すべてのデータを削除しました'); break;
     case 'date': f.dateMode = v; if (v === 'today') f.date = today(); if (v === 'yesterday') f.date = daysAgo(1); break;
     case 'wheelPick': { const w = t.closest('.wheel'); if (w) w._target = +t.dataset.i * WHEEL_H; if (w) w.scrollTo({ top: +t.dataset.i * WHEEL_H, behavior: 'smooth' }); return; }  // タップしたものを真ん中へ（止まったら選ばれる）
-    case 'everdark': f.everdark = v === 'yes'; if (f.lordId && !lordsFor(f.everdark).some(l => l.id === f.lordId)) f.lordId = null; break;
+    case 'everdark': f.everdark = v === 'yes'; if (!lordsFor(f.everdark).some(l => l.id === f.lordId)) f.lordId = DEFAULT_LORD; break;  // 常夜にいない夜の王を選んでいたら、グラディウスに戻す
     case 'flag':
       if (f.flags.includes(v)) f.flags = f.flags.filter(x => x !== v);
       // 「地図欠損」と「ボス不明」はどちらか一方だけ。地変はどちらとも一緒に選べる
@@ -1579,13 +1582,13 @@ document.addEventListener('click', e => {
         S.tab = 'history'; S.openRun = r.id; toast('戦績を更新しました'); break;
       }
       const newId = uid();
-      document.querySelectorAll('.wheel').forEach(w => { w._moving = false; clearTimeout(w._t); });  // 記録したら、動いている途中の欄も「未選択」に戻す
+      document.querySelectorAll('.wheel').forEach(w => { w._moving = false; clearTimeout(w._t); });  // 記録したら、動いている途中の欄も最初の形に戻す
       db.runs.push({ id: newId, ...fields, presetRev: p ? presetRev(p) : null, updatedAt: Date.now(), deleted: false });
       S.undo = { type: 'add', id: newId };
       toast(`${LORD[f.lordId].name}戦の${f.result === 'win' ? '勝利' : '敗北'}を記録しました`, { act: 'undo', label: '取り消す' });
       // 日付は「今日」以外（昨日・指定）を選んでいたら、続けて記録しやすいようにそのまま残す
-      // 夜渡りも選び直してもらう（前回のまま記録してしまわないように）。ビルドは夜渡りを選ぶと、その夜渡りで前回使ったものが入る
-      Object.assign(f, { lordId: null, everdark: null, flags: [], shift: null, charId: null, presetId: null, result: null, lossAt: null, note: '' });
+      // 夜の王・夜渡りは最初の形（グラディウス・追跡者）に戻す（前回のまま記録してしまわないように）。ビルドは追跡者で前回使ったもの
+      Object.assign(f, { lordId: DEFAULT_LORD, everdark: null, flags: [], shift: null, charId: DEFAULT_CHAR, presetId: lastPresetFor(DEFAULT_CHAR), result: null, lossAt: null, note: '' });
       break;
     }
     case 'editRun': {
