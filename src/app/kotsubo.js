@@ -71,30 +71,40 @@ function upgradesShown(k) {
   });
   return list.sort((a, b) => a.cost - b.cost);
 }
-// 戦果ボーナス：記録タブで、前に受け取ったあとに記録された勝ち負け（サンプルは数えない）
+// 戦果ボーナス：記録タブで、前に受け取ったあとに記録された勝ち負け（サンプルは数えない）。
+// 「最初に記録した時刻」で数えるので、昔の戦績を直したり消して戻したりしても、もう一度は数えない
+const madeAt = r => r.createdAt || r.updatedAt || 0;
 function warSpoils(k) {
   // はじめて受け取るときは、これまでの記録の新しい50戦まで（記録が多い人が、最初から一気に進みすぎないように）
-  const runs = H.liveRuns().filter(r => !r.sample && (r.updatedAt || 0) > (k.claimAt || 0)).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, k.claimAt ? Infinity : 50);
+  const runs = H.liveRuns().filter(r => !r.sample && madeAt(r) > (k.claimAt || 0)).sort((a, b) => madeAt(b) - madeAt(a)).slice(0, k.claimAt ? Infinity : 50);
   const w = runs.filter(r => r.result === 'win').length, l = runs.length - w;
   return { w, l, gain: w * Math.max(100, prodOf(k) * 300) + l * Math.max(20, prodOf(k) * 60) };
 }
 
 // ---------- 動き（叩く・時間がたつ・常夜の小壺・戦い） ----------
 let tuckTimer = null;
-let loop = null, lastTick = 0, lastSave = 0, rushUntil = 0, jar = null, nextJarAt = 0, fight = null, combo = 0;
+let loop = null, lastTick = 0, lastSave = 0, rushUntil = 0, jar = null, nextJarAt = 0, fight = null, combo = 0, onTab = false;
 const $ = id => document.getElementById(id);
 function gain(k, n) { k.mark += n; k.total += n; }
 function scheduleJar(k) { nextJarAt = Date.now() + (50 + Math.random() * 100) * 1000 / (k.ups.jar1 ? 2 : 1); }
 function tick() {
-  const k = st(), now = Date.now(), dt = Math.min(1, (now - (lastTick || now)) / 1000); lastTick = now;
+  const now = Date.now();
+  // ミニゲームの画面を開いていないときは、何もしない（端末への保存もしない）。
+  // 離れた瞬間に、戦いと常夜の小壺はお知らせなしで終わらせ、離れた時刻を残す（稼ぎは、次に開いたときに「留守の間」としてまとめて入れる）
+  if (H.tab() !== 'kotsubo') {
+    if (onTab) { onTab = false; fight = null; rushUntil = 0; if (jar) { $('k-jar')?.remove(); jar = null; nextJarAt = 0; } st().lastAt = now; H.save(); }
+    return;
+  }
+  onTab = true;
+  const k = st(), dt = Math.min(1, (now - (lastTick || now)) / 1000); lastTick = now;
   const p = prodOf(k);
   gain(k, p * dt);
   if (fight) { fight.hp -= p * dt; if (fight.hp <= 0) endFight(true); else if (now >= fight.end) endFight(false); }
   if (!nextJarAt) scheduleJar(k);
-  if (!jar && now >= nextJarAt && H.tab() === 'kotsubo') showJar();
+  if (!jar && now >= nextJarAt) showJar();
   if (jar && now >= jar.until) hideJar(true);
   if (now - lastSave > 5000) { lastSave = now; k.lastAt = now; H.save(); }
-  if (H.tab() === 'kotsubo') paint(k);
+  paint(k);
 }
 // 画面の数字だけを書き換える
 function paint(k) {
@@ -144,7 +154,7 @@ function endFight(win) {
   const k = st(), f = fight; fight = null;
   if (win) { k.lords = Math.max(k.lords || 0, f.i + 1); H.toast(`${H.LORD[BOSSES[f.i][0]]?.name}を討伐！すべての稼ぎが1.25倍に`); }
   else H.toast(`${H.LORD[BOSSES[f.i][0]]?.name}に逃げられた…稼いでから、また挑もう`);
-  H.save(); H.render();
+  H.save(); if (H.tab() === 'kotsubo') H.render();
 }
 // 叩く・常夜の小壺は、指が触れた瞬間に反応させる（click を待つと連打が遅れるため）
 document.addEventListener('pointerdown', e => {
@@ -153,16 +163,14 @@ document.addEventListener('pointerdown', e => {
 });
 // 開発用の画面（localhost）でだけ、動作確認のために常夜の小壺をすぐ出せるようにする
 if (window.__DEV__) window.__kotsubo = { jarNow: () => { nextJarAt = 1; } };
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && H) { st().lastAt = Date.now(); H.save(); } });
+// アプリを閉じる・切り替えるとき（ミニゲームを開いていたときだけ）、閉じた時刻を残す
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && H && H.tab() === 'kotsubo') { st().lastAt = Date.now(); H.save(); } });
 
-// タブを開いたとき：留守の間の稼ぎを入れて、動かし始める
-// （ほかのタブを開いているときは、お知らせは小壺タブを開くまで取っておく）
-let awayMsg = 0;
+// ミニゲームを開いたとき：離れていた間（アプリを閉じていた間・ほかの画面にいた間。最大8時間）の稼ぎを入れて、動かし始める
 export function startKotsubo() {
   const k = st(), now = Date.now(), away = Math.min(8 * 3600e3, now - (k.lastAt || now));
-  if (away > 60e3 && prodOf(k) > 0) { const g = prodOf(k) * away / 1000 * (k.ups.off1 ? .9 : .5); gain(k, g); awayMsg += g; }
-  if (awayMsg && H.tab() === 'kotsubo') { H.toast(`留守の間に ${fmtM(awayMsg)} マーク稼いでいました`); awayMsg = 0; }
-  k.lastAt = now; lastTick = now;
+  if (away > 1000 && prodOf(k) > 0) { const g = prodOf(k) * away / 1000 * (k.ups.off1 ? .9 : .5); gain(k, g); if (away > 60e3) H.toast(`留守の間に ${fmtM(g)} マーク稼いでいました`); }
+  k.lastAt = now; lastTick = now; onTab = true;
   if (!loop) loop = setInterval(tick, 100);
 }
 

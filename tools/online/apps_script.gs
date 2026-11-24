@@ -19,6 +19,7 @@
  *  - 機能の実装リクエスト（requests）
  *  - みんなのビルドへのリアクション（votes：👍😂🔥💡🤯。1人が何種類でも付けられ、押し直すと取り消し。新しく付けるのは1端末1日20回まで。前の「いいね」も👍として数える）
  *  - みんなのビルドへの定型文コメント（comments：決まった文の型と言葉の番号だけ。1人が1つのビルドに1つ・送り直すと置き換え・1端末1日20件まで）
+ *  - 管理人による非公開（build_bans：A列に presetId を書くと、そのビルドは一覧から消え、公開し直しもできない）
  *  - みんなのビルドの通報（build_reports：3つ以上の端末から通報されたビルドは、自動で一覧から外す。行を消せば戻る）
  * 不正対策：1つの端末が同じ日に30戦を超えて送ってきた日の戦績は、集計に入れない（人が遊べる数を超えるため）
  * 受信箱（type=inbox）：機能リクエストと誤りの報告を、合言葉つきで読み出す（持ち主の毎朝の確認用）。
@@ -34,12 +35,17 @@ const BUILD_COLS = ['key', 'presetId', 'updatedAt', 'charId', 'name', 'data'];
 const REQUEST_COLS = ['receivedAt', 'clientId', 'text', 'appVersion'];
 const VOTE_COLS = ['key', 'presetId', 'value', 'updatedAt'];
 const BREPORT_COLS = ['key', 'presetId', 'reason', 'at'];
+// 管理人が非公開にしたビルド（build_bans）。A列に presetId（builds シートのB列）を入れると、一覧から消え、同じビルドは公開し直せなくなる。行を消せば元に戻る
+const BAN_COLS = ['presetId', 'memo', 'at'];
+const banned_ = () => { const sh = sheet_('build_bans', BAN_COLS); const n = sh.getLastRow() - 1; const set = {}; (n > 0 ? sh.getRange(2, 1, n, 1).getDisplayValues() : []).forEach(v => { if (v[0]) set[String(v[0]).trim()] = 1; }); return set; };
 const MAX_RUNS_PER_DAY = 30, MAX_VOTES_PER_DAY = 20, HIDE_REPORTS = 3;
 // みんなのビルドのリアクションの種類（アプリの REACTIONS と同じ順・同じ名前）。前の「いいね」は like として数える
 const REACTIONS = ['like', 'lol', 'strong', 'tips', 'wow'];
 // 定型文コメント（comments：1人が1つのビルドに1つ。送り直すと置き換え）。文の型と言葉はアプリ側の src/data/comments.js の「何番目か」だけを受け取る
 // （自由な文章は受け付けない）。番号の上限は余裕をもたせてあるので、アプリ側で言葉を足しても、ここは直さなくてよい
-const COMMENT_COLS = ['key', 'presetId', 't', 'w', 'at'];
+// c・t2・w2 は2つ目の文（c＝つなぐ言葉の番号。-1 なら1文だけ）
+const COMMENT_COLS = ['key', 'presetId', 't', 'w', 'at', 'c', 't2', 'w2'];
+const MAX_COMMENT_C = 50;
 const MAX_COMMENT_T = 100, MAX_COMMENT_W = 1000, MAX_COMMENTS_PER_DAY = 20;
 
 // 不適切な言葉（アプリ側の src/data/ngwords.js と同じ考え方。ここでも念のため確かめる）
@@ -119,6 +125,7 @@ function doPost(e) {
       const sh = sheet_('builds', BUILD_COLS);
       const hit = sh.getRange('A:A').createTextFinder(key).matchEntireCell(true).findNext();
       if (body.type === 'build_del') { if (hit) sh.deleteRow(hit.getRow()); CacheService.getScriptCache().remove('builds'); return json_({ ok: true }); }
+      if (banned_()[presetId]) { if (hit) sh.deleteRow(hit.getRow()); CacheService.getScriptCache().remove('builds'); return json_({ ok: false, error: 'banned' }); }
       const data = typeof body.data === 'string' ? body.data.slice(0, 30000) : '';
       let parsed; try { parsed = JSON.parse(data); } catch (err) { return json_({ ok: false, error: 'bad data' }); }
       const name = str_(body.name, 60);
@@ -165,8 +172,11 @@ function doPost(e) {
     // 定型文コメント：t＝文の型の番号、w＝言葉の番号。t が -1 なら取り消し
     if (body.type === 'comment') {
       const presetId = str_(body.id, 60), t = Number(body.t), w = Number(body.w);
+      const c = body.c === undefined ? -1 : Number(body.c), t2 = Number(body.t2), w2 = Number(body.w2);
       const del = t === -1;
-      if (!presetId || (!del && !(Number.isInteger(t) && t >= 0 && t < MAX_COMMENT_T && Number.isInteger(w) && w >= 0 && w < MAX_COMMENT_W))) return json_({ ok: false, error: 'bad comment' });
+      const okT = x => Number.isInteger(x) && x >= 0 && x < MAX_COMMENT_T, okW = x => Number.isInteger(x) && x >= 0 && x < MAX_COMMENT_W;
+      const two = Number.isInteger(c) && c >= 0;
+      if (!presetId || (!del && !(okT(t) && okW(w) && (c === -1 || (two && c < MAX_COMMENT_C && okT(t2) && okW(w2)))))) return json_({ ok: false, error: 'bad comment' });
       const key = clientId + '/' + presetId;
       const sh = sheet_('comments', COMMENT_COLS);
       const hit = sh.getRange('A:A').createTextFinder(key).matchEntireCell(true).findNext();
@@ -175,7 +185,7 @@ function doPost(e) {
         const today = now.toISOString().slice(0, 10);
         const mine = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 5).getDisplayValues().filter(v => v[0].startsWith(clientId + '/') && v[4].startsWith(today)).length : 0;
         if (!hit && mine >= MAX_COMMENTS_PER_DAY) return json_({ ok: false, error: 'limit' });
-        sh.getRange(hit ? hit.getRow() : sh.getLastRow() + 1, 1, 1, 5).setNumberFormat('@').setValues([[key, presetId, String(t), String(w), now.toISOString()]]);
+        sh.getRange(hit ? hit.getRow() : sh.getLastRow() + 1, 1, 1, 8).setNumberFormat('@').setValues([[key, presetId, String(t), String(w), now.toISOString(), String(two ? c : -1), two ? String(t2) : '', two ? String(w2) : '']]);
       }
       CacheService.getScriptCache().remove('builds');
       return json_({ ok: true });
@@ -314,12 +324,16 @@ function builds_() {
   // 定型文コメントの数（同じ文はまとめて数える。多い順に12個まで）
   const cs = sheet_('comments', COMMENT_COLS);
   const cm = {};
-  (cs.getLastRow() > 1 ? cs.getRange(2, 2, cs.getLastRow() - 1, 3).getDisplayValues() : []).forEach(v => { const m = cm[v[0]] || (cm[v[0]] = {}); const k = v[1] + '/' + v[2]; m[k] = (m[k] || 0) + 1; });
-  const commentsOf = id => Object.keys(cm[id] || {}).map(k => { const tw = k.split('/'); return [Number(tw[0]), Number(tw[1]), cm[id][k]]; }).sort((a, b) => b[2] - a[2]).slice(0, 12);
+  // 列：B=presetId, C=t, D=w, F=c, G=t2, H=w2（前の行は F〜H が空＝1文だけ）
+  (cs.getLastRow() > 1 ? cs.getRange(2, 1, cs.getLastRow() - 1, 8).getDisplayValues() : []).forEach(v => { const m = cm[v[1]] || (cm[v[1]] = {});
+    const c = v[5] === '' ? -1 : Number(v[5]); const k = [v[2], v[3], c, c >= 0 ? v[6] : -1, c >= 0 ? v[7] : -1].join('/'); m[k] = (m[k] || 0) + 1; });
+  // 返す形：[t, w, 数, c, t2, w2]（c が -1 なら1文だけ）
+  const commentsOf = id => Object.keys(cm[id] || {}).map(k => { const x = k.split('/').map(Number); return [x[0], x[1], cm[id][k], x[2], x[3], x[4]]; }).sort((a, b) => b[2] - a[2]).slice(0, 12);
   const rs = sheet_('build_reports', BREPORT_COLS);
   const reps = {};
   (rs.getLastRow() > 1 ? rs.getRange(2, 2, rs.getLastRow() - 1, 1).getDisplayValues() : []).forEach(v => { reps[v[0]] = (reps[v[0]] || 0) + 1; });
-  const list = values.filter(v => v[0] && !ngHit_(v[4]) && (reps[v[1]] || 0) < HIDE_REPORTS).map(v => ({ presetId: v[1], updatedAt: v[2], charId: v[3], name: v[4], data: v[5], ...(tally[v[1]] || { likes: 0, dislikes: 0, reactions: {} }), comments: commentsOf(v[1]) }))
+  const bans = banned_();
+  const list = values.filter(v => v[0] && !ngHit_(v[4]) && (reps[v[1]] || 0) < HIDE_REPORTS && !bans[v[1]]).map(v => ({ presetId: v[1], updatedAt: v[2], charId: v[3], name: v[4], data: v[5], ...(tally[v[1]] || { likes: 0, dislikes: 0, reactions: {} }), comments: commentsOf(v[1]) }))
     .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)).slice(0, 300);
   const text = JSON.stringify({ ok: true, builds: list });
   try { cache.put('builds', text, 120); } catch (err) { /* 大きすぎるときは作り置きしない */ }

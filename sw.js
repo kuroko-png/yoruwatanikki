@@ -1,13 +1,13 @@
 // オフラインでも開けるようにするための service worker。
 // 画面やデータのファイルを直したら、下の VERSION を1つ上げてください（利用者の端末で新しい版に入れ替わります）。
-const VERSION = 'v56';
+const VERSION = 'v57';
 const CACHE = `yowatari-nikki-${VERSION}`;
 const FILES = [
   './', './index.html', './manifest.webmanifest',
-  './src/css/style.css', './src/app/app.js', './src/app/store.js', './src/app/scan.js', './src/app/kotsubo.js',
+  './src/css/style.css', './src/app/app.js', './src/app/store.js', './src/app/scan.js', './src/app/kotsubo.js', './src/app/knowledge.js', './src/data/boss_clues.js',
   './src/data/lords.js', './src/data/characters.js', './src/data/effects.js',
   './src/data/vessels.js', './src/data/relics.js', './src/data/ngwords.js', './src/data/privacy.js', './src/data/labels.js', './src/data/help.js', './src/data/changelog.js', './src/data/comments.js', './src/data/enemies.js', './src/data/night_bosses.js',
-  './icons/favicon.png', './icons/logo.png', ...['record', 'history', 'stats', 'builds', 'enemies'].map(id => `./icons/tabs/${id}.png`), './icons/kotsubo/jar.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-512-maskable.png', './icons/apple-touch-icon.png',
+  './icons/favicon.png', './icons/logo.png', ...['record', 'history', 'stats', 'builds', 'enemies', 'knowledge'].map(id => `./icons/tabs/${id}.png`), './icons/kotsubo/jar.svg', './icons/know/unknown.png', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-512-maskable.png', './icons/apple-touch-icon.png',
   // 夜の王・夜渡りのアイコン（tools/make_unit_icons.py で作る）
   ...['gladius', 'adel', 'gnoster', 'maris', 'libra', 'fulghor', 'caligo', 'final', 'harmonia', 'strages'].map(id => `./icons/lords/${id}.png`),
   ...['wylder', 'guardian', 'ironeye', 'duchess', 'raider', 'revenant', 'recluse', 'executor', 'scholar', 'undertaker'].map(id => `./icons/chars/${id}.png`),

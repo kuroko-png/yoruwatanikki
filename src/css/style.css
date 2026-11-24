@@ -1115,3 +1115,42 @@ html, body { overflow-x: clip; overscroll-behavior-x: none; }
 .kotsubo-btn img { width: 32px; filter: none; }
 .brand { flex: 1 1 auto; }
 .bar-btns { flex: none; }
+
+/* みんなのビルド：「ネタビルドだけ表示」のスイッチ */
+button.neta-filter { width: 100%; font: inherit; color: var(--fg); cursor: pointer; text-align: left; }
+.tgl { flex: none; position: relative; width: 46px; height: 26px; border-radius: 999px; background: rgba(255,255,255,.14); border: 1px solid var(--line-strong); transition: background .18s; }
+.tgl::after { content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: var(--fg); transition: transform .18s; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.tgl.on { background: #d9a441; border-color: transparent; }
+.tgl.on::after { transform: translateX(20px); }
+.cmt-compose .label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cmt-two { display: grid; gap: 8px; padding-top: 8px; border-top: 1px dashed var(--line-strong); }
+.cmt-add { justify-self: start; }
+.cmt-preview { position: sticky; top: 0; z-index: 1; background: var(--surface-2); }
+.cmt-preview { background: var(--panel); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); box-shadow: 0 6px 14px -6px rgba(0,0,0,.7); }
+
+/* 知識タブ：項目の一覧（1行ずつ）と、ボス不明チェッカー */
+.know-menu { display: grid; gap: 10px; }
+.know-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px; text-align: left; cursor: pointer; color: var(--fg); font: inherit; font-size: 15px;
+  background: linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.015)), var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); }
+.know-row:active { transform: scale(.98); }
+.know-row b { flex: 1; }
+.know-row .chev { transform: rotate(-45deg); margin-top: 0; }
+.know-ico { width: 34px; height: 34px; flex: none; background: var(--accent); -webkit-mask-size: contain; mask-size: contain; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-position: center; mask-position: center; }
+.know-soon { margin: 6px 0 0; text-align: center; font-size: 13px; color: var(--dim); }
+.know-back { justify-self: start; display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; color: var(--dim); font: inherit; font-size: 13px; padding: 2px 0; cursor: pointer; }
+.know-back::before { content: '‹'; font-size: 20px; line-height: 1; color: var(--accent); }
+.bj-card, .bj-result { display: grid; gap: 12px; padding: 14px; }
+.bj-wheels { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.bj-wheels .wheel-item { white-space: normal; line-height: 1.2; font-size: 12px; text-align: center; }
+.bj-wheels .wheel-item.center { font-size: 13px; }
+.bj-detail { border-top: 1px solid var(--line); padding-top: 10px; display: grid; gap: 8px; }
+.bj-detail .sec-toggle small { flex: 1; text-align: left; color: var(--accent); margin-left: 8px; font-size: 12px; }
+.bj-detail-body { display: grid; gap: 8px; }
+.bj-detail-body .flag-label { margin: 2px 0 0; }
+.bj-result-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
+.bj-result-head .flag-label { margin: 0; font-size: 13px; }
+.bj-lords { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.bj-lords.one { grid-template-columns: 1fr; }
+.bj-lord { display: flex; align-items: center; gap: 2px; padding: 6px 10px; border-radius: 10px; border: 1px solid var(--line-strong); background: rgba(255,255,255,.04); font-size: 13.5px; font-weight: 700; }
+.bj-lords.one .bj-lord { justify-content: center; font-size: 17px; padding: 10px; border-color: var(--accent); color: var(--accent); }
+.bj-detail:not(.open) .sec-toggle .chev { transform: rotate(45deg); margin-top: -4px; }

@@ -10,10 +10,11 @@ import { NIGHT_BOSSES } from '../data/night_bosses.js';
 import { load, save, exportJson, exportCsv, readJsonFile } from './store.js';
 import { scanRelics } from './scan.js';
 import { initKotsubo, viewKotsubo, kotsuboAct, kotsuboSub, startKotsubo } from './kotsubo.js';
+import { initKnowledge, viewKnowledge, knowledgeAct, knowledgeSub, knowledgeWheel } from './knowledge.js';
 import { ngHit } from '../data/ngwords.js';
 import { PRIVACY, PRIVACY_UPDATED } from '../data/privacy.js';
 import { CHANGELOG } from '../data/changelog.js';
-import { COMMENT_TEMPLATES, COMMENT_GROUPS, COMMENT_WORDS, commentText } from '../data/comments.js';
+import { COMMENT_TEMPLATES, COMMENT_GROUPS, COMMENT_WORDS, COMMENT_CONJ, COMMENT_T_START, commentFull } from '../data/comments.js';
 
 // ---------- 遺物効果の組み立て ----------
 function optsFor(name) {
@@ -168,6 +169,8 @@ const S = {
 };
 // 夜渡りは毎回選んでもらう（前回の夜渡りは自動で入れない）
 const liveRuns = () => db.runs.filter(r => !r.deleted);
+// 記録した時刻（createdAt）がない前の戦績には、更新時刻を入れておく（ミニゲームの戦果ボーナスを、直した戦績で二重に数えないため）
+db.runs.forEach(r => { if (!r.createdAt) r.createdAt = r.updatedAt || 0; });
 const relicById = id => db.relics.find(r => r.id === id);
 const presetById = id => db.presets.find(p => p.id === id);
 // 削除したプリセットは「削除済み」として残し、過去の戦績・統計では使い続ける
@@ -254,7 +257,7 @@ function saveRecord() {
   }
   const newId = uid();
   document.querySelectorAll('.wheel').forEach(w => { w._moving = false; clearTimeout(w._t); });  // 記録したら、動いている途中の欄も最初の形に戻す
-  db.runs.push({ id: newId, ...fields, presetRev: p ? presetRev(p) : null, updatedAt: Date.now(), deleted: false });
+  db.runs.push({ id: newId, ...fields, presetRev: p ? presetRev(p) : null, createdAt: Date.now(), updatedAt: Date.now(), deleted: false });
   S.undo = { type: 'add', id: newId };
   toast(`${LORD[f.lordId].name}戦の${f.result === 'win' ? '勝利' : '敗北'}を記録しました`, { act: 'undo', label: '取り消す' });
   // 日付は、過去の日を選んでいたら、続けて記録しやすいようにそのまま残す（「今日」のままなら次も今日）
@@ -304,7 +307,7 @@ function wheel(kind, items, cur, label, none = false) {
   const off = none ? 1 : 0, at = items.findIndex(x => x.id === cur);
   const idx = at < 0 ? 0 : at + off;
   const item = (i, v, html) => `<button class="wheel-item ${i === idx ? 'center' : ''} ${v ? '' : 'none'}" data-act="wheelPick" data-i="${i}" data-v="${v}" role="option" aria-selected="${i === idx}">${html}</button>`;
-  return `<div class="wheel-wrap"><div class="wheel" data-wheel="${kind}" data-idx="${idx}" role="listbox" aria-label="${kind === 'lord' ? '夜の王' : '夜渡り'}を選ぶ">
+  return `<div class="wheel-wrap"><div class="wheel" data-wheel="${kind}" data-idx="${idx}" role="listbox" aria-label="${{ lord: '夜の王', char: '夜渡り', bjD1: '1日目の夜ボス', bjD2: '2日目の夜ボス' }[kind]}を選ぶ">
     <div class="wheel-pad"></div>${none ? item(0, '', '未選択') : ''}${items.map((x, i) => item(i + off, x.id, label(x.id))).join('')}<div class="wheel-pad"></div>
   </div><span class="wheel-band" aria-hidden="true"></span></div>`;
 }
@@ -317,6 +320,7 @@ function commitWheel(w) {
   if (wheelTouch || !w.isConnected) return;
   w._moving = false; w._target = undefined;
   const i = Math.round(w.scrollTop / WHEEL_H), v = w.querySelectorAll('.wheel-item')[i]?.dataset.v, f = S.form;
+  if (v !== undefined && w.dataset.wheel.startsWith('bj')) { if (knowledgeWheel(w.dataset.wheel, v)) render(); return; }  // 知識タブのボス不明チェッカー（1日目・2日目）
   if (v === undefined || (!v && w.dataset.wheel === 'lord')) return;  // 夜の王に「未選択」はない
   // 常夜にいない夜の王（ナメレス・ストラゲス）を選んだら、夜の王の種類は自動で「通常」にする
   if (w.dataset.wheel === 'lord') { if (f.lordId === v) return; f.lordId = v; if (LORD[v]?.everdark === false) f.everdark = false; }
@@ -494,6 +498,8 @@ async function unseal(text, key) {
 }
 // 保存するもの：戦績・遺物・プリセット・設定（自動バックアップとみんなの戦績の設定は端末ごとなので除く）
 const cloudPayload = () => { const { cloud: _c, online: _o, ...rest } = db.prefs; return { runs: db.runs, relics: db.relics, presets: db.presets, prefs: rest }; };
+// 送るかどうかは、ミニゲームの進み具合を除いた中身が変わったかで決める（ミニゲームは数秒ごとに変わるので、それだけでは送らない。ほかが変わったときに一緒に送る）
+const cloudSig = payload => { const { kotsubo: _k, ...p } = payload.prefs; return sigOf(JSON.stringify({ ...payload, prefs: p })); };
 const sigOf = str => { let h = 5381; for (let i = 0; i < str.length; i++) h = (h * 33 + str.charCodeAt(i)) | 0; return `${str.length}:${h}`; };
 let cloudTimer = null, cloudDue = 0, cloudBusy = false;
 // 予定より遅らせない（変更が続いても、最初の変更から15秒以内には保存する）
@@ -503,7 +509,7 @@ async function cloudSave() {
   const cl = cloud();
   if (!cl.on || cloudBusy || !navigator.onLine || !crypto.subtle) return;
   if (!db.runs.length && !db.presets.length) return;  // まだ何もないときは保存しない
-  const payload = cloudPayload(), sig = sigOf(JSON.stringify(payload));
+  const payload = cloudPayload(), sig = cloudSig(payload);
   if (sig === cl.sig) return;
   cloudBusy = true;
   try {
@@ -553,8 +559,11 @@ const ONLINE_URL = 'https://script.google.com/macros/s/AKfycbwj1IcWjrrl-Jc12G3IP
 // join＝みんなの勝率に参加しているか、id＝端末ごとのランダムな番号（名前などは送らない）、sent＝送った戦績とその時点の版
 const onlinePrefs = () => (prefs().online ||= { join: false, id: uid(), sent: {} });
 const runSig = r => `2|${r.editedAt || r.updatedAt}|${r.deleted ? 1 : 0}`;  // 先頭の 2 は送る中身の版（型・メイン武器を足した）
+// 受け取り口（本物のスプレッドシート）への通信。開発用の手元の画面（localhost）では、うっかり本物に書き込まないよう、
+// window.__devNet = true にしたときだけ通す（動作確認では、通信を仮のものに差し替えてから true にする）
+const net = (url, opt) => DEV_HOST && !window.__devNet ? Promise.reject(new TypeError('開発用の画面では、受け取り口に通信しません')) : fetch(url, opt);
 async function postOnline(body) {
-  const res = await fetch(ONLINE_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ ...body, clientId: onlinePrefs().id }) });
+  const res = await net(ONLINE_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ ...body, clientId: onlinePrefs().id }) });
   return res.json();
 }
 // 送るのは勝率に使う項目だけ（メモ・ビルドは送らない）。サンプルデータは送らない
@@ -612,7 +621,7 @@ function loadGlobal() {
   if (G.loading || !gRangeOk(r) || Date.now() - G.at < 3 * 60e3) return G;
   G.loading = true;
   // 失敗したときは1分あけてからやり直す（すぐにやり直すと、通信できないときに読み込みが止まらず画面が固まるため）
-  fetch(`${ONLINE_URL}?type=stats${k === 'all' ? '' : `&from=${r.from}&to=${r.to}`}`).then(res => res.json()).then(d => { if (!d.ok) throw new Error('bad');
+  net(`${ONLINE_URL}?type=stats${k === 'all' ? '' : `&from=${r.from}&to=${r.to}`}`).then(res => res.json()).then(d => { if (!d.ok) throw new Error('bad');
       // 期間の絞り込みに対応していない受け取り口（古い版）は、期間を無視して全期間を返すので、使わない
       G.unsupported = k !== 'all' && !(d.range && d.range.from === r.from && d.range.to === r.to);
       G.data = G.unsupported ? null : d; G.failed = false; G.at = Date.now(); if (k === 'all') writeCache('stats', d); },
@@ -775,9 +784,10 @@ function trendChart(tr, r) {
   <p class="hint">${days.length}日間で${tot}戦・勝率 ${tot ? pct(wins / tot) : '–'}。いちばん多かった日：${md(best)}（${(tr[best] || {}).n || 0}戦）</p>`;
 }
 // アップデート情報：新しい版がまだ見ていないものなら「NEW」（はじめて使う人には出さない）
-const newsUnseen = () => !!CHANGELOG[0] && prefs().onboarded && prefs().seenNews !== CHANGELOG[0].v;
+const newsUnseen = () => !!CHANGELOG[0] && (prefs().onboarded || liveRuns().length > 0) && prefs().seenNews !== CHANGELOG[0].v;  // 案内を閉じた人か、戦績がある人
 function newsSheet() {
-  const md = d => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`;
+  // 公開した日時（例：11/24 0:17）。時刻がないものは日付だけ
+  const md = d => `${+d.slice(5, 7)}/${+d.slice(8, 10)}${d.length > 10 ? ` ${+d.slice(11, 13)}:${d.slice(14, 16)}` : ''}`;
   return `<div class="scrim" data-act="sClose"></div><div class="sheet help" role="dialog" aria-label="アップデート情報">
     <div class="sheet-head"><h2>アップデート情報</h2><button class="ghost" data-act="sClose">閉じる</button></div>
     <div class="sheet-list help-list news">${CHANGELOG.map((c, i) => `<section><h3>${esc(c.v)}<small>${md(c.date)}</small>${i === 0 ? '<span class="badge new">最新</span>' : ''}</h3><ul class="help-points">${c.items.map(t => `<li>${esc(t)}</li>`).join('')}</ul></section>`).join('')}</div></div>`;
@@ -982,28 +992,40 @@ function voteRow(pub) {
     ${commentBox(pub)}
     <button class="link-btn report-link ${S.confirmDel === 'buildReport' ? 'danger-text' : 'dim-link'}" data-act="buildReport" ${rep ? 'disabled' : ''}>${rep ? '通報済み' : S.confirmDel === 'buildReport' ? 'もう一度押すと通報します' : '⚑ 不適切な内容を通報する'}</button>`;
 }
-// 定型文コメント：決まった「文の型」と「言葉」を組み合わせて送る（1人が1つのビルドに1つ。送り直すと置き換え）
-const validCmt = ([t, w]) => !!COMMENT_TEMPLATES[t] && !!COMMENT_WORDS[w];
+// 定型文コメント：決まった「文の型」と「言葉」を組み合わせて送る。本編と同じように、つなぐ言葉で2つ目の文も付けられる
+// （1人が1つのビルドに1つ。送り直すと置き換え）。一覧の1件は [t, w, 数, c, t2, w2]（c が -1 なら1文だけ）
+const cmtParts = x => ({ t: x[0], w: x[1], c: x[3] ?? -1, t2: x[4] ?? -1, w2: x[5] ?? -1 });
+const validCmt = x => { const p = Array.isArray(x) ? cmtParts(x) : x; return !!COMMENT_TEMPLATES[p.t] && !!COMMENT_WORDS[p.w] && (!(p.c >= 0) || (!!COMMENT_CONJ[p.c] && !!COMMENT_TEMPLATES[p.t2] && !!COMMENT_WORDS[p.w2])); };
+const cmtTextOf = p => commentFull(p.t, p.w, p.c ?? -1, p.t2 ?? -1, p.w2 ?? -1);
+const sameCmt = (a, b) => !!a && !!b && a.t === b.t && a.w === b.w && (a.c ?? -1) === (b.c ?? -1) && ((a.c ?? -1) < 0 || (a.t2 === b.t2 && a.w2 === b.w2));
 const cmtCount = b => (b.comments || []).filter(validCmt).reduce((a, c) => a + (c[2] || 0), 0);
 function commentBox(pub) {
   const list = (pub.comments || []).filter(validCmt);
   const mine = (prefs().comments || {})[pub.presetId], c = S.sheet?.compose;
-  const rows = list.length ? list.map(([t, w, n]) => `<li class="${mine && mine.t === t && mine.w === w ? 'mine' : ''}"><span>「${esc(commentText(t, w))}」</span>${n > 1 ? `<b>×${n}</b>` : ''}</li>`).join('')
+  const rows = list.length ? list.map(x => `<li class="${sameCmt(mine, cmtParts(x)) ? 'mine' : ''}"><span>「${esc(cmtTextOf(cmtParts(x)))}」</span>${x[2] > 1 ? `<b>×${x[2]}</b>` : ''}</li>`).join('')
     : '<li class="none">まだコメントはありません</li>';
   let compose = '';
   if (c) {
     const chip = (act, v, label, on) => `<button class="chip small" data-act="${act}" data-v="${v}" ${pressed(on)}>${esc(label)}</button>`;
+    const tChips = (act, cur) => COMMENT_TEMPLATES.map((x, i) => i >= COMMENT_T_START ? chip(act, i, x, cur === i) : '').join('');
+    const groups = (act, cur) => `<div class="cmt-groups">${COMMENT_GROUPS.map(g => `<button class="${cur === g ? 'on' : ''}" data-act="${act}" data-v="${esc(g)}">${esc(g)}</button>`).join('')}</div>`;
+    const wChips = (act, g, cur) => COMMENT_WORDS.map(([x, gg], i) => gg === g ? chip(act, i, x, cur === i) : '').join('');
+    const ready = c.t != null && c.w != null && (!c.two || (c.c != null && c.t2 != null && c.w2 != null));
+    const preview = c.t != null && c.w != null ? cmtTextOf(c.two && c.c != null && c.t2 != null && c.w2 != null ? c : { t: c.t, w: c.w, c: -1 }) : '';
     compose = `<div class="cmt-compose">
-      <div class="label">① 文の型</div><div class="chips">${COMMENT_TEMPLATES.map((x, i) => chip('cmtT', i, x, c.t === i)).join('')}</div>
-      <div class="label">② ◯◯に入れる言葉</div>
-      <div class="cmt-groups">${COMMENT_GROUPS.map(g => `<button class="${c.g === g ? 'on' : ''}" data-act="cmtG" data-v="${esc(g)}">${esc(g)}</button>`).join('')}</div>
-      <div class="chips">${COMMENT_WORDS.map(([x, g], i) => g === c.g ? chip('cmtW', i, x, c.w === i) : '').join('')}</div>
-      <div class="cmt-preview">${c.t != null && c.w != null ? `「${esc(commentText(c.t, c.w))}」` : '<span class="hint">文の型と言葉を選ぶと、ここに出ます</span>'}</div>
-      <div class="form-actions"><button class="ghost" data-act="cmtClose">やめる</button><button class="primary" data-act="cmtSend" ${c.t != null && c.w != null && !c.sending ? '' : 'disabled'}>${c.sending ? '送っています…' : '送る'}</button></div>
+      <div class="cmt-preview">${preview ? `「${esc(preview)}」` : '<span class="hint">文の型と言葉を選ぶと、ここに出ます</span>'}</div>
+      <div class="label">① 文の型</div><div class="chips">${tChips('cmtT', c.t)}</div>
+      <div class="label">② ◯◯に入れる言葉</div>${groups('cmtG', c.g)}<div class="chips">${wChips('cmtW', c.g, c.w)}</div>
+      ${c.two ? `<div class="cmt-two">
+        <div class="label">③ つなぐ言葉<button class="link-btn" data-act="cmtTwo">1文に戻す</button></div><div class="chips">${COMMENT_CONJ.map((x, i) => chip('cmtC', i, x, c.c === i)).join('')}</div>
+        <div class="label">④ 2つ目の文の型</div><div class="chips">${tChips('cmtT2', c.t2)}</div>
+        <div class="label">⑤ 2つ目の◯◯に入れる言葉</div>${groups('cmtG2', c.g2)}<div class="chips">${wChips('cmtW2', c.g2, c.w2)}</div></div>`
+        : '<button class="ghost small cmt-add" data-act="cmtTwo">＋ もう1文つなげる</button>'}
+      <div class="form-actions"><button class="ghost" data-act="cmtClose">やめる</button><button class="primary" data-act="cmtSend" ${ready && !c.sending ? '' : 'disabled'}>${c.sending ? '送っています…' : '送る'}</button></div>
     </div>`;
   }
   return `<div class="cmt"><div class="cmt-h">💬 定型文コメント</div><ul class="cmt-list">${rows}</ul>
-    ${mine && validCmt([mine.t, mine.w]) ? `<p class="hint cmt-mine">あなたのコメント：「${esc(commentText(mine.t, mine.w))}」<button class="link-btn" data-act="cmtDel">取り消す</button></p>` : ''}
+    ${mine && validCmt(mine) ? `<p class="hint cmt-mine">あなたのコメント：「${esc(cmtTextOf(mine))}」<button class="link-btn" data-act="cmtDel">取り消す</button></p>` : ''}
     ${c ? compose : `<button class="ghost small cmt-open" data-act="cmtOpen">${mine ? '💬 送り直す' : '💬 定型文を送る'}</button>`}</div>`;
 }
 function importSheet() {
@@ -1055,7 +1077,7 @@ function loadPublic(force) {
   if (PUB.loading || (!force && PUB.at && Date.now() - PUB.at < 120e3)) return;
   PUB.loading = true;
   // 失敗したときも時刻を残し、すぐにはやり直さない（通信できないときに読み込みが止まらず画面が固まるため）
-  fetch(`${ONLINE_URL}?type=builds`).then(r => r.json()).then(d => { if (!d.ok) throw new Error(); PUB.list = d.builds || []; PUB.failed = false; PUB.at = Date.now(); writeCache('builds', PUB.list); },
+  net(`${ONLINE_URL}?type=builds`).then(r => r.json()).then(d => { if (!d.ok) throw new Error(); PUB.list = d.builds || []; PUB.failed = false; PUB.at = Date.now(); writeCache('builds', PUB.list); },
     () => { PUB.failed = true; PUB.at = Date.now() - 60e3; }).finally(() => { PUB.loading = false; if (S.buildView === 'public') render(); });
 }
 // 公開用の中身（共有リンクと同じ形）
@@ -1065,24 +1087,24 @@ function publicBuilds() {
   loadPublic();
   const f = S.pubChar || '';
   const mine = new Set(db.presets.map(p => p.id));
-  const hideNeta = !!prefs().pubHideNeta;
+  // 「ネタビルドだけ」のスイッチ：オンのときは、ネタビルドだけを並べる（オフはすべて）
+  const onlyNeta = !!prefs().pubOnlyNeta;
   const all = (PUB.list || []).map(b => ({ ...b, p: parsePublic(b.data) })).filter(b => b.p && (!f || b.p.charId === f));
-  const items = all.filter(b => !hideNeta || !b.p.neta), netaN = all.filter(b => b.p.neta).length;
+  const items = all.filter(b => !onlyNeta || b.p.neta), netaN = all.filter(b => b.p.neta).length;
   const chips = charGrid('pubChar', f, id => (PUB.list || []).filter(b => parsePublic(b.data)?.charId === id).length);
   const body = !PUB.list ? `<div class="empty-state">${PUB.failed && !PUB.loading ? '読み込めませんでした。通信できる所で、もう一度読み込んでください。<br><button class="ghost small" data-act="publicOpen" style="margin-top:8px">もう一度読み込む</button>' : '読み込んでいます…'}</div>`
     : items.length ? items.map((b, i) => `<button class="card" data-act="pubPick" data-v="${(PUB.list || []).indexOf(PUB.list.find(x => x.data === b.data))}">
         <span class="title"><span>${esc(presetName(b.p))}${b.p.neta ? '<span class="badge neta">ネタ</span>' : ''}${mine.has(b.presetId) ? '<span class="badge pub">あなた</span>' : ''}</span><span class="rate none">取り込む ›</span></span>
         <span class="sub">${b.p.charId ? charName(b.p.charId) : '夜渡り未設定'}${styleText(b.p) ? '・' + esc(styleText(b.p)) : ''}</span>
-        <span class="preset-use">${[...b.p.normal, ...b.p.deep].filter(Boolean).map(r => esc(relicName(r))).join('・') || '遺物の登録なし'}</span>
         ${b.p.pubNote ? `<span class="pub-note one">${esc(b.p.pubNote)}</span>` : ''}
         <span class="vote-count">${[reactSummary(b), cmtCount(b) ? `💬 ${cmtCount(b)}` : ''].filter(Boolean).join('　') || 'リアクションはまだありません'}</span></button>`).join('')
-    : `<div class="empty-state">${hideNeta && netaN ? 'ネタビルドを隠しているので、表示するものがありません。' : `${f ? 'この夜渡りの' : ''}公開されたビルドはまだありません。`}</div>`;
+    : `<div class="empty-state">${onlyNeta ? `${f ? 'この夜渡りの' : ''}ネタビルドはまだありません。` : `${f ? 'この夜渡りの' : ''}公開されたビルドはまだありません。`}</div>`;
   return `<div class="stack-lg">
     <button class="ghost back-btn" data-act="pubClose">‹ 自分のビルドに戻る</button>
     <div class="page-title">みんなのビルド</div>
-    <p class="hint">みんなが「みんなに公開」にしたプリセットです。タップすると、自分のプリセットに取り込めます。作った人の名前などは表示されません。</p>
+    <p class="hint">みんなが「みんなに公開」にしたプリセットです。タップすると中身（遺物）を見て、取り込めます。作った人の名前などは表示されません。</p>
     ${chips}
-    <div class="neta-filter"><span>ネタビルドを表示${netaN ? `<small>（${netaN}件）</small>` : ''}</span><button class="ever-switch ${hideNeta ? '' : 'on'}" data-act="pubNeta" aria-pressed="${!hideNeta}">${hideNeta ? '隠す' : '表示'}</button></div>
+    <button class="neta-filter" role="switch" aria-checked="${onlyNeta}" data-act="pubNeta"><span>ネタビルドだけ表示${netaN ? `<small>（${netaN}件）</small>` : ''}</span><i class="tgl ${onlyNeta ? 'on' : ''}" aria-hidden="true"></i></button>
     ${body}</div>`;
 }
 function slotDots(p) {
@@ -1516,6 +1538,9 @@ function lockScroll(on) {
 }
 // 画面の一番上へ（後ろを固定している間は、閉じたときに一番上へ戻す）
 function scrollTop() { if (lockY !== null) lockY = 0; else window.scrollTo(0, 0); }
+// 遺物の編集を閉じて、プリセットの画面の「開く前にいた位置」へ戻す（一番上に戻らないように）。画面を描き直したあとに動かす
+let pendingY = null;
+function leaveSlot() { const y = S.edit.slotY ?? 0; S.edit.slot = null; if (lockY !== null) lockY = y; else pendingY = y; }
 function renderSheet() {
   const el = document.getElementById('sheet'), keep = S.sheet?.type === 'import' && el.dataset.type === 'import' ? el.querySelector('.sheet-list')?.scrollTop : null;
   renderSheetInner();
@@ -1687,11 +1712,11 @@ function csvRows() {
 
 // ---------- render ----------
 // タブのアイコンは icons/tabs/<id>.png（tools/make_app_icons.py で Images/ の絵から作る）
-const TABS = [{ id: 'record', name: '記録' }, { id: 'history', name: '履歴' }, { id: 'stats', name: '統計' }, { id: 'builds', name: 'ビルド' }, { id: 'enemies', name: '敵' }];
+const TABS = [{ id: 'record', name: '記録' }, { id: 'history', name: '履歴' }, { id: 'stats', name: '統計' }, { id: 'builds', name: 'ビルド' }, { id: 'enemies', name: '知識', icon: 'knowledge' }];  // 「知識」タブ（中身は knowledge.js。id は昔の「敵」タブのまま）
 // ミニゲーム「遺物を求める者」は、下のタブには出さない。タイトルの右の小壺を押した人だけが入れる（S.tab が 'kotsubo'）
 function appSub() {
   const runs = liveRuns();
-  if (S.tab === 'enemies') return '敵のデータを調べる';
+  if (S.tab === 'enemies') return knowledgeSub();
   if (S.tab === 'kotsubo') return kotsuboSub();
   if (S.tab === 'record') { const t = rate(runs.filter(r => r.date === today())); return t.n ? `今日 ${t.n}戦 ${t.w}勝 ${t.n - t.w}敗` : '今日の夜を記録する'; }
   if (S.tab === 'history') return runs.length ? `${runs.length}戦の記録` : 'まだ記録がありません';
@@ -1722,13 +1747,14 @@ function patchKeeping(root, html, keepId) {
   }
 }
 function render(keepId) {
-  document.getElementById('tabs').innerHTML = TABS.map(t => `<button data-act="tab" data-v="${t.id}" ${S.tab === t.id ? 'aria-current="page"' : ''}><span class="tab-ico" style="-webkit-mask-image:url('icons/tabs/${t.id}.png');mask-image:url('icons/tabs/${t.id}.png')" aria-hidden="true"></span>${t.name}</button>`).join('');
+  document.getElementById('tabs').innerHTML = TABS.map(t => `<button data-act="tab" data-v="${t.id}" ${S.tab === t.id ? 'aria-current="page"' : ''}><span class="tab-ico" style="-webkit-mask-image:url('icons/tabs/${t.icon || t.id}.png');mask-image:url('icons/tabs/${t.icon || t.id}.png')" aria-hidden="true"></span>${t.name}</button>`).join('');
   BAR = '';
   const moving = Object.fromEntries([...document.querySelectorAll('.wheel')].filter(w => w._moving).map(w => [w.dataset.wheel, w._target ?? w.scrollTop]));  // タップで動かしている途中なら、行き先へ
-  const v = { record: viewRecord, history: viewHistory, stats: viewStats, builds: viewBuilds, enemies: viewEnemies, kotsubo: viewKotsubo }[S.tab];
+  const v = { record: viewRecord, history: viewHistory, stats: viewStats, builds: viewBuilds, enemies: viewKnowledge, kotsubo: viewKotsubo }[S.tab];
   if (keepId) patchKeeping(document.getElementById('view'), v(), keepId);
   else document.getElementById('view').innerHTML = v();
   if (S.tab === 'record') { initWheels(moving); initDateStrip(); }
+  if (S.tab === 'enemies') initWheels(moving);  // 知識タブのボス不明チェッカー
   // みんなの統計：選んでいる分析のタブが見える位置まで、タブの列を横に動かす
   { const tb = document.querySelector('.g-tabs'), on = tb?.querySelector('[aria-selected="true"]');
     if (on) { const x = on.getBoundingClientRect().left - tb.getBoundingClientRect().left + tb.scrollLeft; if (x < tb.scrollLeft || x + on.offsetWidth > tb.scrollLeft + tb.clientWidth) tb.scrollLeft = x - (tb.clientWidth - on.offsetWidth) / 2; } }
@@ -1741,6 +1767,7 @@ function render(keepId) {
   document.getElementById('actionbar').innerHTML = BAR ? `<div class="action-bar"><div class="in">${BAR}</div></div>` : '';
   document.querySelector('.app').classList.toggle('has-bar', !!BAR);
   renderSheet();
+  if (pendingY !== null && lockY === null) { window.scrollTo(0, pendingY); pendingY = null; }
   syncDraft();
   save(db);
   if (prefs().online?.join || prefs().online?.pendingDelete?.length) scheduleSync();
@@ -1769,7 +1796,8 @@ document.addEventListener('click', e => {
   const a = t.dataset.act, v = t.dataset.v, f = S.form;
   if (a !== 'delRun' && a !== 'eDel' && a !== 'loadSample' && a !== 'wipe' && a !== 'draftDel' && a !== 'newPreset' && a !== 'onlineLeave' && a !== 'cloudOff' && a !== 'buildReport') S.confirmDel = null;
   switch (a) {
-    case 'tab': if (S.edit && v !== 'builds') S.edit = null; S.tab = v; S.sheet = null; S.lossPick = false; scrollTop(); break;  // 作りかけは prefs().draft に残っている
+    case 'tab': if (v === 'enemies' && S.tab === v && S.know) S.know.topic = '';  // 知識タブを開いているときにもう一度押すと、項目の一覧に戻る
+      if (S.edit && v !== 'builds') S.edit = null; S.tab = v; S.sheet = null; S.lossPick = false; scrollTop(); break;  // 作りかけは prefs().draft に残っている
     case 'kotsuboOpen': if (S.tab === 'kotsubo') return; if (S.edit) S.edit = null; S.kotsuboFrom = S.tab; S.tab = 'kotsubo'; S.sheet = null; startKotsubo(); scrollTop(); break;
     case 'kotsuboBack': S.tab = S.kotsuboFrom || 'record'; scrollTop(); break;
     case 'menu': S.sheet = { type: 'menu' }; break;
@@ -1902,6 +1930,7 @@ document.addEventListener('click', e => {
     case 'eSpecial': S.edit.slot.data.special = v; break;
     case 'openSlot': {
       const k = t.dataset.k, i = +v, cur = S.edit.data[k][i];
+      S.edit.slotY = lockY ?? window.scrollY;  // 閉じたらこの位置に戻る
       S.edit.slot = { k, i, existed: !!cur, fresh: !cur, mode: cur && cur.special ? SPECIAL[cur.special].type : 'normal', data: cur ? structuredClone(cur) : { size: 3, color: 'red', kind: k, effects: [null, null, null], demerits: [null, null, null] } };
       // 新しい枠は、適合する献器がある色から始める
       if (!cur) S.edit.slot.data.color = COLORS.map(c => c.id).find(canColor) || 'red';
@@ -1915,7 +1944,7 @@ document.addEventListener('click', e => {
       const { k, i } = S.edit.slot; const sp = SPECIAL[v];
       if (!specialOk(sp)) { toast('適合する献器がないため選べません'); return; }
       S.edit.data[k][i] = { special: sp.id, color: sp.color || S.edit.slot.data.color || 'red', kind: 'normal', effects: [null, null, null], demerits: [null, null, null], size: sp.effects.length };
-      S.edit.slot = null; S.sheet = null; toast(`${sp.name}を入れました`); scrollTop(); break;
+      leaveSlot(); S.sheet = null; toast(`${sp.name}を入れました`); break;
     }
     case 'eSize': S.edit.slot.data.size = +v; break;
     case 'eColor': if (canColor(v)) S.edit.slot.data.color = v; break;
@@ -1925,7 +1954,7 @@ document.addEventListener('click', e => {
     case 'sOpen': S.sheet.open = S.sheet.open === v ? null : v; renderSheet(); return;
     case 'sClose': {
       // 空き枠から開いて何も選ばずに閉じたら、プリセットの画面に戻る
-      const sl = S.edit?.slot; if (sl?.fresh && !sl.data.special && !sl.data.effects.some(Boolean)) S.edit.slot = null;
+      const sl = S.edit?.slot; if (sl?.fresh && !sl.data.special && !sl.data.effects.some(Boolean)) leaveSlot();
       S.sheet = null; break;
     }
     case 'eSlotSave': {
@@ -1935,7 +1964,7 @@ document.addEventListener('click', e => {
         const sp = SPECIAL[r.special];
         if (!specialOk(sp)) { toast('適合する献器がないため選べません'); break; }
         S.edit.data[k][i] = { special: sp.id, color: sp.color || r.color || 'red', kind: 'normal', effects: [null, null, null], demerits: [null, null, null], size: sp.effects.length };
-        S.edit.slot = null; scrollTop(); break;  // 置き換えたので「要確認」も外れる
+        leaveSlot(); break;  // 置き換えたので「要確認」も外れる
       }
       r.special = null; delete r.check;
       if (!canColor(r.color)) { toast('この色だと適合する献器がありません。色を選び直してください'); break; }
@@ -1946,7 +1975,7 @@ document.addEventListener('click', e => {
       r.size = rows.length;
       S.edit.data[k][i] = rows.length ? r : null;
       if (!rows.length) toast('効果が空なので、枠を空にしました');
-      S.edit.slot = null; scrollTop(); break;
+      leaveSlot(); break;
     }
     case 'effX': {
       // プリセットの画面で、遺物の効果を1つだけすぐ消す（デメリットだけ・遺物ごと、も可）。残った効果は上に詰める
@@ -1966,8 +1995,8 @@ document.addEventListener('click', e => {
     }
     case 'undoEffX': { const u = S.undoRelic; S.undoRelic = null; document.getElementById('toast').innerHTML = ''; clearTimeout(toastTimer);
       if (!u || S.edit?.data?.id !== u.id) return; S.edit.data[u.k][u.i] = u.r; toast('元に戻しました'); break; }
-    case 'eSlotClear': { const { k, i } = S.edit.slot; S.edit.data[k][i] = null; S.edit.slot = null; break; }
-    case 'eSlotCancel': S.edit.slot = null; break;
+    case 'eSlotClear': { const { k, i } = S.edit.slot; S.edit.data[k][i] = null; leaveSlot(); break; }
+    case 'eSlotCancel': leaveSlot(); break;
     case 'eSave': {
       const d = S.edit.data;
       if (d.public && (ngHit(d.nameAuto ? '' : d.name) || ngHit(d.weaponName) || ngHit(d.pubNote))) { toast('名前・武器名・メモに不適切な言葉が含まれているため、公開できません。直してから保存してください'); return; }
@@ -1983,7 +2012,7 @@ document.addEventListener('click', e => {
       toast('保存しました'); S.edit = null; delete prefs().draft;
       // みんなに公開：載せる・更新する・取り下げる
       if (d.public) postOnline({ type: 'build_put', id: d.id, name: presetName(d), charId: d.charId || '', data: publicPayload(d) })
-        .then(res => { if (res?.error === 'ng') { d.public = false; toast('不適切な言葉が含まれているため、公開できませんでした'); render(); } else if (!res?.ok) throw new Error(); else { PUB.at = 0; toast('保存して、みんなに公開しました'); } })
+        .then(res => { if (res?.error === 'banned') { d.public = false; toast('このビルドは、管理人の判断で公開できなくなっています'); render(); return; } if (res?.error === 'ng') { d.public = false; toast('不適切な言葉が含まれているため、公開できませんでした'); render(); } else if (!res?.ok) throw new Error(); else { PUB.at = 0; toast('保存して、みんなに公開しました'); } })
         .catch(() => toast('公開できませんでした。通信できる所で、もう一度保存してください'));
       else if (wasPublic) postOnline({ type: 'build_del', id: d.id }).then(() => { PUB.at = 0; toast('公開を取り下げました'); }, () => {});
       break;
@@ -2049,7 +2078,7 @@ document.addEventListener('click', e => {
     }
     case 'ePublic': { const d = S.edit.data; d.public = !d.public; break; }
     case 'eNeta': { const d = S.edit.data; d.neta = !d.neta; break; }
-    case 'pubNeta': prefs().pubHideNeta = !prefs().pubHideNeta; break;
+    case 'pubNeta': prefs().pubOnlyNeta = !prefs().pubOnlyNeta; delete prefs().pubHideNeta; break;
     case 'restoreOpen': prefs().onboarded = true; S.sheet = { type: 'restore' }; break;
     case 'restoreFind': {
       const code = document.getElementById('restore-code')?.value || '';
@@ -2063,7 +2092,7 @@ document.addEventListener('click', e => {
     case 'restoreDo': {
       const { found, code } = S.sheet || {}; if (!found) return;
       replaceDb({ runs: found.data.runs || [], relics: found.data.relics || [], presets: found.data.presets || [], prefs: { ...(found.data.prefs || {}), onboarded: true } });
-      prefs().cloud = { on: true, code: fmtCode(code), confirmed: true, savedAt: Date.now(), sig: sigOf(JSON.stringify(cloudPayload())), failed: false };
+      prefs().cloud = { on: true, code: fmtCode(code), confirmed: true, savedAt: Date.now(), sig: cloudSig(cloudPayload()), failed: false };
       S.sheet = null; S.tab = 'record'; scrollTop(); toast(`戻しました（戦績 ${liveRuns().length}件）`); break;
     }
     case 'codeCopy': {
@@ -2104,23 +2133,37 @@ document.addEventListener('click', e => {
       Object.assign(S.form, { charId: p.charId, presetId: p.id }); (prefs().presetByChar ||= {})[p.charId] = p.id;
       S.sheet = null; S.edit = null; S.tab = 'record'; scrollTop(); toast(`「${presetName(p)}」で記録します`); break;
     }
-    case 'cmtOpen': { const m = (prefs().comments || {})[S.sheet?.pub?.presetId]; S.sheet.compose = { t: m ? m.t : null, w: m ? m.w : null, g: m ? COMMENT_WORDS[m.w]?.[1] || COMMENT_GROUPS[0] : COMMENT_GROUPS[0] }; renderSheet(); return; }
+    case 'cmtOpen': {
+      // 前に送ったコメントがあれば、それを選んだ状態から始める（前に作った12個の文の型・言葉は、選び直してもらう）
+      const m = (prefs().comments || {})[S.sheet?.pub?.presetId], okT = t => t >= COMMENT_T_START, okG = w => COMMENT_GROUPS.includes(COMMENT_WORDS[w]?.[1]);
+      const two = !!m && m.c >= 0;
+      S.sheet.compose = { t: m && okT(m.t) ? m.t : null, w: m && okG(m.w) ? m.w : null, g: m && okG(m.w) ? COMMENT_WORDS[m.w][1] : COMMENT_GROUPS[0],
+        two, c: two ? m.c : null, t2: two && okT(m.t2) ? m.t2 : null, w2: two && okG(m.w2) ? m.w2 : null, g2: two && okG(m.w2) ? COMMENT_WORDS[m.w2][1] : COMMENT_GROUPS[0] };
+      renderSheet(); return;
+    }
     case 'cmtClose': if (S.sheet) delete S.sheet.compose; renderSheet(); return;
     case 'cmtT': S.sheet.compose.t = +v; renderSheet(); return;
     case 'cmtG': S.sheet.compose.g = v; renderSheet(); return;
     case 'cmtW': S.sheet.compose.w = +v; renderSheet(); return;
+    case 'cmtTwo': { const c = S.sheet.compose; c.two = !c.two; if (!c.two) { c.c = null; c.t2 = null; c.w2 = null; } renderSheet(); return; }
+    case 'cmtC': S.sheet.compose.c = +v; renderSheet(); return;
+    case 'cmtT2': S.sheet.compose.t2 = +v; renderSheet(); return;
+    case 'cmtG2': S.sheet.compose.g2 = v; renderSheet(); return;
+    case 'cmtW2': S.sheet.compose.w2 = +v; renderSheet(); return;
     case 'cmtSend': case 'cmtDel': {
       const b = S.sheet?.pub; if (!b) return;
       const id = b.presetId, all = (prefs().comments ||= {}), was = all[id] ? { ...all[id] } : null;
-      const next = a === 'cmtDel' ? null : { t: S.sheet.compose.t, w: S.sheet.compose.w };
-      if (next && (next.t == null || next.w == null)) return;
+      const cp = S.sheet.compose;
+      const next = a === 'cmtDel' ? null : cp.two ? { t: cp.t, w: cp.w, c: cp.c, t2: cp.t2, w2: cp.w2 } : { t: cp.t, w: cp.w, c: -1 };
+      if (next && !validCmt(next)) return;
       const before = JSON.stringify(b.comments || []);
       // 先に画面へ反映し、送れなかったら元に戻す
-      const bump = (c, d) => { if (!c) return; const list = b.comments = (b.comments || []).map(x => [...x]); const hit = list.find(x => x[0] === c.t && x[1] === c.w);
-        if (hit) hit[2] = Math.max(0, hit[2] + d); else if (d > 0) list.push([c.t, c.w, 1]); b.comments = list.filter(x => x[2] > 0).sort((x, y) => y[2] - x[2]); };
+      const bump = (p, d) => { if (!p) return; const list = b.comments = (b.comments || []).map(x => [...x]); const hit = list.find(x => sameCmt(cmtParts(x), p));
+        if (hit) hit[2] = Math.max(0, hit[2] + d); else if (d > 0) list.push([p.t, p.w, 1, p.c ?? -1, p.c >= 0 ? p.t2 : -1, p.c >= 0 ? p.w2 : -1]); b.comments = list.filter(x => x[2] > 0).sort((x, y) => y[2] - x[2]); };
       bump(was, -1); bump(next, 1); if (next) all[id] = next; else delete all[id];
-      if (S.sheet.compose) S.sheet.compose.sending = true; renderSheet();
-      postOnline({ type: 'comment', id, t: next ? next.t : -1, w: next ? next.w : 0 }).then(res => { if (!res?.ok) throw new Error(res?.error);
+      if (cp) cp.sending = true; renderSheet();
+      const body = next ? { type: 'comment', id, t: next.t, w: next.w, ...(next.c >= 0 ? { c: next.c, t2: next.t2, w2: next.w2 } : {}) } : { type: 'comment', id, t: -1, w: 0 };
+      postOnline(body).then(res => { if (!res?.ok) throw new Error(res?.error);
           if (S.sheet?.pub === b) { delete S.sheet.compose; renderSheet(); } render(); toast(next ? 'コメントを送りました' : 'コメントを取り消しました'); })
         .catch(err => { b.comments = JSON.parse(before); if (was) all[id] = was; else delete all[id];
           if (S.sheet?.compose) S.sheet.compose.sending = false; renderSheet(); render();
@@ -2168,7 +2211,8 @@ document.addEventListener('click', e => {
       db.presets.push({ id: uid(), ...rest, public: false, imported: true, importedAt: Date.now() });
       S.sheet = null; S.edit = null; S.tab = 'builds'; S.buildView = 'presets'; scrollTop(); toast(`「${presetName(d)}」を「取り込んだビルド」に入れました`); break;
     }
-    default: if (a.startsWith('k') && /^k[A-Z]/.test(a)) { if (!kotsuboAct(a, v)) return; break; } return;  // 小壺タブのボタン（kHire など）
+    default: if (/^know[A-Z]/.test(a)) { if (!knowledgeAct(a, v)) return; break; }  // 知識タブのボタン（knowTopic など）
+      if (a.startsWith('k') && /^k[A-Z]/.test(a)) { if (!kotsuboAct(a, v)) return; break; } return;  // 小壺タブのボタン（kHire など）
   }
   render();
   // 敵の行を開いたとき：上の行が閉じても、タップした行が同じ位置に見えるようにスクロールを合わせる
@@ -2209,10 +2253,11 @@ if (location.hash.startsWith('#build=')) {
   history.replaceState(null, '', location.pathname + location.search);
   S.tab = 'builds'; S.sheet = d ? { type: 'import', data: d } : { type: 'import', err: true };
 }
-// 小壺タブのミニゲームに、使う道具を渡して動かし始める（タブを開いていなくても、裏でマークは貯まる）
+// ミニゲームに、使う道具を渡す（動き出すのは、タイトル横の小壺から開いたとき）
 initKotsubo({ prefs, save: () => save(db), toast, render: () => render(), liveRuns, ico, esc, CHAR, LORD, tab: () => S.tab, ui: () => (S.kui ||= {}) });
+// 知識タブ（敵の情報・ボス判別など）に、使う道具を渡す
+initKnowledge({ ico, esc, pressed, wheel, viewEnemies, ui: () => (S.know ||= {}) });
 render();
-startKotsubo();
 
 document.addEventListener('change', e => {
   // 日付をカレンダー（一覧）から選んだとき。未来の日は選べない
