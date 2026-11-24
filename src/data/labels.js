@@ -8,7 +8,22 @@ export const SIZES = [{ n: 3, name: '壮大' }, { n: 2, name: '端正' }, { n: 1
 
 export const KINDS = [{ id: 'normal', name: '表', word: '景色' }, { id: 'deep', name: '深層', word: '昏景' }];
 
-export const STYLES = [{ id: 'melee', name: '近接' }, { id: 'arts', name: '戦技' }, { id: 'caster', name: 'スペル特化' }];
+// 型。上の3つは前の分け方（old）で、もう選べない（前に作ったプリセットの表示だけに使う）。
+// 今の分け方は、近接（ハルハル／片ハル／特定武器）、スペルの魔術（汎用／特化／混成）・祈祷（汎用／特化）、弓（毒／冷気／ナメレス／複合）。
+// group：近接 melee／魔術 sorc／祈祷 inc／弓 bow。needWeapon：メイン武器が必須。needSpec：何特化かの選択が必須（sorc＝魔術の系統、inc＝祈祷の系統）
+export const STYLES = [{ id: 'melee', name: '近接', old: true }, { id: 'arts', name: '戦技', old: true }, { id: 'caster', name: 'スペル特化', old: true },
+  { id: 'm_halhal', name: '近接・ハルハル', short: 'ハルハル', group: 'melee' },
+  { id: 'm_kataharu', name: '近接・片ハル', short: '片ハル', group: 'melee' },
+  { id: 'm_weapon', name: '近接・特定武器', short: '特定武器', group: 'melee', needWeapon: true },
+  { id: 's_gen', name: '魔術・汎用', short: '汎用', group: 'sorc' },
+  { id: 's_spec', name: '魔術・特化', short: '特化', group: 'sorc', needSpec: 'sorc' },
+  { id: 's_mix', name: '魔術・混成', short: '混成', group: 'sorc' },
+  { id: 'i_gen', name: '祈祷・汎用', short: '汎用', group: 'inc' },
+  { id: 'i_spec', name: '祈祷・特化', short: '特化', group: 'inc', needSpec: 'inc' },
+  { id: 'b_poison', name: '弓・毒', short: '毒', group: 'bow' },
+  { id: 'b_frost', name: '弓・冷気', short: '冷気', group: 'bow' },
+  { id: 'b_nameless', name: '弓・ナメレス', short: 'ナメレス', group: 'bow' },
+  { id: 'b_mix', name: '弓・複合', short: '複合', group: 'bow' }];
 
 export const SPEC_SORC = ['輝剣', '石掘り', 'カーリアの剣', '不可視', '結晶人', '重力', '茨'];
 

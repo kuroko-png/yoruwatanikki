@@ -1,6 +1,6 @@
 // 夜渡り日記 アプリ本体
 import { LORDS } from '../data/lords.js';
-import { CHARS } from '../data/characters.js';
+import { CHARS, FAV_WEAPONS } from '../data/characters.js';
 import { OPT, EFF_NORMAL_ROWS, EFF_DEEP_ROWS, DEMERIT_ROWS } from '../data/effects.js';
 import { VESSEL_ROWS } from '../data/vessels.js';
 import { SPECIAL_ROWS } from '../data/relics.js';
@@ -113,20 +113,21 @@ const pressed = b => `aria-pressed="${b ? 'true' : 'false'}"`;
 
 // ---------- sample data ----------
 // サンプルデータは、開発用の手元の画面（localhost）でだけ「データ管理」に出す。公開版の利用者には出さない
-const DEV_HOST = ['localhost', '127.0.0.1'].includes(location.hostname);
+// 開発用の画面か（dev.py が __DEV__ を入れる。スマホから 192.168.x.x で開いたときも開発用として扱う）
+const DEV_HOST = !!window.__DEV__ || ['localhost', '127.0.0.1'].includes(location.hostname);
 function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 function seed() {
   const ids = (a, map) => [...a.map(n => { if (n && !map[n]) throw new Error('unknown effect ' + n); return n && map[n]; }), null, null, null].slice(0, 3);
   const R = (size, color, kind, effects, demerits = []) => ({ size, color, kind, effects: ids(effects, kind === 'deep' ? NAME_P : NAME_N), demerits: ids(demerits, NAME_M) });
   const relics = [];
   const presets = [
-    { id: 'p1', name: '追跡者・出血型', charId: 'wylder', vesselId: '追跡者の器', style: 'melee', weaponType: '大剣', weaponName: '',
+    { id: 'p1', name: '追跡者・出血型', charId: 'wylder', vesselId: '追跡者の器', style: 'm_weapon', weaponType: '大剣', weaponName: '',
       normal: [R(3, 'red', 'normal', ['出撃時の武器に出血の状態異常を付加', '攻撃連続時、攻撃力上昇', '筋力+3']), R(1, 'red', 'normal', ['物理攻撃力上昇+1']), R(2, 'blue', 'normal', ['攻撃命中時、スタミナ回復', '生命力+2'])],
       deep: [R(2, 'red', 'deep', ['物理攻撃力上昇+3', '致命の一撃強化'], ['回避直後、カット率低下', null]), null, R(2, 'blue', 'deep', ['刺突カウンター発生時、HP回復+1', '物理カット率上昇+1'], ['聖杯瓶の回復量低下', 'すべての状態異常耐性低下'])] },
-    { id: 'p2', name: '隠者・魔術型', charId: 'recluse', vesselId: '隠者の器', style: 'caster', spec: ['輝剣', '重力'], weaponType: '杖', weaponName: '',
+    { id: 'p2', name: '隠者・魔術型', charId: 'recluse', vesselId: '隠者の器', style: 's_spec', spec: ['輝剣', '重力'], weaponType: '杖', weaponName: '',
       normal: [R(2, 'blue', 'normal', ['FP持続回復', '重力の魔術を強化']), null, R(3, 'green', 'normal', ['輝剣の魔術を強化', '魔術/祈祷、効果時間延長', '知力+3'])],
       deep: [R(2, 'blue', 'deep', ['魔術強化+2', '魔力カット率上昇'], ['取得ルーン減少', null]), null, null] },
-    { id: 'p3', name: '追跡者・耐久型', charId: 'wylder', vesselId: '追跡者の盃', style: 'melee', weaponType: '直剣', weaponName: '',
+    { id: 'p3', name: '追跡者・耐久型', charId: 'wylder', vesselId: '追跡者の盃', style: 'm_halhal', weaponType: '直剣', weaponName: '',
       normal: [R(3, 'yellow', 'normal', ['スキルクールタイム軽減+1', 'アーツゲージ自然蓄積+2', '致命の一撃強化+1']), R(3, 'green', 'normal', ['物理カット率上昇', 'HP持続回復', '生命力+3']), null],
       deep: [null, null, null] },
   ];
@@ -158,7 +159,7 @@ const prefs = () => db.prefs;
 // 夜の王は「未選択」にせず、最初はグラディウス。夜渡りは毎回選んでもらうので、最初は「未選択」
 const DEFAULT_LORD = 'gladius';
 const blankForm = () => ({ dateMode: 'today', date: today(), lordId: DEFAULT_LORD, everdark: null, flags: [], shift: null, mode: prefs().mode || 'normal', depth: prefs().depth || null,
-  party: prefs().party || 'trio', charId: null, result: null, lossAt: null, presetId: null, note: '' });
+  party: prefs().party || 'trio', charId: null, result: null, lossAt: null, lossBy: null, presetId: null, note: '' });
 const lastPresetFor = charId => { const id = (prefs().presetByChar || {})[charId]; return id && db.presets.some(p => p.id === id && !p.deleted) ? id : null; };
 const S = {
   tab: 'record', form: blankForm(), openRun: null, confirmDel: null,
@@ -171,6 +172,11 @@ const S = {
 const liveRuns = () => db.runs.filter(r => !r.deleted);
 // 記録した時刻（createdAt）がない前の戦績には、更新時刻を入れておく（ミニゲームの戦果ボーナスを、直した戦績で二重に数えないため）
 db.runs.forEach(r => { if (!r.createdAt) r.createdAt = r.updatedAt || 0; });
+// プリセットの作成日時（createdAt）がない前のものは、取り込んだ時刻か、そのプリセットで最初に記録した戦績の時刻を入れる（どちらもなければ空のまま）
+db.presets.forEach(p => { if (!p.createdAt) { const t = p.importedAt || Math.min(...db.runs.filter(r => r.presetId === p.id).map(r => r.createdAt || Infinity)); if (isFinite(t) && t) p.createdAt = t; } });
+// 日時を「2026/11/24 14:05」の形に（今年なら年を省く）
+const fmtWhen = t => { if (!t) return ''; const d = new Date(typeof t === 'number' ? t : String(t)); if (isNaN(d)) return ''; const p2 = n => String(n).padStart(2, '0');
+  return `${d.getFullYear() === new Date().getFullYear() ? '' : d.getFullYear() + '/'}${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${p2(d.getMinutes())}`; };
 const relicById = id => db.relics.find(r => r.id === id);
 const presetById = id => db.presets.find(p => p.id === id);
 // 削除したプリセットは「削除済み」として残し、過去の戦績・統計では使い続ける
@@ -180,6 +186,10 @@ const presetLabel = p => p.deleted ? `${p.name}（削除済み）` : p.name;
 const presetRev = p => p.rev || 1;
 const BUILD_FIELDS = ['charId', 'vesselId', 'style', 'spec', 'weaponType', 'weaponName', 'normal', 'deep'];
 const buildSnapshot = p => Object.fromEntries(BUILD_FIELDS.map(k => [k, structuredClone(p[k] ?? null)]));
+// 近接のメイン武器：選ばなければ夜渡りの得意武器。effWeapon：統計・表示に使うメイン武器（得意武器が複数なら「・」でつなぐ）
+const favWeapons = p => FAV_WEAPONS[p.charId] || [];
+const isMelee = p => STYLES.find(x => x.id === p.style)?.group === 'melee';
+const effWeapon = p => !p ? '' : p.weaponType || (isMelee(p) ? favWeapons(p).join('・') : '');
 function runBuild(r) {
   const p = r.presetId && presetById(r.presetId);
   if (!p) return null;
@@ -196,7 +206,7 @@ function viewRecord() {
   const f = S.form;
   const dateOk = f.dateMode !== 'pick' || (/^\d{4}-\d{2}-\d{2}$/.test(f.date) && f.date <= today());
   const depthOk = f.mode !== 'deep' || !!f.depth || !!S.editRun;  // 前に深度なしで記録した戦績は、直すときは深度なしでも更新できる
-  const canSave = dateOk && f.everdark !== null && f.lordId && f.charId && f.result && depthOk;
+  const canSave = dateOk && f.everdark !== null && f.lordId && f.charId && f.result && depthOk && !(needFoe(f) && !f.lossBy);
   if (f.presetId && !activePresets().some(p => p.id === f.presetId) && !(S.editRun && f.presetId === S.form.origPresetId)) f.presetId = null;
   const presets = db.presets.filter(p => (!p.deleted && p.charId === f.charId) || p.id === f.presetId);
   const lords = lordsFor(f.everdark);
@@ -204,7 +214,10 @@ function viewRecord() {
   const chip = (act, v, label, on, cls = 'chip') => `<button class="${cls}" data-act="${act}" data-v="${v}" ${pressed(on)}>${label}</button>`;
   // 画面の下：新しく記録するときは「勝利」「敗北」を押した時点で記録する（敗北は、どこで倒れたかを押すと記録）。
   // 戦績の編集だけは、勝敗を選んでから「更新する」を押す（押しただけで書き換わらないように）
-  if (S.editRun) BAR = `<button class="ghost" data-act="cancelEdit">やめる</button><button class="primary" data-act="save" ${canSave ? '' : 'disabled'}>${canSave ? '更新する' : `<span class="need">あと：${[...missing, !f.result && '結果'].filter(Boolean).join('・')}</span>`}</button>`;
+  if (S.editRun) BAR = `<button class="ghost" data-act="cancelEdit">やめる</button><button class="primary" data-act="save" ${canSave ? '' : 'disabled'}>${canSave ? '更新する' : `<span class="need">あと：${[...missing, !f.result && '結果', needFoe(f) && !f.lossBy && '倒された相手'].filter(Boolean).join('・')}</span>`}</button>`;
+  else if (S.lossPick === 'd1' || S.lossPick === 'd2') BAR = `<div class="rec-bar loss-pick foe-pick"><span class="rec-q">${LOSS[S.lossPick].name}、どの夜の強敵に倒された？</span>
+      <div class="foe-btns">${nightFoes(f.lordId, S.lossPick).map(n => `<button class="result-btn loss" data-act="recLossBy" data-v="${esc(n)}">${esc(n)}</button>`).join('')}</div>
+      <button class="link-btn" data-act="recLossBack">戻る</button></div>`;
   else if (S.lossPick) BAR = `<div class="rec-bar loss-pick"><span class="rec-q">どこで倒れた？</span>
       <div class="rec-btns">${LOSS_AT.map(x => `<button class="result-btn loss" data-act="recLossAt" data-v="${x.id}">${x.name}</button>`).join('')}</div>
       <button class="link-btn" data-act="recLossBack">戻る</button></div>`;
@@ -237,17 +250,24 @@ function viewRecord() {
         <button class="result-btn win" data-act="result" data-v="win" ${pressed(f.result === 'win')}>勝利</button>
         <button class="result-btn loss" data-act="result" data-v="loss" ${pressed(f.result === 'loss')}>敗北</button></div>
       ${f.result === 'loss' ? `<div class="subpanel"><div class="label">どこで倒れた？</div>
-        <div class="chips">${LOSS_AT.map(x => chip('lossAt', x.id, x.name, f.lossAt === x.id)).join('')}</div></div>` : ''}`) : ''}
+        <div class="chips">${LOSS_AT.map(x => chip('lossAt', x.id, x.name, f.lossAt === x.id)).join('')}</div>
+        ${needFoe(f) ? `<div class="label">どの夜の強敵に倒された？（必ず選ぶ）</div><div class="chips">${nightFoes(f.lordId, f.lossAt).map(n => `<button class="chip" data-act="lossBy" data-v="${esc(n)}" ${pressed(f.lossBy === n)}>${esc(n)}</button>`).join('')}</div>` : ''}</div>` : ''}`) : ''}
   </div>`;
 }
 // 記録する（新しい戦績）・更新する（編集中の戦績）。勝敗は呼ぶ前に S.form に入れておく
+// 1日目・2日目に負けたときの相手（夜の強敵）の候補。夜の王で出る相手が決まっていればその分だけ、決まっていなければ（ナメレス）全部
+// ナメレスは「DLCを含まない全種類」なので、DLCの夜の王（ハルモニア・ストラゲス）の夜の強敵は入れない
+const nightFoes = (lordId, day) => NIGHT_BOSSES[lordId]?.[day] || [...new Set(Object.entries(NIGHT_BOSSES).filter(([k, x]) => x && !['harmonia', 'strages'].includes(k)).flatMap(([, x]) => x[day]))];
+const needFoe = f => f.result === 'loss' && (f.lossAt === 'd1' || f.lossAt === 'd2');  // 1日目・2日目の敗北は、相手を必ず選ぶ
+// 型のいちばん上の分け方（近接 melee／スペル spell／弓 bow）
+const styleTop = st => st.group === 'sorc' || st.group === 'inc' ? 'spell' : st.group;
 function saveRecord() {
   const f = S.form;
-  if (recMissing(f).length || !f.result) return;
+  if (recMissing(f).length || !f.result || (needFoe(f) && !f.lossBy)) return;
   const date = recDate(f);
   const p = f.presetId && presetById(f.presetId);
   const fields = { date, lordId: f.lordId, everdark: f.everdark, flags: f.flags, shift: f.flags.includes('shift') ? f.shift : null, mode: f.mode, depth: f.mode === 'deep' ? f.depth : null, party: f.party,
-    charId: f.charId, result: f.result, lossAt: f.result === 'loss' ? f.lossAt : null, presetId: f.presetId, note: f.note.trim() };
+    charId: f.charId, result: f.result, lossAt: f.result === 'loss' ? f.lossAt : null, lossBy: needFoe(f) ? f.lossBy : null, presetId: f.presetId, note: f.note.trim() };
   if (S.editRun) {
     const r = db.runs.find(x => x.id === S.editRun);
     const keepRev = r.presetId === f.presetId ? r.presetRev : (p ? presetRev(p) : null);
@@ -263,7 +283,7 @@ function saveRecord() {
   // 日付は、過去の日を選んでいたら、続けて記録しやすいようにそのまま残す（「今日」のままなら次も今日）
   // 夜の王はグラディウス、夜渡りは「未選択」に戻す（前回のまま記録してしまわないように）。ビルドは夜渡りを選ぶと、その夜渡りで前回使ったものが入る
   S.noteOpen = false;
-  Object.assign(f, { lordId: DEFAULT_LORD, everdark: null, flags: [], shift: null, charId: null, presetId: null, result: null, lossAt: null, note: '' });
+  Object.assign(f, { lordId: DEFAULT_LORD, everdark: null, flags: [], shift: null, charId: null, presetId: null, result: null, lossAt: null, lossBy: null, note: '' });
 }
 // 記録の「条件」カードの1行（左に項目名、右にボタン）。need＝まだ選んでいない（項目名を目立たせる）
 const condRow = (k, body, need = false, cls = '') => `<div class="cond-row ${cls} ${need ? 'need' : ''}"><span class="k">${k}</span><div class="chips">${body}</div></div>`;
@@ -400,12 +420,14 @@ function runRow(r) {
   const pname = p ? presetLabel(p) : r.presetId ? '削除済みのプリセット' : '';
   return `<button class="run ${r.result}" data-act="openRun" data-v="${r.id}" aria-expanded="${open}">
     <span class="stripe"></span>
-    <span class="main"><span class="who"><span class="nm-ico">${lordName(r.lordId, r.everdark)}</span><span class="x">×</span><span class="nm-ico">${charName(r.charId)}</span></span>
-      <span class="meta">${r.everdark ? '<span class="badge ever">常夜</span>' : ''}${r.mode === 'deep' ? `<span class="badge deep">深き夜${r.depth ? ' 深度' + r.depth : ''}</span>` : ''}${(r.flags || []).map(x => `<span class="badge">${flagName(x, r)}</span>`).join('')}<span>${PARTYM[r.party].name}</span>${pname ? `<span>${esc(pname)}</span>` : ''}</span></span>
-    <span class="res">${r.result === 'win' ? '勝利' : '敗北'}${r.lossAt ? `<small>${LOSS[r.lossAt].name}</small>` : ''}</span>
+    <span class="main"><span class="who">${(() => { const sh = (r.flags || []).includes('shift') && r.shift ? SHIFT[r.shift]?.name : '';  // 深度の札の下に地変の名前
+      return r.mode === 'deep' || sh ? `<span class="run-tags">${r.mode === 'deep' ? `<span class="deep-tag">深${r.depth || ''}</span>` : ''}${sh ? `<span class="shift-tag">${esc(sh)}</span>` : ''}</span>` : ''; })()}<span class="nm-ico">${lordName(r.lordId, r.everdark)}</span><span class="x">×</span><span class="nm-ico">${ico('char', r.charId)}<span class="${pname ? 'bn' : 'bn dim'}">${pname ? esc(pname) : 'ビルドなし'}</span></span></span>
+</span>
+    <span class="res">${r.result === 'win' ? '勝利' : '敗北'}${r.lossAt ? `<small>${LOSS[r.lossAt].name}${r.lossBy ? `・${esc(r.lossBy)}` : ''}</small>` : ''}</span>
     <span class="more-dots" aria-hidden="true">${open ? '×' : '⋯'}</span>
   </button>
   ${open ? `<div class="run-detail">
+    <div class="run-info">${[CHAR[r.charId]?.name, r.everdark ? '常夜' : '通常', r.mode === 'deep' ? `深き夜${r.depth ? ' 深度' + r.depth : ''}` : '浅き夜', PARTYM[r.party]?.name, ...(r.flags || []).map(x => flagName(x, r))].filter(Boolean).join('・')}</div>
     ${r.note ? `<div>${esc(r.note)}</div>` : `<div style="color:var(--dim)">メモなし</div>`}
     <div class="row-actions">
       <button class="ghost" data-act="editRun" data-v="${r.id}">編集</button>
@@ -416,7 +438,9 @@ function runRow(r) {
 function filteredRuns() {
   const { period, mode } = S.stats;
   return liveRuns().filter(r => {
-    if (period !== 'all' && r.date < daysAgo(Number(period) - 1)) return false;
+    if (period === 'today' && r.date !== today()) return false;
+    if (period === 'custom' && ((S.stats.mFrom && r.date < S.stats.mFrom) || (S.stats.mTo && r.date > S.stats.mTo))) return false;
+    if (period === '30' || period === '7') { if (r.date < daysAgo(Number(period) - 1)) return false; }
     if (mode === 'normal' && r.mode !== 'normal') return false;
     if (mode === 'deep' && r.mode !== 'deep') return false;
     if (mode === 'ever' && !r.everdark) return false;
@@ -430,7 +454,7 @@ const DRILL = {
   preset: { label: 'ビルド', match: (r, id) => id === '__none' ? !r.presetId : id === '__gone' ? !!r.presetId && !presetById(r.presetId) : r.presetId === id,
     name: id => id === '__none' ? 'ビルドなし' : id === '__gone' ? '削除済み（詳細不明）' : presetById(id) ? presetLabel(presetById(id)) : '削除済み' },
   style: { label: '型', match: (r, id) => runBuild(r)?.style === id, name: id => STYLES.find(x => x.id === id)?.name ?? id },
-  weapon: { label: 'メイン武器', match: (r, id) => runBuild(r)?.weaponType === id, name: id => id },
+  weapon: { label: 'メイン武器', match: (r, id) => effWeapon(runBuild(r)) === id, name: id => id },
   effect: { label: '効果', match: (r, id) => presetHasEffect(r, id), name: id => id.startsWith('sp:') ? `《${SPECIAL[id.slice(3)]?.name ?? '?'}》` : ALL_EFF[id]?.label ?? id },
 };
 const rate = arr => { const w = arr.filter(r => r.result === 'win').length; return { w, n: arr.length, p: arr.length ? w / arr.length : 0 }; };
@@ -570,7 +594,7 @@ async function postOnline(body) {
 // 型・メイン武器は「よく使われている武器」を数えるためだけに送る
 const runForOnline = r => { const b = runBuild(r);
   return { id: r.id, date: r.date, lordId: r.lordId, everdark: !!r.everdark, mode: r.mode, depth: r.depth, party: r.party, charId: r.charId,
-    result: r.result, lossAt: r.lossAt, deleted: !!r.deleted, updatedAt: r.editedAt || r.updatedAt, style: b?.style || '', weaponType: b?.weaponType || '' }; };
+    result: r.result, lossAt: r.lossAt, lossBy: r.lossBy || '', deleted: !!r.deleted, updatedAt: r.editedAt || r.updatedAt, style: b?.style || '', weaponType: effWeapon(b) }; };  // メイン武器は、選んでいなければ得意武器。lossBy＝1日目・2日目に倒された夜の強敵（前の戦績にはないので、送り直しはしない）
 let syncing = false, syncTimer = null;
 const scheduleSync = () => { clearTimeout(syncTimer); syncTimer = setTimeout(syncRuns, 1500); };
 async function syncRuns() {
@@ -638,11 +662,6 @@ function gPeriodBar() {
     ${p === 'custom' ? `<div class="g-dates"><input type="date" data-gdate="gFrom" value="${r.from}" max="${today()}" aria-label="集計の開始日"><span>〜</span><input type="date" data-gdate="gTo" value="${r.to}" max="${today()}" aria-label="集計の終了日"></div>
       ${gRangeOk(r) ? '' : `<p class="hint">${!r.from ? '開始日を選んでください。' : '開始日は終了日より前にしてください。'}</p>`}` : ''}</div>`;
 }
-// 統計の項目は、上のボタンで表示・非表示を切り替えられる（端末に覚えておく）
-const STATS_MINE = ['勝率の推移', '夜の王別', '夜渡り別', '相性表', 'どこで倒れたか', 'ビルド別', '型・メイン武器別', '効果別'];
-const statHidden = () => (prefs().statsHidden ||= {});
-const cardIf = (title, ...rest) => statHidden()[title] ? '' : card(title, ...rest);
-const secToggles = list => `<div class="stats-toc" aria-label="表示する項目">${list.map(t => `<button class="chip mini" data-act="statToggle" data-v="${t}" ${pressed(!statHidden()[t])}>${t}</button>`).join('')}</div>`;
 // みんなの統計：参加・概要のカードと、項目ごとのカード
 function globalStats() {
   const o = onlinePrefs(), G = loadGlobal(), g = G.data, period = S.stats.gPeriod && S.stats.gPeriod !== 'all';
@@ -666,9 +685,83 @@ function globalStats() {
       <div class="tile"><div class="k">これまでの出撃</div><div class="v">${total}</div><div class="s">${g.players}人の合計</div></div>`}
       <div class="tile"><div class="k">勝率</div><div class="v">${pct(g.total.w / total)}</div><div class="s">${g.total.w}勝 ${total - g.total.w}敗</div></div>
     </div>`;
+  return `${dash}
+    ${matrixCard(g, 'g')}
+    ${fewNote}
+    <div class="join-wrap">${join}</div>
+    ${rankCard(g, 'g')}`;
+}
+// 分析のカード（タブで切り替え）。みんなの統計と自分の統計で同じものを使う。g は集計（みんな：受け取り口から／自分：myAgg で端末の戦績から）、K は状態の頭文字（'g'＝みんな、'm'＝自分）
+const statsK = () => S.stats.scope === 'all' ? 'g' : 'm';
+// まとめのすぐ下に出す、夜の王（縦）×夜渡り（横）の表。見出しも説明文も付けず、上の小さなスイッチで中身を切り替える（マスを押したときだけ、下にその組み合わせの勝敗が出る）
+//   深き／浅き：深き夜か通常（浅き夜）か　使用数／勝率：マスの数字　すべて／通常／常夜：すべては通常と常夜の合計（常夜は紫）
+// g.lordCharM（「夜の王/夜渡り/deep|normal」ごとの数）がない古い受け取り口では、深き・浅きを分けずに合計で出す
+function matrixCard(g, K) {
+  const st = key => S.stats[K + key], deep = !!st('MxDeep'), val = st('MxVal') || 'rate', ev = st('MxEver') || 'all', sel = st('Cell');
+  const M = g.lordCharM, split = !!M, sfx = ev === 'all' ? ['', ':ever'] : ev === 'ever' ? [':ever'] : [''];
+  const get = (lordId, charId) => sfx.reduce((a, s) => { const base = `${lordId}${s}/${charId}`, x = (split ? M[`${base}/${deep ? 'deep' : 'normal'}`] : (g.lordChar || {})[base]) || { n: 0, w: 0 };
+    return { n: a.n + x.n, w: a.w + x.w }; }, { n: 0, w: 0 });
+  const lords = ev === 'ever' ? lordsFor(true) : LORDS, purple = ev === 'ever';
+  const maxN = Math.max(1, ...lords.flatMap(l => CHARS.map(c => get(l.id, c.id).n)));
+  const cell = (l, c) => { const x = get(l.id, c.id), p = x.n ? x.w / x.n : null;
+    const col = !x.n ? 'transparent' : val === 'n' ? `color-mix(in srgb, var(--win) ${Math.round(16 + x.n / maxN * 66)}%, var(--panel))`  /* 使用数は緑の濃さで（多いほど濃い） */
+      : `color-mix(in srgb, ${p >= .5 ? 'var(--win)' : 'var(--loss)'} ${x.n < STATS_MIN_RUNS ? 16 : Math.round(22 + Math.abs(p - .5) * 2 * 60)}%, var(--panel))`;
+    const txt = !x.n ? '' : val === 'n' ? x.n : Math.round(p * 100);
+    return `<button class="mx-cell ${val === 'rate' && x.n && x.n < STATS_MIN_RUNS ? 'few' : ''} ${sel === `${l.id}/${c.id}` ? 'on' : ''}" style="background:${col}" data-act="gCell" data-v="${l.id}/${c.id}" aria-label="${LORD[l.id].name}×${c.name}">${txt}</button>`; };
+  const [sl, sc] = (sel || '/').split('/'), sx = sel && LORD[sl] && CHAR[sc] ? get(sl, sc) : null;
+  const sw = (act, cur, opts, cls = '') => `<span class="mx-sw ${cls}">${opts.map(([v, l]) => `<button data-act="${act}" data-v="${v}" ${pressed(cur === v)}>${l}</button>`).join('')}</span>`;
+  return `<section class="card-sec mx-card ${purple ? 'ever' : ''}">
+    <div class="mx-tools">${sw('mxDeep', deep ? 'deep' : 'shallow', [['deep', '深き'], ['shallow', '浅き']])}${sw('mxVal', val, [['n', '使用数'], ['rate', '勝率']])}${sw('mxEver', ev, [['all', 'すべて'], ['normal', '通常'], ['ever', '常夜']], 'ev')}</div>
+    <div class="mx"><span class="mx-corner"></span>${CHARS.map(c => `<span class="mx-h">${ico('char', c.id)}</span>`).join('')}
+      ${lords.map(l => `<span class="mx-r">${ico('lord', l.id, purple)}</span>${CHARS.map(c => cell(l, c)).join('')}`).join('')}</div>
+    ${sx || !split ? `<p class="hint mx-note">${sx ? `${LORD[sl].name} × ${CHAR[sc].name}：${sx.n ? `${sx.n}戦・勝率 <b>${pct(sx.w / sx.n)}</b>（${sx.w}勝 ${sx.n - sx.w}敗）` : 'まだなし'}` : ''}${!split ? `${sx ? '<br>' : ''}※深き／浅きは準備中（今は合計）` : ''}</p>` : ''}
+  </section>`;
+}
+// 相性の表の下の「多いものランキング」：見たいもの（夜渡り・夜の王・武器・型・深度・敗北した敵）を選ぶと、多い順に並ぶ
+// （前のタブ式の分析 analysisCard は、いったん使わずに残している）
+const RANK_KINDS = [['char', '夜渡り'], ['lord', '夜の王'], ['weapon', '武器'], ['style', '型'], ['depth', '深度'], ['foe', '敗北した敵']];
+function rankCard(g, K) {
+  const kind = RANK_KINDS.some(([v]) => v === S.stats[K + 'Rank']) ? S.stats[K + 'Rank'] : 'char';
+  const sumBy = (obj, keyOf) => { const out = {}; Object.entries(obj || {}).forEach(([k, x]) => { const id = keyOf(k); if (id == null) return; const o = out[id] || (out[id] = { n: 0, w: 0 }); o.n += typeof x === 'number' ? x : x.n; o.w += typeof x === 'number' ? 0 : x.w; }); return out; };
+  const DEPTH = { normal: '浅き夜（通常）', deep: '深き夜（深度なし）', deep1: '深度1', deep2: '深度2', deep3: '深度3', deep4: '深度4', deep5: '深度5' };
+  let items = [], unit = '回', note = '';
+  if (kind === 'char') items = Object.entries(g.char || {}).filter(([id]) => CHAR[id]).map(([id, x]) => ({ id, icon: ico('char', id), name: CHAR[id].name, x }));
+  if (kind === 'lord') items = Object.entries(sumBy(g.lord, k => k.split(':')[0])).filter(([id]) => LORD[id]).map(([id, x]) => ({ icon: ico('lord', id), name: LORD[id].name, x }));  // 通常と常夜はまとめて数える
+  // 武器：得意武器が複数の夜渡り（無頼漢）は「大斧・大槌・特大武器」でひとまとめに数える
+  if (kind === 'weapon') { items = Object.entries(g.weaponW || {}).filter(([k]) => k.split('・').every(w => WEAPON_TYPES.includes(w))).map(([k, x]) => ({ name: k, x })); note = 'ビルドを選んで記録した試合が対象です'; }
+  if (kind === 'style') { items = Object.entries(g.styleW || {}).map(([k, x]) => ({ name: STYLES.find(st => st.id === k)?.name || k, x })); note = 'ビルドを選んで記録した試合が対象です'; }
+  if (kind === 'depth') items = Object.entries(g.depthW || {}).filter(([k]) => DEPTH[k]).map(([k, x]) => ({ name: DEPTH[k], x }));
+  if (kind === 'foe') { unit = '敗';
+    if (!g.lossBy) note = 'みんなの統計では、まだ数えていません（準備中）';
+    else { const c = {}; ['d1', 'd2'].forEach(d => Object.entries(g.lossBy[d] || {}).forEach(([name, n]) => { if (name) c[name] = (c[name] || 0) + n; }));
+      items = Object.entries(c).map(([name, n]) => ({ name, x: { n, w: 0 } })); note = '1日目・2日目に倒された夜の強敵。相手を選ぶ前の敗北は数えていません'; } }
+  items = items.filter(it => it.x.n).sort((a, b) => b.x.n - a.x.n);
+  const sum = items.reduce((a, it) => a + it.x.n, 0), top = items[0]?.x.n || 1;
+  // 右の黄色の％の名前（一番上に同じ色で出す）
+  const shareName = { lord: '出現率', foe: '割合' }[kind] || '使用率';
+  // 夜渡りは、行を押すとその夜渡りの型ごとの出撃回数が開く（型はビルドを選んで記録した試合だけ。残りは「型なし」）
+  const openId = kind === 'char' ? S.stats[K + 'RankOpen'] : null;
+  const styleOf = it => { const cs = (g.charStyle || {})[it.id] || {}, list = Object.entries(cs).map(([k, n]) => [STYLES.find(st => st.id === k)?.name || k, n]).sort((a, b) => b[1] - a[1]);
+    const rest = it.x.n - list.reduce((a, [, n]) => a + n, 0); if (rest > 0) list.push(['型なし（ビルドを選ばずに記録）', rest]);
+    return `<div class="rk-sub">${list.map(([name, n]) => `<div class="rk-subrow ${name.startsWith('型なし') ? 'dim' : ''}"><span>${esc(name)}</span><b>${n}回</b></div>`).join('')}</div>`; };
+  const rows = items.map((it, i) => { const inner = `<span class="rk-no">${i + 1}</span><span class="rk-name">${it.icon || ''}${esc(it.name)}</span>
+      <span class="rk-num"><b>${it.x.n}</b>${unit}<small>${pct(it.x.n / sum)}</small>${kind === 'char' ? `<span class="go" aria-hidden="true">${openId === it.id ? '−' : '+'}</span>` : ''}</span><span class="rk-bar"><i style="width:${it.x.n / top * 100}%"></i></span>`;
+    return kind === 'char' ? `<button class="rk-row tap ${i < 3 ? 'top' : ''} ${openId === it.id ? 'open' : ''}" data-act="rankOpen" data-v="${it.id}" aria-expanded="${openId === it.id}">${inner}</button>${openId === it.id ? styleOf(it) : ''}`
+      : `<div class="rk-row ${i < 3 ? 'top' : ''}">${inner}</div>`; }).join('');
+  return `<section class="card-sec rk-card">
+    <div class="sec-head"><h2>ランキング</h2></div>
+    <div class="g-tabs" role="tablist">${RANK_KINDS.map(([v, l]) => `<button role="tab" data-act="rankKind" data-v="${v}" aria-selected="${kind === v}">${l}</button>`).join('')}</div>
+    ${note ? `<p class="hint rk-note">${note}</p>` : ''}
+    ${rows ? `<div class="rk-head"><span>${kind === 'char' ? '押すと型ごとの出撃回数が見られます' : ''}</span><small>${shareName}</small></div>` : ''}
+    <div class="rk-list">${rows || (kind === 'foe' && !g.lossBy ? '' : '<p class="hint">まだデータがありません。</p>')}</div>
+  </section>`;
+}
+function analysisCard(g, K, range) {
   // ---------- ここから下：分析（タブで切り替え） ----------
   const zero = { n: 0, w: 0 };
-  const T = S.stats.gTab || 'char', sortBy = S.stats.gSort || 'lb', minN = +(S.stats.gMin || 0), ever = !!S.stats.gEver;
+  const st = key => S.stats[K + key];  // 状態はみんな（g〜）と自分（m〜）で別々に覚える
+  // 相性はタブから外し、まとめの下の表にした（前に相性を選んでいた人は夜渡りのタブに）
+  const T = st('Tab') && st('Tab') !== 'match' ? st('Tab') : 'char', sortBy = st('Sort') || 'lb', minN = +(st('Min') || 0), ever = !!st('Ever'), total = g.total.n;
   const fresh = !!g.weaponW;  // 分析用の集計がある新しい受け取り口か
   const wait = '<p class="hint">この分析は、スプレッドシート側の更新後に表示されます。</p>';
   const lordKey = id => id + (ever ? ':ever' : '');
@@ -679,7 +772,7 @@ function globalStats() {
   // 1行：名前と数字、その下に勝率の棒（濃い部分＝ありそうな範囲、丸＝勝率、真ん中の線＝50%）
   const rateLine = (icon, name, x, extra = '', act = '', open = false) => {
     const p = x.n ? x.w / x.n : 0, [lo, hi] = wilson(x.w, x.n), few = x.n < STATS_MIN_RUNS;
-    const inner = `<span class="name">${icon}${esc(name)}</span><span class="num">${x.n ? `<b>${pct(p)}</b><small>${x.w}/${x.n}</small>` : '<span class="none">まだなし</span>'}${extra}</span>
+    const inner = `<span class="name">${icon}${esc(name)}</span><span class="num">${x.n ? `<b><i>勝率</i>${pct(p)}</b><small>${x.w}勝/${x.n}戦</small>` : '<span class="none">まだなし</span>'}${extra}</span>
       <span class="ci-track">${x.n ? `<span class="ci-band ${p >= .5 ? 'win' : 'loss'}" style="left:${lo * 100}%;width:${Math.max(1, (hi - lo) * 100)}%"></span><span class="ci-dot" style="left:${p * 100}%"></span>` : ''}</span>`;
     return act ? `<button class="bar-row ci-row tap ${few ? 'dim' : ''} ${open ? 'open' : ''}" data-act="gOpen" data-v="${act}" aria-expanded="${open}">${inner}<span class="go" aria-hidden="true">${open ? '−' : '+'}</span></button>`
       : `<div class="bar-row ci-row ${few ? 'dim' : ''}">${inner}</div>`;
@@ -687,10 +780,11 @@ function globalStats() {
   // 並べ替え：信頼度（ありそうな範囲の下の端）・勝率・試合数
   const sorter = (a, b) => sortBy === 'n' ? b.x.n - a.x.n : sortBy === 'rate' ? (b.x.n ? b.x.w / b.x.n : -1) - (a.x.n ? a.x.w / a.x.n : -1) || b.x.n - a.x.n
     : wilson(b.x.w, b.x.n)[0] - wilson(a.x.w, a.x.n)[0] || b.x.n - a.x.n;
-  const share = (n, sum) => sum ? `<em>${pct(n / sum)}</em>` : '';
-  const listOf = (items, sum, drillKey) => { const shown = items.filter(it => it.x.n >= minN).sort(sorter);
-    return shown.length ? shown.map(it => { const key = drillKey ? `${drillKey}:${it.id}` : '', open = !!key && S.stats.gOpen === key;
-      return rateLine(it.icon || '', it.name, it.x, share(it.x.n, sum), key, open) + (open ? `<div class="g-drill">${it.drill()}</div>` : ''); }).join('')
+  // 黄色の％：全体のうち、その行が占める割合（夜渡り＝使用率、夜の王＝出現率）。白の％は勝率
+  const share = (n, sum, label = '割合') => sum ? `<em><i>${label}</i>${pct(n / sum)}</em>` : '';
+  const listOf = (items, sum, drillKey, shareLabel) => { const shown = items.filter(it => it.x.n >= minN).sort(sorter);
+    return shown.length ? shown.map(it => { const key = drillKey ? `${drillKey}:${it.id}` : '', open = !!key && st('Open') === key;
+      return rateLine(it.icon || '', it.name, it.x, share(it.x.n, sum, shareLabel), key, open) + (open ? `<div class="g-drill">${it.drill()}</div>` : ''); }).join('')
       : `<p class="hint">${minN ? `${minN}戦以上のものはありません。` : 'まだデータがありません。'}</p>`; };
   const mini = (title, items, sum) => { const rows = items.filter(it => it.x.n).sort((a, b) => b.x.n - a.x.n);
     return `<div class="g-mini"><div class="g-mini-h">${title}</div>${rows.length ? rows.map(it => rateLine(it.icon || '', it.name, it.x, share(it.x.n, sum))).join('') : '<p class="hint">まだデータがありません。</p>'}</div>`; };
@@ -712,41 +806,33 @@ function globalStats() {
       + (fresh ? mini('深度別', DK.map(([d, l]) => ({ name: l, x: ((g.lordDepth || {})[k] || {})[d] || zero })), lx.n)
       + mini('人数別', PT.map(([p, l]) => ({ name: l, x: ((g.lordParty || {})[k] || {})[p] || zero })), lx.n)
       + `<div class="g-mini"><div class="g-mini-h">どこで倒れたか</div>${lossBar((g.lordLoss || {})[k])}</div>` : wait); };
+  // 1日目・2日目に倒された相手（夜の強敵）を、多い順に。相手を選ぶようになる前の敗北は「記録なし」
+  const foeLines = by => [['d1', '1日目'], ['d2', '2日目']].map(([d, l]) => { const rows = Object.entries(by[d] || {}).sort((a, b) => (a[0] === '' ? 1 : 0) - (b[0] === '' ? 1 : 0) || b[1] - a[1]), sum = rows.reduce((a, [, n]) => a + n, 0);
+    return sum ? `<div class="g-mini"><div class="g-mini-h">${l}に倒された相手<small>${sum}敗</small></div>${rows.map(([name, n]) => `<div class="foe-row ${name ? '' : 'dim'}"><span>${name ? esc(name) : '記録なし（相手を選ぶ前の記録）'}</span><b>${n}回</b><span class="foe-bar"><i style="width:${n / rows.reduce((a, [, x]) => Math.max(a, x), 0) * 100}%"></i></span></div>`).join('')}</div>` : ''; }).join('');
   let body = '', tools = '';
   const sortTools = `<div class="g-tools"><span class="grp"><span class="k">並び</span>${[['lb', '信頼度'], ['rate', '勝率'], ['n', '試合数']].map(([v, l]) => `<button class="chip mini" data-act="gSort" data-v="${v}" ${pressed(sortBy === v)}>${l}</button>`).join('')}</span>
     <span class="grp"><span class="k">対象</span>${[['0', 'すべて'], ['5', '5戦〜'], ['20', '20戦〜']].map(([v, l]) => `<button class="chip mini" data-act="gMin" data-v="${v}" ${pressed(String(minN) === v)}>${l}</button>`).join('')}</span></div>`;
   const everTool = `<button class="ever-switch ${ever ? 'on' : ''}" data-act="gEver" aria-pressed="${ever}">常夜</button>`;
   if (T === 'char') { tools = sortTools;
-    body = `<p class="hint">右の％は使用率。行をタップすると、夜の王別・深度別・人数別・武器別の勝率が見られます。</p>`
-      + listOf(CHARS.map(c => ({ id: c.id, icon: ico('char', c.id), name: c.name, x: (g.char || {})[c.id] || zero, drill: charDrill(c.id) })), total, 'c'); }
-  if (T === 'lord') { tools = sortTools + `<div class="g-tools">${everTool}<span class="hint">右の％は出現率。勝率＝討伐率</span></div>`;
+    body = `<p class="hint">行をタップすると、夜の王別・深度別・人数別・武器別の勝率が見られます。</p>`
+      + listOf(CHARS.map(c => ({ id: c.id, icon: ico('char', c.id), name: c.name, x: (g.char || {})[c.id] || zero, drill: charDrill(c.id) })), total, 'c', '使用率'); }
+  if (T === 'lord') { tools = sortTools + `<div class="g-tools">${everTool}<span class="hint">勝率＝討伐率</span></div>`;
     const sum = lordList.reduce((a, l) => a + (((g.lord || {})[lordKey(l.id)] || zero).n), 0);
-    body = listOf(lordList.map(l => ({ id: l.id, icon: ico('lord', l.id, ever), name: LORD[l.id].name, x: (g.lord || {})[lordKey(l.id)] || zero, drill: lordDrill(l.id) })), sum, 'l'); }
-  if (T === 'match') { tools = `<div class="g-tools">${everTool}<span class="hint">夜の王（縦）×夜渡り（横）の勝率（%）。薄いマスは5戦未満</span></div>`;
-    const sel = S.stats.gCell;
-    const cell = (l, c) => { const x = lc[`${lordKey(l.id)}/${c.id}`] || zero, p = x.n ? x.w / x.n : null;
-      const col = p == null ? 'transparent' : `color-mix(in srgb, ${p >= .5 ? 'var(--win)' : 'var(--loss)'} ${x.n < STATS_MIN_RUNS ? 16 : Math.round(22 + Math.abs(p - .5) * 2 * 60)}%, var(--panel))`;
-      return `<button class="mx-cell ${x.n && x.n < STATS_MIN_RUNS ? 'few' : ''} ${sel === `${l.id}/${c.id}` ? 'on' : ''}" style="background:${col}" data-act="gCell" data-v="${l.id}/${c.id}" aria-label="${LORD[l.id].name}×${c.name}">${p == null ? '' : Math.round(p * 100)}</button>`; };
-    const [sl, sc] = (sel || '/').split('/'), sx = sel && LORD[sl] ? lc[`${lordKey(sl)}/${sc}`] || zero : null;
-    body = `<div class="mx"><span class="mx-corner"></span>${CHARS.map(c => `<span class="mx-h">${ico('char', c.id)}</span>`).join('')}
-      ${lordList.map(l => `<span class="mx-r">${ico('lord', l.id, ever)}</span>${CHARS.map(c => cell(l, c)).join('')}`).join('')}</div>
-      <p class="hint mx-note">${sx ? `${LORD[sl].name}${ever ? '（常夜）' : ''} × ${CHAR[sc].name}：${sx.n ? `<b>${pct(sx.w / sx.n)}</b>（${sx.w}勝 ${sx.n - sx.w}敗）` : 'まだなし'}` : 'マスをタップすると、組み合わせの名前と勝敗数が出ます。'}</p>`; }
+    body = listOf(lordList.map(l => ({ id: l.id, icon: ico('lord', l.id, ever), name: LORD[l.id].name, x: (g.lord || {})[lordKey(l.id)] || zero, drill: lordDrill(l.id) })), sum, 'l', '出現率'); }
   if (T === 'gear') { tools = sortTools;
     const ws = Object.entries(g.weaponW || {}).filter(([k]) => WEAPON_TYPES.includes(k)), wsum = ws.reduce((a, [, x]) => a + x.n, 0);
     const ss = Object.entries(g.styleW || {}), ssum = ss.reduce((a, [, x]) => a + x.n, 0);
-    body = !fresh ? wait : `<div class="g-mini-h">メイン武器</div><p class="hint">ビルドを登録して記録された戦績が対象。右の％は使用率</p>${listOf(ws.map(([k, x]) => ({ id: k, name: k, x })), wsum)}
-      <div class="g-mini-h">型</div>${listOf(ss.map(([k, x]) => ({ id: k, name: STYLES.find(st => st.id === k)?.name || k, x })), ssum)}`; }
+    body = !fresh ? wait : `<div class="g-mini-h">メイン武器</div><p class="hint">ビルドを登録して記録された戦績が対象</p>${listOf(ws.map(([k, x]) => ({ id: k, name: k, x })), wsum, '', '使用率')}
+      <div class="g-mini-h">型</div>${listOf(ss.map(([k, x]) => ({ id: k, name: STYLES.find(st => st.id === k)?.name || k, x })), ssum, '', '使用率')}`; }
   if (T === 'mode') body = !fresh ? wait : mini('深度別', DK.map(([k, l]) => ({ name: l, x: (g.depthW || {})[k] || zero })), total) + mini('人数別', PT.map(([k, l]) => ({ name: l, x: (g.partyW || {})[k] || zero })), total);
-  if (T === 'trend') body = !fresh ? wait : trendChart(g.trend || {}, gRange());
+  if (T === 'trend') body = !fresh ? wait : trendChart(g.trend || {}, range);
   if (T === 'loss') { tools = `<div class="g-tools">${everTool}<span class="hint">負けた試合が、どこで倒れたか</span></div>`;
     body = !fresh ? wait : `<div class="g-mini"><div class="g-mini-h">全体</div>${lossBar(g.loss)}</div>
+      ${g.lossBy ? foeLines(g.lossBy) : ''}
       ${lordList.map(l => { const o = (g.lordLoss || {})[lordKey(l.id)] || {}, n = LS.reduce((a, [k]) => a + (o[k] || 0), 0);
         return n ? `<div class="g-mini"><div class="g-mini-h">${ico('lord', l.id, ever)}${LORD[l.id].name}<small>${n}敗</small></div>${lossBar(o)}</div>` : ''; }).join('')}`; }
-  const TABS_G = [['char', '夜渡り'], ['lord', '夜の王'], ['match', '相性'], ['gear', '武器・型'], ['mode', '深度・人数'], ['trend', '推移'], ['loss', '敗北']];
-  return `${dash}
-    ${fewNote}
-    <div class="join-wrap">${join}</div>
-    <section class="card-sec g-ana">
+  const TABS_G = [['char', '夜渡り'], ['lord', '夜の王'], ['gear', '武器・型'], ['mode', '深度・人数'], ['trend', '推移'], ['loss', '敗北']];
+  return `<section class="card-sec g-ana">
       <div class="g-tabs" role="tablist">${TABS_G.map(([v, l]) => `<button role="tab" data-act="gTab" data-v="${v}" aria-selected="${T === v}">${l}</button>`).join('')}</div>
       ${tools}
       <div class="bars g-body">${body}</div>
@@ -785,12 +871,16 @@ function trendChart(tr, r) {
 }
 // アップデート情報：新しい版がまだ見ていないものなら「NEW」（はじめて使う人には出さない）
 const newsUnseen = () => !!CHANGELOG[0] && (prefs().onboarded || liveRuns().length > 0) && prefs().seenNews !== CHANGELOG[0].v;  // 案内を閉じた人か、戦績がある人
+// 版の見せ方：データは 'v57' のまま、画面では「Ver.57」
+const verLabel = v => esc(String(v).replace(/^v/, 'Ver.'));
+// 最新の版はいつも開いたまま。それより前の版は、見出しを押して開く
 function newsSheet() {
   // 公開した日時（例：11/24 0:17）。時刻がないものは日付だけ
   const md = d => `${+d.slice(5, 7)}/${+d.slice(8, 10)}${d.length > 10 ? ` ${+d.slice(11, 13)}:${d.slice(14, 16)}` : ''}`;
   return `<div class="scrim" data-act="sClose"></div><div class="sheet help" role="dialog" aria-label="アップデート情報">
     <div class="sheet-head"><h2>アップデート情報</h2><button class="ghost" data-act="sClose">閉じる</button></div>
-    <div class="sheet-list help-list news">${CHANGELOG.map((c, i) => `<section><h3>${esc(c.v)}<small>${md(c.date)}</small>${i === 0 ? '<span class="badge new">最新</span>' : ''}</h3><ul class="help-points">${c.items.map(t => `<li>${esc(t)}</li>`).join('')}</ul></section>`).join('')}</div></div>`;
+    <div class="sheet-list help-list news">${CHANGELOG.map((c, i) => { const head = `<h3>${verLabel(c.v)}<small>${md(c.date)}</small>${i === 0 ? '<span class="badge new">最新</span>' : ''}</h3>`, list = `<ul class="help-points">${c.items.map(t => `<li>${esc(t)}</li>`).join('')}</ul>`;
+      return i === 0 ? `<section class="news-ver latest">${head}${list}</section>` : `<details class="news-ver"><summary>${head}</summary>${list}</details>`; }).join('')}</div></div>`;
 }
 // ビルドガチャ：次の試合で使うビルドを、今の一覧（夜渡りで絞り込んでいればその中）からランダムに1つ選ぶ
 function gachaSheet() {
@@ -803,7 +893,6 @@ function gachaSheet() {
         <div class="gacha-char">${p.charId ? ico('char', p.charId) : ''}<span>${p.charId ? CHAR[p.charId].name : '夜渡り未設定'}</span></div>
         <div class="gacha-name">${esc(presetName(p))}${p.imported ? '<span class="badge">取り込んだビルド</span>' : ''}</div>
         ${styleText(p) ? `<div class="hint">${esc(styleText(p))}</div>` : ''}
-        ${relicDetail(p)}
       </div>
       <p class="hint">${n}個のビルドから選びました。</p>
       <div class="form-actions"><button class="ghost" data-act="gacha">もう一回</button><button class="primary" data-act="gachaUse" ${p.charId ? '' : 'disabled'}>これで記録する</button></div>
@@ -852,50 +941,65 @@ function barRow(x, dim, drill) {
 }
 function drillBanner() {
   const keys = Object.keys(S.stats.drill);
-  if (!keys.length) return `<p class="hint">各項目の行をタップすると、その条件に絞って詳しく見られます。</p>`;
+  if (!keys.length) return '';
   return `<div class="drill-banner"><b>絞り込み中</b><div class="chips">${keys.map(k => `<button class="chip small drill-chip" data-act="undrill" data-v="${k}" aria-label="${DRILL[k].label}の絞り込みを外す">${DRILL[k].label}：${ico(k, S.stats.drill[k], myEver())}${esc(DRILL[k].name(S.stats.drill[k]))} <span aria-hidden="true">×</span></button>`).join('')}</div>
     ${keys.length > 1 ? '<button class="ghost small" data-act="undrillAll">すべて外す</button>' : ''}</div>`;
 }
+// 自分の統計で数える戦績：期間だけで絞る（分析の中身はみんなの統計と同じ）
+function myRuns() {
+  const p = S.stats.period, t = today();
+  return liveRuns().filter(r => p === 'today' ? r.date === t
+    : p === 'custom' ? !((S.stats.mFrom && r.date < S.stats.mFrom) || (S.stats.mTo && r.date > S.stats.mTo))
+    : p === '30' || p === '7' ? r.date >= daysAgo(Number(p) - 1) : true);
+}
+// 自分の統計の期間（推移のグラフの横の範囲にも使う）
+function myRange() {
+  const p = S.stats.period;
+  return p === 'today' ? { from: today(), to: today() } : p === 'custom' ? { from: S.stats.mFrom || '', to: S.stats.mTo || today() }
+    : p === '30' || p === '7' ? { from: daysAgo(Number(p) - 1), to: today() } : { from: '', to: '' };
+}
+// 端末の戦績を、みんなの統計の受け取り口と同じ形に数える（tools/online/apps_script.gs の集計と同じ決まり）
+function myAgg(runs) {
+  const add = (m, k, win) => { const x = m[k] || (m[k] = { n: 0, w: 0 }); x.n++; if (win) x.w++; };
+  const add2 = (m, a, b, win) => add(m[a] || (m[a] = {}), b, win);
+  const inc = (m, a, b) => { const x = m[a] || (m[a] = {}); x[b] = (x[b] || 0) + 1; };
+  const out = { total: { n: 0, w: 0 }, lord: {}, char: {}, lordChar: {}, styleW: {}, weaponW: {}, depthW: {}, partyW: {}, loss: {}, lordLoss: {}, lordDepth: {},
+    charDepthW: {}, charWeaponW: {}, charParty: {}, lordParty: {}, trend: {}, byDate: {}, lossBy: { d1: {}, d2: {} }, lordCharM: {}, charStyle: {} };
+  runs.forEach(r => {
+    const win = r.result === 'win', lord = r.lordId + (r.everdark ? ':ever' : ''), b = runBuild(r);
+    const dk = r.mode === 'deep' ? 'deep' + (r.depth || '') : 'normal';
+    add(out, 'total', win); add(out.lord, lord, win); add(out.char, r.charId, win); add(out.lordChar, `${lord}/${r.charId}`, win); add(out.lordCharM, `${lord}/${r.charId}/${r.mode === 'deep' ? 'deep' : 'normal'}`, win);
+    if (b?.style) { add(out.styleW, b.style, win); inc(out.charStyle, r.charId, b.style); }
+    const wt = effWeapon(b); if (wt) { add(out.weaponW, wt, win); add2(out.charWeaponW, r.charId, wt, win); }
+    add(out.depthW, dk, win); add2(out.lordDepth, lord, dk, win); add2(out.charDepthW, r.charId, dk, win);
+    if (r.party) { add(out.partyW, r.party, win); add2(out.charParty, r.charId, r.party, win); add2(out.lordParty, lord, r.party, win); }
+    if (!win) { const la = r.lossAt || 'unknown'; out.loss[la] = (out.loss[la] || 0) + 1; inc(out.lordLoss, lord, la);
+      if (la === 'd1' || la === 'd2') inc(out.lossBy, la, r.lossBy || ''); }
+    add(out.trend, r.date, win); add(out.byDate, r.date, win);
+  });
+  return out;
+}
 function viewStats() {
-  const runs = filteredRuns();
-  const dr = S.stats.drill;
-  const all = rate(runs);
+  const scopeSeg = `<div class="seg scope-seg">${[['mine', '自分の統計'], ['all', 'みんなの統計']].map(([v, l]) => `<button data-act="statsScope" data-v="${v}" ${pressed(S.stats.scope === v)}>${l}</button>`).join('')}</div>`;
+  if (S.stats.scope === 'all') return `<div class="stack-lg">${scopeSeg}${globalStats()}</div>`;
+  const runs = myRuns(), all = rate(runs), p = S.stats.period;
   const chrono = [...runs].sort((a, b) => a.date.localeCompare(b.date) || a.updatedAt - b.updatedAt);
   let streak = 0; for (let i = chrono.length - 1; i >= 0 && chrono[i].result === 'win'; i--) streak++;
   let best = 0, cur = 0; chrono.forEach(r => { cur = r.result === 'win' ? cur + 1 : 0; best = Math.max(best, cur); });
-  const losses = runs.filter(r => r.result === 'loss');
-  const lossCounts = LOSS_AT.map(x => ({ ...x, n: losses.filter(r => r.lossAt === x.id).length }));
-  const lossColors = { d1: '#f0b46a', d2: '#e3835e', final: '#cf5a55' };
-  const lossTotal = lossCounts.reduce((s, x) => s + x.n, 0);
-  const filterChips = (key, opts) => opts.map(([v, l]) => `<button class="chip small" data-act="sf" data-k="${key}" data-v="${v}" ${pressed(S.stats[key] === v)}>${l}</button>`).join('');
-  const scopeSeg = `<div class="seg scope-seg">${[['mine', '自分の統計'], ['all', 'みんなの統計']].map(([v, l]) => `<button data-act="statsScope" data-v="${v}" ${pressed(S.stats.scope === v)}>${l}</button>`).join('')}</div>`;
-  if (S.stats.scope === 'all') return `<div class="stack-lg">${scopeSeg}${globalStats()}</div>`;
+  const md = d => d ? `${+d.slice(5, 7)}/${+d.slice(8, 10)}` : '';
+  const label = p === 'custom' ? (S.stats.mFrom === S.stats.mTo ? md(S.stats.mFrom) : `${md(S.stats.mFrom)}〜${md(S.stats.mTo)}`) : { all: '全期間', 30: '直近30日', 7: '直近7日', today: '今日' }[p];
+  const periodBar = `<div class="g-period"><div class="chips">${[['all', '全期間'], ['30', '30日'], ['7', '7日'], ['today', '今日'], ['custom', '指定']].map(([v, l]) => `<button class="chip small" data-act="sf" data-k="period" data-v="${v}" ${pressed(p === v)}>${l}</button>`).join('')}</div>
+    ${p === 'custom' ? `<div class="g-dates"><input type="date" data-gdate="mFrom" value="${S.stats.mFrom || ''}" max="${today()}" aria-label="集計の開始日"><span>〜</span><input type="date" data-gdate="mTo" value="${S.stats.mTo || ''}" max="${today()}" aria-label="集計の終了日"></div>
+    ${S.stats.mFrom && S.stats.mTo && S.stats.mFrom > S.stats.mTo ? '<p class="hint">開始日は終了日より前にしてください。</p>' : ''}` : ''}</div>`;
   return `<div class="stack-lg">
     ${scopeSeg}
-    <div class="filters">
-      <div class="chips">${filterChips('period', [['all', '全期間'], ['30', '30日'], ['7', '7日']])}</div>
-      <div class="chips">${filterChips('mode', [['all', 'すべて'], ['normal', '通常'], ['deep', '深き夜'], ['ever', '常夜の王']])}</div>
-    </div>
-    ${drillBanner()}
-    ${runs.length ? `
-    ${secToggles(STATS_MINE)}
-    <div class="tiles">
+    ${periodBar}
+    ${runs.length ? `<div class="tiles">
       <div class="tile"><div class="k">戦数</div><div class="v">${all.n}</div><div class="s">${all.w}勝 ${all.n - all.w}敗</div></div>
-      <div class="tile"><div class="k">勝率</div><div class="v">${pct(all.p)}</div><div class="s">${{ all: '全期間', 30: '直近30日', 7: '直近7日' }[S.stats.period]}</div></div>
+      <div class="tile"><div class="k">勝率</div><div class="v">${pct(all.p)}</div><div class="s">${esc(label)}</div></div>
       <div class="tile"><div class="k">連勝</div><div class="v">${streak}</div><div class="s">最高 ${best}</div></div>
     </div>
-    ${cardIf('勝率の推移', `<p class="hint">直近10戦ごとの勝率。点線は50%</p>${spark(chrono)}`)}
-    ${dr.lord ? '' : cardIf('夜の王別', barRows(LORDS, l => runs.filter(r => r.lordId === l.id), { drill: 'lord' }))}
-    ${dr.char ? '' : cardIf('夜渡り別', barRows(CHARS, c => runs.filter(r => r.charId === c.id), { drill: 'char' }))}
-    ${dr.lord || dr.char ? '' : cardIf('相性表', heat(runs), `<div class="chips">${[['lord', '夜の王ごと'], ['char', '夜渡りごと']].map(([v, l]) => `<button class="chip small" data-act="heatBy" data-v="${v}" ${pressed(S.stats.heatBy === v)}>${l}</button>`).join('')}</div>`)}
-    ${cardIf('どこで倒れたか', lossTotal ? `<div class="stack">${lossCounts.filter(x => x.n).map(x => `<div style="flex:${x.n};background:${lossColors[x.id]}">${x.n >= lossTotal * .12 ? pct(x.n / lossTotal) : ''}</div>`).join('')}</div>
-      <div class="legend">${lossCounts.map(x => `<span><i style="background:${lossColors[x.id]}"></i>${x.name} ${x.n}回</span>`).join('')}</div>` : `<p class="hint">敗北の記録はありません</p>`)}
-    ${dr.preset ? '' : cardIf('ビルド別', barRows([...db.presets.map(p => ({ id: p.id, name: presetLabel(p) })), { id: '__none', name: 'ビルドなし' }, { id: '__gone', name: '削除済み（詳細不明）' }],
-      p => runs.filter(r => DRILL.preset.match(r, p.id)), { drill: 'preset' }))}
-    ${dr.style && dr.weapon ? '' : cardIf('型・メイン武器別', `${dr.style ? '' : barRows(STYLES, st => runs.filter(r => runBuild(r)?.style === st.id), { drill: 'style' })}
-      ${dr.weapon ? '' : barRows(WEAPON_TYPES.map(w => ({ id: w, name: w })), w => runs.filter(r => runBuild(r)?.weaponType === w.id), { drill: 'weapon' })}`)}
-    ${cardIf('効果別', `<p class="hint">その効果を積んでいた試合の勝率。プリセットに登録した効果だけが対象です</p>
-      ${barRows(usedEffects(runs).filter(ef => ef.id !== dr.effect), ef => runs.filter(r => presetHasEffect(r, ef.id)), { limit: 10, key: 'effects', drill: 'effect' })}`)}` : `<div class="empty-state">この条件の記録はありません</div>`}
+    ${(agg => matrixCard(agg, 'm') + rankCard(agg, 'm'))(myAgg(runs))}` : `<div class="empty-state">この期間の記録はありません</div>`}
   </div>`;
 }
 function spark(chrono) {
@@ -1028,6 +1132,26 @@ function commentBox(pub) {
     ${mine && validCmt(mine) ? `<p class="hint cmt-mine">あなたのコメント：「${esc(cmtTextOf(mine))}」<button class="link-btn" data-act="cmtDel">取り消す</button></p>` : ''}
     ${c ? compose : `<button class="ghost small cmt-open" data-act="cmtOpen">${mine ? '💬 送り直す' : '💬 定型文を送る'}</button>`}</div>`;
 }
+// 管理人モード：合言葉はこの端末の localStorage だけに置く（戦績のデータやバックアップには入れない。コードにも書かない）
+const ADMIN_LS = 'yowatari-nikki-admin';
+const adminKey = () => { try { return localStorage.getItem(ADMIN_LS) || ''; } catch { return ''; } };
+function adminSheet() {
+  const on = !!adminKey();
+  return `<div class="scrim" data-act="sClose"></div><div class="sheet" role="dialog" aria-label="管理人モード">
+    <div class="sheet-head"><h2>管理人モード</h2><button class="ghost" data-act="menu">戻る</button></div>
+    <div class="sheet-list">${on ? '<button class="ghost danger" data-act="adminOff">この端末の管理人モードを切る</button>'
+    : '<input type="password" id="admin-key" autocomplete="off" aria-label="管理人モード"><button class="ghost" data-act="adminCheck">確かめる</button>'}</div></div>`;
+}
+// みんなのビルドを開いたときの、管理人だけのボタン
+function adminBox(pub, d) {
+  if (!adminKey() || !pub) return '';
+  const c = S.confirmDel;
+  return `<div class="admin-box"><div class="admin-h">管理人${pub.adminNeta ? '<small>（ネタは管理人が指定中）</small>' : ''}</div>
+    <div class="admin-btns">${d.neta ? '<button class="ghost" data-act="adminOp" data-op="neta" data-v="no">ネタを外す</button>' : '<button class="ghost" data-act="adminOp" data-op="neta" data-v="yes">ネタにする</button>'}
+      ${pub.adminNeta ? '<button class="ghost" data-act="adminOp" data-op="neta" data-v="">指定をやめる</button>' : ''}
+      <button class="ghost danger" data-act="adminOp" data-op="ban">${c === 'admin_ban' ? 'もう一度で非公開' : '非公開にする'}</button>
+      <button class="ghost danger" data-act="adminOp" data-op="del">${c === 'admin_del' ? 'もう一度で削除' : '削除する'}</button></div></div>`;
+}
 function importSheet() {
   const sh = S.sheet, d = sh.data;
   const body = d
@@ -1036,6 +1160,7 @@ function importSheet() {
         ${d.pubNote ? `<p class="pub-note">${esc(d.pubNote)}</p>` : ''}
         ${relicDetail(d)}</div>
        ${sh.pub ? voteRow(sh.pub) : ''}
+       ${adminBox(sh.pub, d)}
        <p class="hint">取り込むと、ビルド一覧の「取り込んだビルド」に入ります（今あるプリセットはそのままです）。</p>
        <div class="form-actions"><button class="ghost" data-act="sClose">やめる</button><button class="primary" data-act="importDo">取り込む</button></div>`
     : `<textarea id="import-text" placeholder="共有されたリンクを貼り付け"></textarea>
@@ -1072,7 +1197,21 @@ async function runScan(kind, file) {
 let scanReady = false;
 // ---------- みんなのビルド（みんなに公開されたプリセット） ----------
 const PUB = { list: null, at: 0, loading: false, failed: false };
+// 開発用の画面では受け取り口に通信しないので、みんなのビルドに試し用のビルドを並べる（共有した人の説明つき。公開版の利用者には出ない）
+function devPublicSample() {
+  const [p1, p2, p3] = seed().presets;
+  const mk = (p, o) => ({ presetId: 'dev_' + o.id, updatedAt: Date.now() - o.ago * 3600e3, charId: p.charId, name: o.name,
+    data: publicPayload({ ...p, name: o.name, nameAuto: false, pubNote: o.note, neta: !!o.neta }), likes: 0, dislikes: 0, reactions: o.re || {}, comments: [] });
+  return [
+    mk(p1, { id: 'a', ago: 2, name: '出血大剣でゴリ押し', note: '出血でとにかく押し切る近接ビルド。深度3くらいまでは安定しました。回避は控えめでOK', re: { like: 12, strong: 5, tips: 3 } }),
+    mk(p2, { id: 'b', ago: 5, name: '輝剣と重力の隠者', note: '輝剣でけずって、重力でまとめて落とす魔術型。FPが足りないときは聖杯瓶を多めに', re: { like: 8, tips: 6 } }),
+    mk(p3, { id: 'c', ago: 20, name: 'タンク追跡者', note: '物理カットを積んだ耐える追跡者。味方の盾役に。火力は低めなので野良だと少しつらい', re: { like: 3 } }),
+    mk(p1, { id: 'd', ago: 30, name: '素手縛りの追跡者', note: '武器を拾わずに最後までいけるか挑戦中。2日目のボスで毎回泣いてます', neta: true, re: { lol: 15, wow: 4 } }),
+    mk(p2, { id: 'e', ago: 48, name: '聖杯瓶がぶ飲み隠者', note: '回復を積みまくったら死ななくなった。そのかわり誰も倒せない', neta: true, re: { lol: 9, like: 2 } }),
+  ];
+}
 function loadPublic(force) {
+  if (DEV_HOST && !window.__devNet) { if (!PUB.list || force) { PUB.list = devPublicSample(); PUB.failed = false; PUB.at = Date.now(); } return; }
   if (!PUB.list) PUB.list = readCache('builds');  // 前回の一覧をすぐ出す
   if (PUB.loading || (!force && PUB.at && Date.now() - PUB.at < 120e3)) return;
   PUB.loading = true;
@@ -1083,6 +1222,41 @@ function loadPublic(force) {
 // 公開用の中身（共有リンクと同じ形）
 const publicPayload = p => JSON.stringify({ v: 1, ...Object.fromEntries(SHARE_FIELDS.map(k => [k, p[k] ?? null])) });
 const parsePublic = data => { try { return parseShare('build=' + b64u(data)); } catch { return null; } };
+// ビルドの一番上：自分のビルド／みんなのビルドの切り替えスイッチ（統計の自分／みんなと同じ形。なぞっても選べる）
+const buildSeg = () => `<div class="seg scope-seg">${[['presets', '自分のビルド'], ['public', 'みんなのビルド']].map(([v, l]) => `<button data-act="buildScope" data-v="${v}" ${pressed((S.buildView === 'public' ? 'public' : 'presets') === v)}>${l}</button>`).join('')}</div>`;
+// みんなのビルドの「共有する」：自分のプリセットを選ぶ → 説明（公開用メモ）とネタかどうかを入れて公開する
+function pubShareSheet() {
+  const sh = S.sheet, p = sh.id && presetById(sh.id);
+  const head = `<div class="scrim" data-act="sClose"></div><div class="sheet" role="dialog" aria-label="みんなに共有">
+    <div class="sheet-head"><h2>${p ? 'みんなに共有' : '共有するプリセットを選ぶ'}</h2><button class="ghost" data-act="sClose">閉じる</button></div><div class="sheet-list">`;
+  if (!p) { const list = activePresets().filter(x => !x.imported);
+    return head + (list.length ? list.map(x => `<button class="card preset-card" data-act="pubShareSel" data-v="${x.id}"><span class="pc-ico">${x.charId ? ico('char', x.charId) : ''}</span>
+      <span class="pc-main"><span class="title"><span>${esc(presetName(x))}${x.public ? '<span class="badge pub">公開中</span>' : ''}</span></span></span><span class="pc-side"><span class="rate none">選ぶ ›</span></span></button>`).join('')
+      : '<div class="empty-state">共有できる自分のプリセットがありません。「自分のビルド」で作ってください。</div>') + '</div></div>'; }
+  const neta = sh.neta ?? !!p.neta;
+  return head + `<div class="card-sec share-card"><div class="share-name">${p.charId ? ico('char', p.charId) : ''}<b>${esc(presetName(p))}</b></div>${styleText(p) ? `<p class="hint">${esc(styleText(p))}</p>` : ''}</div>
+    <label class="label" for="pubshare-note">説明（任意・200文字まで）</label>
+    <textarea id="pubshare-note" maxlength="200" placeholder="例：出血で押し切る近接ビルド。深度3くらいまで安定">${esc(sh.note ?? p.pubNote ?? '')}</textarea>
+    <div class="neta-line"><span><b>ネタビルド</b><small>笑い・縛り・ロマン重視のビルドなら</small></span><button class="ever-switch ${neta ? 'on' : ''}" data-act="pubShareNeta" aria-pressed="${neta}">${neta ? 'ネタ' : 'ふつう'}</button></div>
+    <div class="form-actions"><button class="ghost" data-act="pubShareBack">選び直す</button><button class="primary" data-act="pubShareGo">${p.public ? '更新して公開' : 'みんなに公開する'}</button></div>
+  </div></div>`;
+}
+// みんなのビルドのガチャの結果：アイコン・ビルド名・コメント・リアクション。「中身を見る」で取り込みの画面を開く
+function pubGachaSheet() {
+  const b = PUB.list?.[S.sheet.idx], p = b && parsePublic(b.data); if (!p) return '';
+  return `<div class="scrim" data-act="sClose"></div><div class="sheet" role="dialog" aria-label="みんなのビルドガチャ">
+    <div class="sheet-head"><h2>🎲 みんなのビルドガチャ</h2><button class="ghost" data-act="sClose">閉じる</button></div>
+    <div class="sheet-list import-list">
+      <div class="gacha-result" data-spin="${S.sheet.spin}">
+        <div class="gacha-char">${p.charId ? ico('char', p.charId) : ''}<span>${p.charId ? CHAR[p.charId].name : '夜渡り未設定'}</span></div>
+        <div class="gacha-name">${esc(presetName(p))}${p.neta ? '<span class="badge neta">ネタ</span>' : ''}</div>
+        ${p.pubNote ? `<div class="pub-note">${esc(p.pubNote)}</div>` : ''}
+        <div class="vote-count">${reactSummary(b) || 'リアクションはまだありません'}</div>
+      </div>
+      <p class="hint">${S.sheet.n}個のビルドから選びました。</p>
+      <div class="form-actions"><button class="ghost" data-act="pubGacha">もう一回</button><button class="primary" data-act="pubPick" data-v="${S.sheet.idx}">中身を見る</button></div>
+    </div></div>`;
+}
 function publicBuilds() {
   loadPublic();
   const f = S.pubChar || '';
@@ -1094,17 +1268,17 @@ function publicBuilds() {
   const chips = charGrid('pubChar', f, id => (PUB.list || []).filter(b => parsePublic(b.data)?.charId === id).length);
   const body = !PUB.list ? `<div class="empty-state">${PUB.failed && !PUB.loading ? '読み込めませんでした。通信できる所で、もう一度読み込んでください。<br><button class="ghost small" data-act="publicOpen" style="margin-top:8px">もう一度読み込む</button>' : '読み込んでいます…'}</div>`
     : items.length ? items.map((b, i) => `<button class="card" data-act="pubPick" data-v="${(PUB.list || []).indexOf(PUB.list.find(x => x.data === b.data))}">
-        <span class="title"><span>${esc(presetName(b.p))}${b.p.neta ? '<span class="badge neta">ネタ</span>' : ''}${mine.has(b.presetId) ? '<span class="badge pub">あなた</span>' : ''}</span><span class="rate none">取り込む ›</span></span>
-        <span class="sub">${b.p.charId ? charName(b.p.charId) : '夜渡り未設定'}${styleText(b.p) ? '・' + esc(styleText(b.p)) : ''}</span>
+        <span class="title pub-title"><span>${b.p.charId ? ico('char', b.p.charId) : ''}${esc(presetName(b.p))}${b.p.neta ? '<span class="badge neta">ネタ</span>' : ''}${mine.has(b.presetId) ? '<span class="badge pub">あなた</span>' : ''}</span>${fmtWhen(b.updatedAt) ? `<small class="pub-date">公開 ${fmtWhen(b.updatedAt)}</small>` : ''}</span>
         ${b.p.pubNote ? `<span class="pub-note one">${esc(b.p.pubNote)}</span>` : ''}
         <span class="vote-count">${[reactSummary(b), cmtCount(b) ? `💬 ${cmtCount(b)}` : ''].filter(Boolean).join('　') || 'リアクションはまだありません'}</span></button>`).join('')
     : `<div class="empty-state">${onlyNeta ? `${f ? 'この夜渡りの' : ''}ネタビルドはまだありません。` : `${f ? 'この夜渡りの' : ''}公開されたビルドはまだありません。`}</div>`;
   return `<div class="stack-lg">
-    <button class="ghost back-btn" data-act="pubClose">‹ 自分のビルドに戻る</button>
-    <div class="page-title">みんなのビルド</div>
-    <p class="hint">みんなが「みんなに公開」にしたプリセットです。タップすると中身（遺物）を見て、取り込めます。作った人の名前などは表示されません。</p>
+    ${buildSeg()}
+    <div class="pub-actions"><button class="bt-btn add" data-act="pubShareOpen">共有する</button><button class="bt-btn" data-act="pubGacha" ${PUB.list?.length ? '' : 'disabled'}>🎲 ガチャ</button>
+      <button class="info-btn" data-act="pubListInfo" aria-label="みんなのビルドの説明" aria-expanded="${!!S.pubListInfo}">!</button></div>
+    ${S.pubListInfo ? '<p class="hint info-text">みんなが「みんなに公開」にしたプリセットです。タップすると中身（遺物）を見て、取り込めます。作った人の名前などは表示されません。</p>' : ''}
     ${chips}
-    <button class="neta-filter" role="switch" aria-checked="${onlyNeta}" data-act="pubNeta"><span>ネタビルドだけ表示${netaN ? `<small>（${netaN}件）</small>` : ''}</span><i class="tgl ${onlyNeta ? 'on' : ''}" aria-hidden="true"></i></button>
+    <div class="pub-row"><button class="neta-filter" role="switch" aria-checked="${onlyNeta}" data-act="pubNeta"><span>ネタビルドだけ表示${netaN ? `<small>（${netaN}件）</small>` : ''}</span><i class="tgl ${onlyNeta ? 'on' : ''}" aria-hidden="true"></i></button></div>
     ${body}</div>`;
 }
 function slotDots(p) {
@@ -1132,17 +1306,21 @@ function viewBuilds() {
       <span class="sub">${dr.data.charId ? charName(dr.data.charId) : '夜渡り未設定'}${styleText(dr.data) ? '・' + esc(styleText(dr.data)) : ''}</span></button>
       <button class="ghost draft-del ${S.confirmDel === 'draft' ? 'danger' : ''}" data-act="draftDel">${S.confirmDel === 'draft' ? 'もう一度押すと破棄' : '破棄'}</button></div>` : '';
   return `<div class="stack-lg">
-    <p class="hint">ビルドの登録は任意です。登録しなくても戦績は記録できます。遺物の効果まで入れておくと、ビルドや効果ごとの勝率が見られます。</p>
+    ${buildSeg()}
     ${draftCard}
-    <button class="btn-add ${S.confirmDel === 'newPreset' ? 'danger' : ''}" data-act="newPreset">${S.confirmDel === 'newPreset' ? 'もう一度押すと、未完成のものを破棄して新しく作ります' : '＋ プリセットを作る'}</button>
+    <div class="build-top">
+      <button class="bt-btn add ${S.confirmDel === 'newPreset' ? 'danger' : ''}" data-act="newPreset">${S.confirmDel === 'newPreset' ? 'もう一度で新規' : '＋ 作る'}</button>
+      <button class="bt-btn" data-act="gacha" ${shownPresets().length ? '' : 'disabled'}>🎲 ガチャ</button>
+      <button class="info-btn" data-act="buildInfo" aria-label="ビルドの説明" aria-expanded="${!!S.buildInfo}">!</button>
+    </div>
+    ${S.confirmDel === 'newPreset' ? '<p class="hint bad">もう一度押すと、未完成のものを破棄して新しく作ります。</p>' : ''}
+    ${S.buildInfo ? '<p class="hint info-text">ビルドの登録は任意です。登録しなくても戦績は記録できます。遺物の効果まで入れておくと、ビルドや効果ごとの勝率が見られます。</p>' : ''}
     ${charGrid('buildChar', S.buildChar || '', id => activePresets().filter(p => p.charId === id).length)}
-    ${shownPresets().length ? `<button class="gacha-btn" data-act="gacha">🎲 ビルドガチャ<small>${S.buildChar ? `${CHAR[S.buildChar].name}のビルドから` : 'すべてのビルドから'}1つ選ぶ</small></button>` : ''}
-    <div class="build-actions"><button class="ghost import-btn" data-act="publicOpen">みんなのビルドを見る</button><button class="ghost import-btn" data-act="importOpen">共有リンクから取り込む</button></div>
     ${S.buildChar && !shownPresets().length ? `<div class="empty-state">${CHAR[S.buildChar].name}のプリセットはまだありません。</div>` : ''}
-    ${(() => { const mine = shownPresets().filter(p => !p.imported), got = shownPresets().filter(p => p.imported), row = p => { const x = rate(liveRuns().filter(r => r.presetId === p.id)); return `<button class="card" data-act="editPreset" data-v="${p.id}">
-      <span class="title"><span>${esc(p.name)}${p.public ? '<span class="badge pub">公開中</span>' : ''}</span><span class="rate ${x.n ? '' : 'none'}">${x.n ? `勝率 ${pct(x.p)}` : '未使用'}</span></span>
-      <span class="sub">${p.charId ? charName(p.charId) : '夜渡り未設定'}${styleText(p) ? '・' + esc(styleText(p)) : ''}</span>
-      <span class="preset-use">${x.n ? `使用 <b>${x.n}</b>戦（${x.w}勝 ${x.n - x.w}敗）` : 'まだ戦績で使っていません'}</span></button>`; };
+    ${(() => { const mine = shownPresets().filter(p => !p.imported), got = shownPresets().filter(p => p.imported), row = p => { const x = rate(liveRuns().filter(r => r.presetId === p.id)); return `<button class="card preset-card" data-act="editPreset" data-v="${p.id}">
+      <span class="pc-ico">${p.charId ? ico('char', p.charId) : ''}</span>
+      <span class="pc-main"><span class="title"><span>${esc(p.name)}${p.public ? '<span class="badge pub">公開中</span>' : ''}</span></span>${p.createdAt ? `<small class="pc-date">${p.imported ? '取り込み' : '作成'} ${fmtWhen(p.createdAt)}</small>` : ''}</span>
+      <span class="pc-side">${x.n ? `<span class="rate">勝率 ${pct(x.p)}（${x.w}/${x.n}）</span>` : '<span class="rate none">未使用</span>'}</span></button>`; };  // 夜渡りのアイコン・プリセット名・勝率（右に 勝ち数/使った回数）の1行
       return (got.length ? `<div class="sub-head">マイプリセット<span>${mine.length}</span></div>` : '') + mine.map(row).join('')
         + (got.length ? `<div class="sub-head">取り込んだビルド<span>${got.length}</span></div>${got.map(row).join('')}` : ''); })()}
   </div>`;
@@ -1387,12 +1565,13 @@ function enemyDetail(e, p, merged = false) {
 }
 
 // タップで開閉する行。値が決まっていれば右側に表示する
-function disc(key, label, value, body, disabled = false, defOpen = false) {
-  const open = !disabled && (S.edit.open[key] ?? defOpen);
+// info：見出しの横に「!」を付け、押すとその説明を開いた中の一番上に出す（S.edit.info[key]）
+function disc(key, label, value, body, disabled = false, defOpen = false, info = '') {
+  const open = !disabled && (S.edit.open[key] ?? defOpen), showInfo = !!(S.edit.info || {})[key];
   return `<div class="disc ${open ? 'open' : ''}">
     <button class="disc-head" data-act="disc" data-v="${key}" data-open="${open}" aria-expanded="${open}" ${disabled ? 'disabled' : ''}>
-      <span class="k">${label}</span><span class="v ${value.set ? 'set' : ''}">${value.html}</span><span class="chev"></span></button>
-    ${open ? `<div class="disc-body">${body}</div>` : ''}</div>`;
+      <span class="k">${label}${info ? `<span class="info-btn" role="button" tabindex="0" data-act="discInfo" data-v="${key}" aria-label="${label}の説明" aria-expanded="${showInfo}">!</span>` : ''}</span><span class="v ${value.set ? 'set' : ''}">${value.html}</span><span class="chev"></span></button>
+    ${open ? `<div class="disc-body">${info && showInfo ? `<p class="hint info-text">${info}</p>` : ''}${body}</div>` : ''}</div>`;
 }
 function editPreset() {
   const p = S.edit.data;
@@ -1418,18 +1597,33 @@ function editPreset() {
   const scanBtn = (kind, label) => S.edit.scanning === kind
     ? `<span class="ghost scan-btn busy">${label}を読み取り中…</span>`
     : `<label class="ghost scan-btn ${p.charId && !S.edit.scanning ? '' : 'disabled'}">${label}のスクショ<input type="file" accept="image/*" data-scan="${kind}" hidden ${p.charId && !S.edit.scanning ? '' : 'disabled'}></label>`;
-  const scanCard = `<section class="card-sec scan-card"><div class="sec-head"><h2>スクショから読み取る</h2></div>
+  // スクショから読み取る：畳める項目。最初は畳んでおく（読み取り中は開く）
+  const scanCard = disc('scan', 'スクショから読み取る', { html: '<span class="txt">遺物を自動で入れる</span>', set: false }, `<div class="scan-body">
     <div class="scan-btns">${scanBtn('normal', '表')}${scanBtn('deep', '深層')}</div>
-    <p class="hint">${p.charId ? 'ゲームの「遺物儀式」画面のスクショを、表（スロット1〜3を選んだ画面）と深層（スロット4〜6を選んだ画面）で1枚ずつ選ぶと、遺物を自動で入れます。' : '先に夜渡りを選んでください。'}</p>
-    <button class="link-btn scan-sample" data-act="scanSample">📷 この画面です！（見本を見る）</button>
-    <p class="hint scan-note">※ 端末の中で文字を読み取るので、とくに「＋」のあとの数字は間違っていることがあります。読み取ったあとは、ゲームの画面と見比べて確かめてください。</p></section>`;
-  const styleName = p.style ? STYLES.find(x => x.id === p.style).name + ((p.spec || []).length ? `・${p.spec.join('/')}` : '') : '';
-  const styleBody = `<div class="chips">${STYLES.map(x => `<button class="chip" data-act="eStyle" data-v="${x.id}" ${pressed(p.style === x.id)}>${x.name}</button>`).join('')}</div>
-      ${p.style === 'caster' || p.style === 'hybrid' ? `<div class="subpanel"><div class="label">何特化？（複数選べます）</div>
-        <div class="sub-group">魔術</div><div class="chips">${SPEC_SORC.map(x => `<button class="chip small" data-act="eSpec" data-v="${x}" ${pressed((p.spec || []).includes(x))}>${x}</button>`).join('')}</div>
-        <div class="sub-group">祈祷</div><div class="chips">${SPEC_INC.map(x => `<button class="chip small" data-act="eSpec" data-v="${x}" ${pressed((p.spec || []).includes(x))}>${x}</button>`).join('')}</div></div>` : ''}`;
-  const weaponBody = `<input type="text" id="e-wname" data-edit="weaponName" value="${esc(p.weaponName || '')}" placeholder="武器の名前（任意）例：月光の大剣">
-      <div class="chips">${WEAPON_TYPES.map(x => `<button class="chip small" data-act="eWeapon" data-v="${x}" ${pressed(p.weaponType === x)}>${x}</button>`).join('')}</div>`;
+    ${p.charId ? '' : '<p class="hint">先に夜渡りを選んでください。</p>'}
+    <div class="scan-links"><button class="link-btn" data-act="scanHow" aria-expanded="${!!S.edit.scanHow}">使い方${S.edit.scanHow ? '（閉じる）' : ''}</button><button class="link-btn scan-sample" data-act="scanSample">📷 見本を見る</button></div>
+    ${S.edit.scanHow ? `<p class="hint">ゲームの「遺物儀式」画面のスクショを、表（スロット1〜3を選んだ画面）と深層（スロット4〜6を選んだ画面）で1枚ずつ選ぶと、遺物を自動で入れます。</p>
+    <p class="hint scan-note">※ 端末の中で文字を読み取るので、とくに「＋」のあとの数字は間違っていることがあります。読み取ったあとは、ゲームの画面と見比べて確かめてください。</p>` : ''}</div>`, false, !!S.edit.scanning);  // 説明は「使い方」を押したときだけ
+  const styleName = p.style ? (STYLES.find(x => x.id === p.style)?.name || '') + ((p.spec || []).length ? `・${p.spec.join('/')}` : '') + (effWeapon(p) ? `・${effWeapon(p)}` : '') : '';
+  // 武器の名前は、特定武器のときだけ一番下に出す（一点狙いのビルド用。任意）
+  // メイン武器（近接）：選ばなければ夜渡りの得意武器。得意武器のボタンには「（得意）」
+  const fav = favWeapons(p);
+  const weaponBody = `<div class="label">メイン武器（${fav.length ? `選ばなければ得意武器の${esc(fav.join('・'))}` : 'この夜渡りは得意武器なし'}）</div>
+      <div class="chips">${WEAPON_TYPES.map(x => `<button class="chip small" data-act="eWeapon" data-v="${x}" ${pressed(p.weaponType === x)}>${x}${fav.includes(x) ? '（得意）' : ''}</button>`).join('')}</div>`;
+  // 型は段階で選ぶ：近接／スペル／弓 → （スペルなら）魔術／祈祷 → 種類。特定武器はメイン武器が、特化は何特化かが必須
+  const st = STYLES.find(x => x.id === p.style), sg = S.edit.styleGroup || (st && !st.old ? styleTop(st) : null);
+  const school = S.edit.styleSchool || (st && (st.group === 'sorc' || st.group === 'inc') ? st.group : null);
+  const subChips = grp => STYLES.filter(x => x.group === grp).map(x => `<button class="chip" data-act="eStyle" data-v="${x.id}" ${pressed(p.style === x.id)}>${x.short}</button>`).join('');
+  const specList = st?.needSpec === 'sorc' ? SPEC_SORC : st?.needSpec === 'inc' ? SPEC_INC : null;
+  const styleBody = `${st?.old ? `<p class="hint">前の分け方の「${st.name}」になっています。下から選び直してください。</p>` : ''}
+      <div class="chips">${[['melee', '近接'], ['spell', 'スペル'], ['bow', '弓']].map(([v, l]) => `<button class="chip" data-act="eStyleGroup" data-v="${v}" ${pressed(sg === v)}>${l}</button>`).join('')}</div>
+      ${sg === 'melee' ? `<div class="subpanel"><div class="chips">${subChips('melee')}</div>
+        ${st ? weaponBody : ''}
+        ${st?.needWeapon ? `<label class="label" for="e-wname">一点狙いなら武器名（任意）</label><input type="text" id="e-wname" data-edit="weaponName" value="${esc(p.weaponName || '')}" placeholder="例：月光の大剣">` : ''}</div>` : ''}
+      ${sg === 'bow' ? `<div class="subpanel"><div class="chips">${subChips('bow')}</div></div>` : ''}
+      ${sg === 'spell' ? `<div class="subpanel"><div class="chips">${[['sorc', '魔術'], ['inc', '祈祷']].map(([v, l]) => `<button class="chip" data-act="eStyleSchool" data-v="${v}" ${pressed(school === v)}>${l}</button>`).join('')}</div>
+        ${school ? `<div class="chips">${subChips(school)}</div>` : ''}
+        ${specList ? `<div class="label">何特化？（必ず1つ以上。複数選べます）</div><div class="chips">${specList.map(x => `<button class="chip small" data-act="eSpec" data-v="${x}" ${pressed((p.spec || []).includes(x))}>${x}</button>`).join('')}</div>` : ''}</div>` : ''}`;
   const val = (txt, set) => ({ html: `<span class="txt">${esc(txt)}</span>`, set });
   // 遺物の枠：埋まっている数と色を、畳んだ行の右側に出す
   const relicValue = kind => { const n = p[kind].filter(Boolean).length;
@@ -1438,28 +1632,28 @@ function editPreset() {
   const nameRow = S.edit.editingName
     ? `<section class="card-sec"><div class="sec-head"><h2>プリセット名</h2></div>
         <input type="text" id="e-name" data-edit="name" value="${esc(name)}" placeholder="${esc(autoName(p))}">
-        <div class="row-actions">${p.nameAuto ? '' : '<button class="ghost" data-act="nameAuto">自動の名前に戻す</button>'}<button class="ghost" data-act="nameDone">決定</button></div>
-        <p class="hint">今の名前が入っています。消して空にすると「型 メイン武器」の自動の名前になります。</p></section>`
+        <div class="row-actions">${p.nameAuto ? '' : '<button class="ghost" data-act="nameAuto">自動の名前に戻す</button>'}<button class="ghost" data-act="nameDone">決定</button></div></section>`
     : `<button class="name-row" data-act="nameEdit"><span class="k">プリセット名</span><span class="nm">${esc(name)}</span><span class="pen">${p.nameAuto ? '自動・変更' : '変更'}</span></button>`;
   BAR = '';
   return `<div class="stack-lg">
     <div class="page-title">${S.edit.isNew ? 'プリセットを作る' : 'プリセットを編集'}</div>
     ${disc('char', '夜渡り', p.charId ? { html: `${ico('char', p.charId)}<span class="txt">${CHAR[p.charId].name}</span>`, set: true } : val('未選択', false),
-      `<div class="grid-btns">${CHARS.map(c => `<button class="tile-btn with-ico" data-act="eChar" data-v="${c.id}" ${pressed(p.charId === c.id)}>${charName(c.id)}</button>`).join('')}</div>`)}
+      `<div class="char-pick">${CHARS.map(c => `<button class="char-pick-btn" data-act="eChar" data-v="${c.id}" ${pressed(p.charId === c.id)} aria-label="${c.name}" title="${c.name}">${ico('char', c.id)}</button>`).join('')}</div>`)}
     ${scanCard}
-    ${p.charId ? disc('relicNormal', '表の遺物', relicValue('normal'), `<div class="section">${[0, 1, 2].map(i => slot('normal', i)).join('')}</div>`, false, true)
-      + disc('relicDeep', '深層の遺物', relicValue('deep'), `<div class="section">${[0, 1, 2].map(i => slot('deep', i)).join('')}</div><p class="hint">深き夜で使う遺物です。</p>`, false, true)
-      + `<p class="hint vessel-note">${[...p.normal, ...p.deep].some(Boolean) ? (fv ? `適合する献器：<b>${esc(fv.name)}</b>（遺物の色から自動で判定）` : '<span class="bad">この色の組み合わせに適合する献器がありません。遺物を見直してください。</span>') : '読み取らずに、枠をタップして手で入れることもできます。枠は空いたままでも保存できます。'}</p>` : ''}
-    ${disc('style', '型', styleName ? val(styleName, true) : val('未設定', false), styleBody)}
-    ${disc('weapon', 'メイン武器', p.weaponType ? val(p.weaponName ? `${p.weaponName}（${p.weaponType}）` : p.weaponType, true) : val('未設定', false), weaponBody)}
+    ${p.charId ? disc('relicNormal', '表の遺物', relicValue('normal'), `<div class="section">${[0, 1, 2].map(i => slot('normal', i)).join('')}</div>`, false, !!S.edit.isNew)
+      + disc('relicDeep', '深層の遺物', relicValue('deep'), `<div class="section">${[0, 1, 2].map(i => slot('deep', i)).join('')}</div><p class="hint">深き夜で使う遺物です。</p>`, false, !!S.edit.isNew)
+      + ([...p.normal, ...p.deep].some(Boolean) && !fv ? '<p class="hint vessel-note"><span class="bad">この色の組み合わせに適合する献器がありません。遺物を見直してください。</span></p>' : '') : ''}
+    ${disc('style', '型', styleName ? val(styleName, true) : val('未設定', false), styleBody, false, false, '統計に使用されます。もし可能なら目的とする武器種まで入れていただけると助かります')}
     ${nameRow}
-    <section class="card-sec pub-card"><div class="sec-head"><h2>みんなに公開</h2><button class="ever-switch ${p.public ? 'on' : ''}" data-act="ePublic" aria-pressed="${!!p.public}">${p.public ? '公開する' : '公開しない'}</button></div>
-      <p class="hint">公開すると、保存したときに「みんなのビルド」に載り、ほかの人が取り込めるようになります。作った人の名前などは出ません。不適切な言葉を含む名前・メモは公開できません。</p>
+    <section class="card-sec pub-card"><div class="sec-head"><h2>みんなに公開<button class="info-btn" data-act="pubInfo" aria-label="みんなに公開の説明" aria-expanded="${!!S.edit.pubInfo}">!</button></h2><button class="ever-switch ${p.public ? 'on' : ''}" data-act="ePublic" aria-pressed="${!!p.public}">${p.public ? '公開する' : '公開しない'}</button></div>
+      ${S.edit.pubInfo ? '<p class="hint info-text">公開すると、保存したときに「みんなのビルド」に載り、ほかの人が取り込めるようになります。作った人の名前などは出ません。不適切な言葉を含む名前・メモは公開できません。</p>' : ''}
       ${p.public ? `<div class="neta-line"><span><b>ネタビルド</b><small>笑い・縛り・ロマン重視のビルドなら</small></span><button class="ever-switch ${p.neta ? 'on' : ''}" data-act="eNeta" aria-pressed="${!!p.neta}">${p.neta ? 'ネタ' : 'ふつう'}</button></div>
         <label class="label" for="e-pubnote">公開用のメモ（任意・200文字まで）</label>
         <textarea id="e-pubnote" data-edit="pubNote" maxlength="200" placeholder="例：出血で押し切る近接ビルド。深度3くらいまで安定">${esc(p.pubNote || '')}</textarea>` : ''}</section>
-    <div class="form-actions"><button class="ghost" data-act="eCancel">キャンセル</button><button class="primary" data-act="eSave">保存する</button></div>
-    ${S.edit.isNew ? '' : `<div class="row-actions" style="justify-content:center"><button class="ghost" data-act="eShare">共有する</button><button class="ghost" data-act="eDup">複製して新しく作る</button>${presetById(S.edit.data.id)?.imported ? '<button class="ghost" data-act="eMine">マイプリセットに移す</button>' : ''}<button class="ghost danger" data-act="eDel">${S.confirmDel === 'edit' ? 'もう一度押すと削除' : 'このプリセットを削除'}</button></div>`}
+    <div class="edit-actions">
+      <div class="edit-main"><button class="ghost" data-act="eCancel">キャンセル</button><button class="primary" data-act="eSave">保存する</button></div>
+      ${S.edit.isNew ? '' : `<div class="edit-sub"><button class="ghost" data-act="eShare">共有する</button>${presetById(S.edit.data.id)?.imported ? '<button class="ghost" data-act="eMine">マイプリセットに移す</button>' : ''}<button class="ghost danger" data-act="eDel">${S.confirmDel === 'edit' ? 'もう一度で削除' : '削除する'}</button></div>`}
+    </div>
   </div>`;
 }
 function editSlot() {
@@ -1492,14 +1686,14 @@ function editSlot() {
 }
 // プリセット名は、自分で付けなければ「型 メイン武器」になる
 function autoName(p) {
-  const parts = [p.style && STYLES.find(x => x.id === p.style)?.name, p.weaponType].filter(Boolean);
+  const parts = [p.style && STYLES.find(x => x.id === p.style)?.name, effWeapon(p)].filter(Boolean);
   return parts.length ? parts.join(' ') : p.charId ? `${CHAR[p.charId].name}のビルド` : '名前なしのビルド';
 }
 const presetName = p => (p.nameAuto || !p.name?.trim()) ? autoName(p) : p.name;
 function styleText(p) {
   const parts = [];
   if (p.style) parts.push(STYLES.find(x => x.id === p.style).name + ((p.spec || []).length ? `（${p.spec.join('・')}特化）` : ''));
-  if (p.weaponType) parts.push(p.weaponName ? `${p.weaponName}（${p.weaponType}）` : p.weaponType);
+  if (effWeapon(p)) parts.push(p.weaponName ? `${p.weaponName}（${effWeapon(p)}）` : effWeapon(p));
   return parts.join('・');
 }
 function specialCard(r) {
@@ -1562,6 +1756,9 @@ function renderSheetInner() {
   if (sh.type === 'privacy') { el.innerHTML = privacySheet(); return; }
   if (sh.type === 'news') { el.innerHTML = newsSheet(); return; }
   if (sh.type === 'gacha') { el.innerHTML = gachaSheet(); return; }
+  if (sh.type === 'pubShare') { el.innerHTML = pubShareSheet(); return; }
+  if (sh.type === 'admin') { el.innerHTML = adminSheet(); return; }
+  if (sh.type === 'pubGacha') { el.innerHTML = pubGachaSheet(); return; }
   if (sh.type === 'restore') { el.innerHTML = restoreSheet(); return; }
   // 隠しの夜の王の画像を画面いっぱいに出す（どこをタップしても閉じる）
   if (sh.type === 'scanSample') { el.innerHTML = `<div class="img-view sample-view" data-act="sClose" role="dialog" aria-label="スクショの見本">
@@ -1672,7 +1869,7 @@ function menuSheet() {
   return `<div class="scrim" data-act="sClose"></div><div class="sheet" role="dialog" aria-label="データ管理">
     <div class="sheet-head"><h2>データ管理</h2><button class="ghost" data-act="sClose">閉じる</button></div>
     <div class="sheet-list">
-      ${item('newsOpen', `アップデート情報${newsUnseen() ? '<span class="badge new">NEW</span>' : ''}`, `いつ、どんな機能が増えたか（最新：${CHANGELOG[0]?.v || ''}）`)}
+      ${item('newsOpen', `アップデート情報${newsUnseen() ? '<span class="badge new">NEW</span>' : ''}`, `いつ、どんな機能が増えたか（最新：${CHANGELOG[0] ? verLabel(CHANGELOG[0].v) : ''}）`)}
       ${item('requestOpen', '機能の実装リクエスト', '「こんな機能がほしい」を開発者に送れます')}
       ${item('guide', '使い方・ホーム画面に追加', 'はじめに出た案内をもう一度見る')}
       ${item('shareApp', '夜渡り日記を共有する', 'アプリのURLをコピーして、友だちに送れます')}
@@ -1680,6 +1877,7 @@ function menuSheet() {
       ${item('privacyOpen', 'プライバシーについて', '何を保存・送信しているか、消し方など')}
       ${item('exportCsv', 'これまでの戦績をCSVで書き出す', `戦績 ${n}件を、Excelなどで開ける形にします`)}
       ${DEV_HOST ? item('loadSample', S.confirmDel === 'sample' ? 'もう一度押すとサンプルに置き換えます' : 'サンプルデータを入れる', '（開発用）今のデータは消えて、試し用の戦績64件とプリセット3件になります', S.confirmDel === 'sample' ? 'danger' : '') : ''}
+      ${item('adminOpen', '管理人モード', adminKey() ? 'オン' : '', 'dim-item')}
       ${item('wipe', S.confirmDel === 'wipe' ? 'もう一度押すとすべて削除します' : 'すべてのデータを削除', '戦績とプリセットをすべて消します。元に戻せません', 'danger')}
     </div></div>`;
 }
@@ -1710,10 +1908,10 @@ function replaceDb(next) {
   S.edit = null; S.openRun = null; S.form = blankForm();
 }
 function csvRows() {
-  const rows = [['日付', '夜の王', '常夜', '地図欠損など', 'モード', '深度', '人数', '夜渡り', '結果', '倒れた場所', 'ビルド', 'メモ']];
+  const rows = [['日付', '夜の王', '常夜', '地図欠損など', 'モード', '深度', '人数', '夜渡り', '結果', '倒れた場所', '倒された相手', 'ビルド', 'メモ']];
   liveRuns().sort((a, b) => a.date.localeCompare(b.date) || a.updatedAt - b.updatedAt).forEach(r => rows.push([
     r.date, LORD[r.lordId]?.name ?? r.lordId, r.everdark ? '常夜' : '', (r.flags || []).map(x => flagName(x, r)).join('/'), MODE[r.mode]?.name ?? r.mode, r.depth ?? '', PARTYM[r.party]?.name ?? r.party,
-    CHAR[r.charId]?.name ?? r.charId, r.result === 'win' ? '勝利' : '敗北', r.lossAt ? LOSS[r.lossAt].name : '', presetById(r.presetId) ? presetLabel(presetById(r.presetId)) : (r.presetId ? '削除済み' : ''),
+    CHAR[r.charId]?.name ?? r.charId, r.result === 'win' ? '勝利' : '敗北', r.lossAt ? LOSS[r.lossAt].name : '', r.lossBy || '', presetById(r.presetId) ? presetLabel(presetById(r.presetId)) : (r.presetId ? '削除済み' : ''),
     r.note]));
   return rows;
 }
@@ -1802,7 +2000,7 @@ function toast(msg, action) {
 document.addEventListener('click', e => {
   const t = e.target.closest('[data-act]'); if (!t) return;
   const a = t.dataset.act, v = t.dataset.v, f = S.form;
-  if (a !== 'delRun' && a !== 'eDel' && a !== 'loadSample' && a !== 'wipe' && a !== 'draftDel' && a !== 'newPreset' && a !== 'onlineLeave' && a !== 'cloudOff' && a !== 'buildReport') S.confirmDel = null;
+  if (a !== 'delRun' && a !== 'eDel' && a !== 'loadSample' && a !== 'wipe' && a !== 'draftDel' && a !== 'newPreset' && a !== 'onlineLeave' && a !== 'cloudOff' && a !== 'buildReport' && a !== 'adminOp') S.confirmDel = null;
   switch (a) {
     case 'tab': if (v === 'enemies' && S.tab === v && S.know) S.know.topic = '';  // 知識タブを開いているときにもう一度押すと、項目の一覧に戻る
       if (S.edit && v !== 'builds') S.edit = null; S.tab = v; S.sheet = null; S.lossPick = false; scrollTop(); break;  // 作りかけは prefs().draft に残っている
@@ -1843,7 +2041,8 @@ document.addEventListener('click', e => {
       break;
     case 'shift': f.shift = f.shift === v ? null : v; break;
     case 'result': f.result = v; if (v === 'win') f.lossAt = null; break;
-    case 'lossAt': f.lossAt = f.lossAt === v ? null : v; break;
+    case 'lossAt': f.lossAt = f.lossAt === v ? null : v; f.lossBy = null; break;
+    case 'lossBy': f.lossBy = v; break;
     case 'mode': f.mode = v; f.depth = v === 'deep' ? (f.depth || prefs().lastDepth || null) : null; if (!S.editRun) { prefs().mode = v; prefs().depth = f.depth; } break;
     case 'depth': f.depth = +v; if (!S.editRun) { prefs().depth = f.depth; prefs().lastDepth = f.depth; } break;
     case 'party': f.party = v; if (!S.editRun) prefs().party = v; break;
@@ -1854,15 +2053,16 @@ document.addEventListener('click', e => {
       if (a === 'recLoss') { S.lossPick = true; break; }
       f.result = 'win'; f.lossAt = null; saveRecord(); break;
     }
-    case 'recLossAt': f.result = 'loss'; f.lossAt = v; S.lossPick = false; saveRecord(); break;
-    case 'recLossBack': S.lossPick = false; break;
+    case 'recLossAt': if (v === 'd1' || v === 'd2') { S.lossPick = v; break; } f.result = 'loss'; f.lossAt = v; f.lossBy = null; S.lossPick = false; saveRecord(); break;  // 1日目・2日目は、続けて相手を選ぶ
+    case 'recLossBy': f.result = 'loss'; f.lossAt = S.lossPick; f.lossBy = v; S.lossPick = false; saveRecord(); break;
+    case 'recLossBack': S.lossPick = S.lossPick === 'd1' || S.lossPick === 'd2' ? true : false; break;  // 相手を選ぶ画面からは「どこで倒れた？」へ戻る
     case 'noteOpen': S.noteOpen = true; render(); document.getElementById('f-note')?.focus(); return;
     case 'save': saveRecord(); break;
     case 'editRun': {
       const r = db.runs.find(x => x.id === v);
       S.editRun = r.id;
       S.form = { dateMode: 'pick', date: r.date || today(), lordId: r.lordId, everdark: !!r.everdark, flags: [...(r.flags || [])], shift: r.shift ?? null, mode: r.mode || 'normal', depth: r.depth ?? null,
-        party: r.party || 'trio', charId: r.charId, result: r.result, lossAt: r.lossAt ?? null, presetId: r.presetId ?? null, origPresetId: r.presetId ?? null, note: r.note || '' };
+        party: r.party || 'trio', charId: r.charId, result: r.result, lossAt: r.lossAt ?? null, lossBy: r.lossBy ?? null, presetId: r.presetId ?? null, origPresetId: r.presetId ?? null, note: r.note || '' };
       S.tab = 'record'; S.openRun = null; S.dayStripX = null; scrollTop(); break;
     }
     case 'cancelEdit': S.editRun = null; S.form = blankForm(); S.tab = 'history'; break;
@@ -1873,20 +2073,25 @@ document.addEventListener('click', e => {
       S.undo = { type: 'del', id: v }; toast('削除しました', { act: 'undo', label: '元に戻す' }); break;
     case 'hf': S.hist.result = v; S.openRun = null; break;
     case 'hfClear': S.hist = { result: 'all', lord: '', char: '' }; S.openRun = null; break;
-    case 'sf': S.stats[t.dataset.k] = v; break;
+    case 'sf': S.stats[t.dataset.k] = v; if (t.dataset.k === 'period' && v === 'custom') { S.stats.mTo ||= today(); S.stats.mFrom ||= daysAgo(6); } break;  // 指定は、はじめ直近7日を入れておく
     case 'drill': S.stats.drill[t.dataset.k] = v; scrollTop(); break;
     case 'undrill': delete S.stats.drill[v]; break;
     case 'undrillAll': S.stats.drill = {}; break;
     case 'heatBy': S.stats.heatBy = v; break;
     case 'statsScope': S.stats.scope = v; scrollTop(); break;
-    case 'statToggle': { const h = statHidden(); if (h[v]) delete h[v]; else h[v] = true; break; }
     case 'lordSort': S.stats.lordSort = v; break;
-    case 'gEver': S.stats.gEver = !S.stats.gEver; S.stats.gOpen = null; S.stats.gCell = null; break;
-    case 'gTab': S.stats.gTab = v; S.stats.gOpen = null; break;
-    case 'gSort': S.stats.gSort = v; break;
-    case 'gMin': S.stats.gMin = v; break;
-    case 'gOpen': S.stats.gOpen = S.stats.gOpen === v ? null : v; break;
-    case 'gCell': S.stats.gCell = S.stats.gCell === v ? null : v; break;
+    // 分析のカードの操作は、今見ている方（みんな＝g〜／自分＝m〜）の状態を変える
+    case 'gEver': { const K = statsK(); S.stats[K + 'Ever'] = !S.stats[K + 'Ever']; S.stats[K + 'Open'] = null; S.stats[K + 'Cell'] = null; break; }
+    case 'gTab': { const K = statsK(); S.stats[K + 'Tab'] = v; S.stats[K + 'Open'] = null; break; }
+    case 'gSort': S.stats[statsK() + 'Sort'] = v; break;
+    case 'rankKind': S.stats[statsK() + 'Rank'] = v; S.stats[statsK() + 'RankOpen'] = null; break;
+    case 'rankOpen': { const k = statsK() + 'RankOpen'; S.stats[k] = S.stats[k] === v ? null : v; break; }
+    case 'mxDeep': S.stats[statsK() + 'MxDeep'] = v === 'deep'; break;
+    case 'mxVal': S.stats[statsK() + 'MxVal'] = v; break;
+    case 'mxEver': S.stats[statsK() + 'MxEver'] = v; S.stats[statsK() + 'Cell'] = null; break;
+    case 'gMin': S.stats[statsK() + 'Min'] = v; break;
+    case 'gOpen': { const K = statsK() + 'Open'; S.stats[K] = S.stats[K] === v ? null : v; break; }
+    case 'gCell': { const K = statsK() + 'Cell'; S.stats[K] = S.stats[K] === v ? null : v; break; }
     case 'statJump': { const h = [...document.querySelectorAll('.card-sec h2')].find(x => x.textContent === v); if (h) window.scrollTo({ top: h.closest('.card-sec').getBoundingClientRect().top + window.scrollY - 76, behavior: 'smooth' }); if (!h) toast('この条件では、その表はありません'); return; }
     case 'enemyRetry': S.enemy.failed = false; S.enemy.retry = (S.enemy.retry || 0) + 1; break;
     case 'globalRetry': resetGlobal(); Object.values(GLOBALS).forEach(x => { x.failed = false; }); break;
@@ -1932,11 +2137,23 @@ document.addEventListener('click', e => {
     case 'nameEdit': { S.edit.editingName = true; render(); const el = document.getElementById('e-name'); el?.focus(); el?.select(); return; }
     case 'nameDone': { const d = S.edit.data; if (!d.name.trim()) d.nameAuto = true; S.edit.editingName = false; break; }
     case 'nameAuto': { const d = S.edit.data; d.nameAuto = true; d.name = ''; S.edit.editingName = false; break; }
-    case 'eStyle': { const d = S.edit.data; d.style = d.style === v ? null : v; if (d.style !== 'caster' && d.style !== 'hybrid') d.spec = []; break; }
+    // 型：近接／スペル → 魔術／祈祷 → 種類。特化以外にしたら「何特化」は消す
+    case 'eStyleGroup': { const d = S.edit.data; S.edit.styleGroup = v; S.edit.styleSchool = null; const cur = STYLES.find(x => x.id === d.style);
+      if (!cur || cur.old || styleTop(cur) !== v) { d.style = null; d.spec = []; }
+      if (v !== 'melee') { d.weaponType = null; d.weaponName = ''; } break; }  // メイン武器は近接の中だけで選ぶ
+    case 'eStyleSchool': { const d = S.edit.data; S.edit.styleSchool = v; const cur = STYLES.find(x => x.id === d.style); if (cur?.group !== v) { d.style = null; d.spec = []; } break; }
+    case 'eStyle': { const d = S.edit.data; d.style = d.style === v ? null : v; const st = STYLES.find(x => x.id === d.style);
+      if (!st?.needWeapon) d.weaponName = '';  // 武器の名前は特定武器のときだけ
+      if (!st?.needSpec) d.spec = []; else d.spec = (d.spec || []).filter(x => (st.needSpec === 'sorc' ? SPEC_SORC : SPEC_INC).includes(x)); break; }
     case 'eSpec': { const d = S.edit.data; d.spec ||= []; d.spec = d.spec.includes(v) ? d.spec.filter(x => x !== v) : [...d.spec, v]; break; }
-    case 'eWeapon': { const d = S.edit.data; d.weaponType = d.weaponType === v ? null : v; S.edit.open.weapon = false; break; }
+    case 'eWeapon': { const d = S.edit.data; d.weaponType = d.weaponType === v ? null : v; break; }
     case 'eSlotMode': { const sl = S.edit.slot; if (sl.mode !== v) { sl.mode = v; sl.data.special = null; } break; }
     case 'eSpecial': S.edit.slot.data.special = v; break;
+    case 'pubInfo': S.edit.pubInfo = !S.edit.pubInfo; break;
+    case 'buildInfo': S.buildInfo = !S.buildInfo; break;
+    case 'pubListInfo': S.pubListInfo = !S.pubListInfo; break;  // みんなのビルドの ! ：説明を出す・隠す  // ビルドの一覧の ! ：説明を出す・隠す
+    case 'scanHow': S.edit.scanHow = !S.edit.scanHow; break;  // スクショから読み取る：使い方を出す・隠す
+    case 'discInfo': { S.edit.info ||= {}; S.edit.info[v] = !S.edit.info[v]; if (S.edit.info[v]) S.edit.open[v] = true; break; }  // 見出しの横の ! ：説明を出す（閉じていれば開く）  // 「みんなに公開」の ! を押すと説明を出す・隠す
     case 'openSlot': {
       const k = t.dataset.k, i = +v, cur = S.edit.data[k][i];
       S.edit.slotY = lockY ?? window.scrollY;  // 閉じたらこの位置に戻る
@@ -2008,6 +2225,9 @@ document.addEventListener('click', e => {
     case 'eSlotCancel': leaveSlot(); break;
     case 'eSave': {
       const d = S.edit.data;
+      { const st = STYLES.find(x => x.id === d.style);  // 型の必須の選択
+        if (st?.needWeapon && !effWeapon(d)) { toast('得意武器がない夜渡りの「特定武器」は、メイン武器を選んでください'); S.edit.open.style = true; break; }
+        if (st?.needSpec && !(d.spec || []).length) { toast('「特化」は、何特化かを選んでください'); S.edit.open.style = true; break; } }
       if (d.public && (ngHit(d.nameAuto ? '' : d.name) || ngHit(d.weaponName) || ngHit(d.pubNote))) { toast('名前・武器名・メモに不適切な言葉が含まれているため、公開できません。直してから保存してください'); return; }
       if (d.nameAuto || !d.name.trim()) { d.nameAuto = true; d.name = autoName(d); }
       const wasPublic = !!presetById(d.id)?.public;
@@ -2017,6 +2237,7 @@ document.addEventListener('click', e => {
         d.rev = presetRev(old) + 1;
       }
       const i = db.presets.findIndex(x => x.id === d.id);
+      if (i < 0 && !d.createdAt) d.createdAt = Date.now();  // 新しく作ったときの日時
       i >= 0 ? (db.presets[i] = d) : db.presets.push(d);
       toast('保存しました'); S.edit = null; delete prefs().draft;
       // みんなに公開：載せる・更新する・取り下げる
@@ -2059,8 +2280,51 @@ document.addEventListener('click', e => {
     case 'importOpen': S.sheet = { type: 'import' }; break;
     case 'publicOpen': S.buildView = 'public'; loadPublic(true); scrollTop(); break;
     case 'pubClose': S.buildView = 'presets'; scrollTop(); break;
+    case 'buildScope': if ((S.buildView === 'public' ? 'public' : 'presets') === v) break; S.buildView = v; if (v === 'public') loadPublic(true); scrollTop(); break;
     case 'pubChar': S.pubChar = S.pubChar === v ? '' : v; break;
     case 'buildChar': S.buildChar = S.buildChar === v ? '' : v; break;
+    case 'adminOpen': S.sheet = { type: 'admin' }; break;
+    case 'adminOff': try { localStorage.removeItem(ADMIN_LS); } catch { /* 消せなくても進む */ } toast('この端末の管理人モードを切りました'); break;
+    case 'adminCheck': {
+      const k = (document.getElementById('admin-key')?.value || '').trim(); if (!k) { toast('合言葉を入れてください'); return; }
+      postOnline({ type: 'admin', key: k, op: 'check' }).then(res => {
+        if (!res?.ok) { toast(res?.error === 'forbidden' ? '合言葉が違います' : '確かめられませんでした'); return; }
+        try { localStorage.setItem(ADMIN_LS, k); } catch { toast('この端末には保存できませんでした'); return; }
+        toast('管理人モードをオンにしました'); render(); }).catch(() => toast('通信できる所で、もう一度お試しください'));
+      return;
+    }
+    case 'adminOp': {
+      const op = t.dataset.op, pub = S.sheet?.pub; if (!pub) return;
+      if ((op === 'ban' || op === 'del') && S.confirmDel !== 'admin_' + op) { S.confirmDel = 'admin_' + op; break; }  // 非公開・削除は2回押す
+      S.confirmDel = null;
+      postOnline({ type: 'admin', key: adminKey(), op, id: pub.presetId, value: v ?? '' }).then(res => {
+        if (!res?.ok) { toast(res?.error === 'forbidden' ? '合言葉が通りませんでした。管理人モードを入れ直してください' : 'うまくいきませんでした'); return; }
+        toast({ neta: v === 'yes' ? 'ネタにしました' : v === 'no' ? 'ネタを外しました' : 'ネタの指定をやめました', ban: '非公開にしました', del: '削除しました' }[op]);
+        S.sheet = null; PUB.at = 0; loadPublic(true); render(); }).catch(() => toast('通信できる所で、もう一度お試しください'));
+      break;
+    }
+    case 'pubShareOpen': S.sheet = { type: 'pubShare', id: null }; break;
+    case 'pubShareSel': S.sheet = { type: 'pubShare', id: v }; break;
+    case 'pubShareBack': S.sheet = { type: 'pubShare', id: null }; break;
+    case 'pubShareNeta': { const sh = S.sheet, p = presetById(sh.id); sh.note = document.getElementById('pubshare-note')?.value ?? sh.note; sh.neta = !(sh.neta ?? !!p?.neta); break; }
+    case 'pubShareGo': {
+      const sh = S.sheet, d = presetById(sh.id); if (!d) break;
+      const note = (document.getElementById('pubshare-note')?.value ?? '').trim();
+      if (ngHit(d.nameAuto ? '' : d.name) || ngHit(d.weaponName) || ngHit(note)) { toast('名前・武器名・説明に不適切な言葉が含まれているため、公開できません'); break; }
+      Object.assign(d, { public: true, pubNote: note, neta: sh.neta ?? !!d.neta }); save(db); S.sheet = null;
+      postOnline({ type: 'build_put', id: d.id, name: presetName(d), charId: d.charId || '', data: publicPayload(d) })
+        .then(res => { if (res?.error === 'banned') { d.public = false; toast('このビルドは、管理人の判断で公開できなくなっています'); }
+          else if (res?.error === 'ng') { d.public = false; toast('不適切な言葉が含まれているため、公開できませんでした'); }
+          else if (!res?.ok) throw new Error(); else { PUB.at = 0; loadPublic(true); toast('みんなのビルドに公開しました'); }
+          save(db); render(); })
+        .catch(() => toast('公開できませんでした。通信できる所で、もう一度お試しください'));
+      break;
+    }
+    // みんなのビルドのガチャ：今の絞り込み（夜渡り・ネタだけ）の中から1つ選んで、取り込みの画面を開く
+    case 'pubGacha': { const f = S.pubChar || '', onlyNeta = !!prefs().pubOnlyNeta;
+      const cand = (PUB.list || []).filter(b => { const d = parsePublic(b.data); return d && (!f || d.charId === f) && (!onlyNeta || d.neta); });
+      if (!cand.length) { toast('選べるビルドがありません'); return; }
+      const b = cand[Math.floor(Math.random() * cand.length)]; S.sheet = { type: 'pubGacha', idx: PUB.list.indexOf(b), n: cand.length, spin: (S.sheet?.spin || 0) + 1 }; break; }  // まず結果を見せ、「中身を見る」で取り込みの画面へ
     case 'pubPick': { const b = PUB.list?.[+v], d = b && parsePublic(b.data); if (!d) return; S.sheet = { type: 'import', data: d, pub: b }; break; }
     case 'buildReport': {
       const b = S.sheet?.pub; if (!b) return;
@@ -2217,7 +2481,7 @@ document.addEventListener('click', e => {
       const d = S.sheet?.data; if (!d) return;
       const { pubNote, ...rest } = d;
       // 取り込んだビルドは、自分のプリセットとは別の枠（「取り込んだビルド」）に入れる。戦績の記録ではふつうに選べる
-      db.presets.push({ id: uid(), ...rest, public: false, imported: true, importedAt: Date.now() });
+      db.presets.push({ id: uid(), ...rest, public: false, imported: true, importedAt: Date.now(), createdAt: Date.now() });
       S.sheet = null; S.edit = null; S.tab = 'builds'; S.buildView = 'presets'; scrollTop(); toast(`「${presetName(d)}」を「取り込んだビルド」に入れました`); break;
     }
     default: if (/^know[A-Z]/.test(a)) { if (!knowledgeAct(a, v)) return; break; }  // 知識タブのボタン（knowTopic など）
@@ -2284,6 +2548,29 @@ document.addEventListener('change', e => {
 // iPhone の Safari は「拡大させない」設定を無視するので、2本指の拡大縮小（ピンチ）もここで止める
 ['gesturestart', 'gesturechange'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));
 document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+// 小さな切り替えスイッチ（統計の「自分／みんな」、相性の表の上の3つ）は、指でなぞって選べる。
+// 押したまま横に動かすと、指の下のボタンが光り、離したところが選ばれる（そのあと来る元のボタンのクリックは捨てる）
+const SWIPE_SW = '.mx-sw, .scope-seg';
+let swDrag = null, swEatClick = false;
+const swUnder = e => { const b = document.elementFromPoint(e.clientX, e.clientY)?.closest('button'); return b && swDrag?.sw.contains(b) ? b : null; };
+document.addEventListener('pointerdown', e => { const sw = e.target.closest?.(SWIPE_SW); swDrag = sw ? { sw, x: e.clientX, moved: false, cur: null } : null; });
+document.addEventListener('pointermove', e => {
+  if (!swDrag) return;
+  if (Math.abs(e.clientX - swDrag.x) > 6) swDrag.moved = true;
+  if (!swDrag.moved) return;
+  const b = swUnder(e); if (b) swDrag.cur = b;
+  swDrag.sw.querySelectorAll('button').forEach(x => x.classList.toggle('sw-hover', x === swDrag.cur));
+});
+document.addEventListener('pointerup', e => {
+  const d = swDrag; swDrag = null;
+  if (!d || !d.moved) return;
+  d.sw.querySelectorAll('.sw-hover').forEach(x => x.classList.remove('sw-hover'));
+  const b = swUnder({ clientX: e.clientX, clientY: e.clientY }) || d.cur;
+  swEatClick = true; setTimeout(() => { swEatClick = false; }, 400);
+  if (b && b.getAttribute('aria-pressed') !== 'true') { swEatClick = false; b.click(); swEatClick = true; }
+});
+document.addEventListener('pointercancel', () => { swDrag?.sw.querySelectorAll('.sw-hover').forEach(x => x.classList.remove('sw-hover')); swDrag = null; });
+document.addEventListener('click', e => { if (swEatClick && e.isTrusted) { swEatClick = false; e.stopPropagation(); e.preventDefault(); } }, true);
 
 // オフラインでも開けるようにする（開発サーバーでは使わない）
 if ('serviceWorker' in navigator && !window.__DEV__) {

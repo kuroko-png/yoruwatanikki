@@ -79,6 +79,7 @@ def lan_ip():
 class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+    request_queue_size = 128  # 画面は40個ほどのファイルを一度に読むので、待ち行列が5（初期値）だと接続が切られてファイルが途中で切れる
 
 if __name__ == '__main__':
     httpd = Server(('0.0.0.0', PORT), Handler)

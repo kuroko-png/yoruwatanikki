@@ -20,6 +20,9 @@
  *  - みんなのビルドへのリアクション（votes：👍😂🔥💡🤯。1人が何種類でも付けられ、押し直すと取り消し。新しく付けるのは1端末1日20回まで。前の「いいね」も👍として数える）
  *  - みんなのビルドへの定型文コメント（comments：決まった文の型と言葉の番号だけ。1人が1つのビルドに1つ・送り直すと置き換え・1端末1日20件まで）
  *  - 管理人による非公開（build_bans：A列に presetId を書くと、そのビルドは一覧から消え、公開し直しもできない）
+ *  - 管理人によるネタ指定（build_admin：presetId と neta＝yes/no。作った人が公開し直しても、この指定が勝つ）
+ *  - 管理人の操作（type=admin）：アプリの管理人モードから、ネタ指定・非公開・削除をする。
+ *    合言葉は「スクリプト プロパティ」に ADMIN_KEY という名前で入れる（INBOX_KEY とは別にする）。未設定なら誰も操作できない
  *  - みんなのビルドの通報（build_reports：3つ以上の端末から通報されたビルドは、自動で一覧から外す。行を消せば戻る）
  * 不正対策：1つの端末が同じ日に30戦を超えて送ってきた日の戦績は、集計に入れない（人が遊べる数を超えるため）
  * 受信箱（type=inbox）：機能リクエストと誤りの報告を、合言葉つきで読み出す（持ち主の毎朝の確認用）。
@@ -28,7 +31,7 @@
  * backups の行を消すと、その人は引き継ぎコードで戻せなくなるので消さないこと。
  */
 
-const RUN_COLS = ['receivedAt', 'clientId', 'runId', 'date', 'lordId', 'everdark', 'mode', 'depth', 'party', 'charId', 'result', 'lossAt', 'deleted', 'updatedAt', 'style', 'weaponType'];
+const RUN_COLS = ['receivedAt', 'clientId', 'runId', 'date', 'lordId', 'everdark', 'mode', 'depth', 'party', 'charId', 'result', 'lossAt', 'deleted', 'updatedAt', 'style', 'weaponType', 'lossBy'];  // lossBy＝1日目・2日目に倒された夜の強敵の名前
 const REPORT_COLS = ['receivedAt', 'clientId', 'enemy', 'text', 'appVersion'];
 const MAX_RUNS_PER_POST = 500;
 const BUILD_COLS = ['key', 'presetId', 'updatedAt', 'charId', 'name', 'data'];
@@ -37,6 +40,9 @@ const VOTE_COLS = ['key', 'presetId', 'value', 'updatedAt'];
 const BREPORT_COLS = ['key', 'presetId', 'reason', 'at'];
 // 管理人が非公開にしたビルド（build_bans）。A列に presetId（builds シートのB列）を入れると、一覧から消え、同じビルドは公開し直せなくなる。行を消せば元に戻る
 const BAN_COLS = ['presetId', 'memo', 'at'];
+// 管理人のネタ指定（build_admin）。neta が yes ならネタ、no ならネタではない、として一覧に出す
+const ADMIN_COLS = ['presetId', 'neta', 'at'];
+const adminNeta_ = () => { const sh = sheet_('build_admin', ADMIN_COLS); const n = sh.getLastRow() - 1; const m = {}; (n > 0 ? sh.getRange(2, 1, n, 2).getDisplayValues() : []).forEach(v => { if (v[0] && (v[1] === 'yes' || v[1] === 'no')) m[String(v[0]).trim()] = v[1] === 'yes'; }); return m; };
 const banned_ = () => { const sh = sheet_('build_bans', BAN_COLS); const n = sh.getLastRow() - 1; const set = {}; (n > 0 ? sh.getRange(2, 1, n, 1).getDisplayValues() : []).forEach(v => { if (v[0]) set[String(v[0]).trim()] = 1; }); return set; };
 const MAX_RUNS_PER_DAY = 30, MAX_VOTES_PER_DAY = 20, HIDE_REPORTS = 3;
 // みんなのビルドのリアクションの種類（アプリの REACTIONS と同じ順・同じ名前）。前の「いいね」は like として数える
@@ -92,7 +98,7 @@ function doPost(e) {
     const now = new Date();
     if (body.type === 'runs' && Array.isArray(body.runs)) {
       const rows = body.runs.slice(0, MAX_RUNS_PER_POST).map(r => [now, clientId, str_(r.id, 40), str_(r.date, 10), str_(r.lordId, 20), !!r.everdark,
-        str_(r.mode, 10), Number(r.depth) || '', str_(r.party, 10), str_(r.charId, 20), r.result === 'win' ? 'win' : 'loss', str_(r.lossAt, 10), !!r.deleted, Number(r.updatedAt) || 0, str_(r.style, 20), str_(r.weaponType, 20)]);
+        str_(r.mode, 10), Number(r.depth) || '', str_(r.party, 10), str_(r.charId, 20), r.result === 'win' ? 'win' : 'loss', str_(r.lossAt, 10), !!r.deleted, Number(r.updatedAt) || 0, str_(r.style, 20), str_(r.weaponType, 20), ngHit_(str_(r.lossBy, 40)) ? '' : str_(r.lossBy, 40)]);
       if (rows.length) { const sh = sheet_('runs', RUN_COLS); sh.getRange(sh.getLastRow() + 1, 1, rows.length, RUN_COLS.length).setValues(rows); }
       CacheService.getScriptCache().remove('stats');
       return json_({ ok: true, received: rows.length });
@@ -116,6 +122,26 @@ function doPost(e) {
       sh.getRange(row, 1, 1, Math.max(sh.getLastColumn(), width)).clearContent();
       // すべて「文字」として入れる（= や + で始まっても計算式にしない）
       sh.getRange(row, 1, 1, width).setNumberFormat('@').setValues([[id, now.toISOString(), String(data.length), ...chunks]]);
+      return json_({ ok: true });
+    }
+    // 管理人の操作：合言葉（ADMIN_KEY）が合うときだけ。op＝check（合言葉の確認）／neta（value：yes・no・空で指定を外す）／ban（非公開）／del（削除）
+    if (body.type === 'admin') {
+      const ak = PropertiesService.getScriptProperties().getProperty('ADMIN_KEY');
+      if (!ak || String(body.key || '') !== ak) return json_({ ok: false, error: 'forbidden' });
+      if (body.op === 'check') return json_({ ok: true });
+      const id = str_(body.id, 60);
+      if (!id) return json_({ ok: false, error: 'no id' });
+      const findRow = (sh, col) => sh.getRange(col + ':' + col).createTextFinder(id).matchEntireCell(true).findNext();
+      if (body.op === 'neta') {
+        const sh = sheet_('build_admin', ADMIN_COLS), hit = findRow(sh, 'A'), v = body.value === 'yes' || body.value === 'no' ? body.value : '';
+        if (!v) { if (hit) sh.deleteRow(hit.getRow()); }
+        else { const row = [id, v, now.toISOString()]; sh.getRange(hit ? hit.getRow() : sh.getLastRow() + 1, 1, 1, 3).setNumberFormat('@').setValues([row]); }
+      } else if (body.op === 'ban') {
+        const sh = sheet_('build_bans', BAN_COLS); if (!findRow(sh, 'A')) sh.appendRow([id, 'アプリの管理人モードから', now.toISOString()]);
+      } else if (body.op === 'del') {
+        const sh = sheet_('builds', BUILD_COLS); let hit; while ((hit = findRow(sh, 'B'))) sh.deleteRow(hit.getRow());
+      } else return json_({ ok: false, error: 'bad op' });
+      CacheService.getScriptCache().remove('builds');
       return json_({ ok: true });
     }
     if (body.type === 'build_put' || body.type === 'build_del') {
@@ -239,7 +265,7 @@ function doGet(e) {
   const out = { ok: true, updatedAt: Date.now(), range: { from: from, to: to }, players: 0, total: { n: 0, w: 0 }, lord: {}, char: {}, lordChar: {}, style: {}, weapon: {}, depth: {}, party: {},
     byDate: {}, charDepth: {}, charWeapon: {}, charStyle: {},
     // 分析用（勝敗つき）：型・武器・深度・人数ごと、敗北した場所、夜の王／夜渡りごとの深度・人数・武器、日ごとの推移
-    styleW: {}, weaponW: {}, depthW: {}, partyW: {}, loss: {}, lordLoss: {}, lordDepth: {}, charDepthW: {}, charWeaponW: {}, charParty: {}, lordParty: {}, trend: {} };
+    styleW: {}, weaponW: {}, depthW: {}, partyW: {}, loss: {}, lordLoss: {}, lordDepth: {}, charDepthW: {}, charWeaponW: {}, charParty: {}, lordParty: {}, trend: {}, lordCharM: {}, lossBy: { d1: {}, d2: {} } };
   const add2 = (map, a, b, win) => add(map[a] || (map[a] = {}), b, win);
   // 日ごとの推移：期間を指定したらその期間すべて、全期間なら直近60日
   const trendSince = from || Utilities.formatDate(new Date(Date.now() - 59 * 864e5), 'Asia/Tokyo', 'yyyy-MM-dd');
@@ -259,6 +285,7 @@ function doGet(e) {
     players[v[1]] = 1;
     add(out, 'total', win);
     add(out.lord, lord, win); add(out.char, v[9], win); add(out.lordChar, lord + '/' + v[9], win);
+    add(out.lordCharM, lord + '/' + v[9] + '/' + (v[6] === 'deep' ? 'deep' : 'normal'), win);  // 相性の表の「深き／浅き」用
     // よく使われている型・武器（使われた数だけ）
     if (v[14]) out.style[v[14]] = (out.style[v[14]] || 0) + 1;
     if (v[15]) out.weapon[v[15]] = (out.weapon[v[15]] || 0) + 1;
@@ -278,7 +305,8 @@ function doGet(e) {
     if (v[15]) add(out.weaponW, v[15], win);
     add(out.depthW, dk, win);
     if (v[8]) add(out.partyW, v[8], win);
-    if (!win) { const la = v[11] || 'unknown'; out.loss[la] = (out.loss[la] || 0) + 1; inc(out.lordLoss, lord, la); }
+    if (!win) { const la = v[11] || 'unknown'; out.loss[la] = (out.loss[la] || 0) + 1; inc(out.lordLoss, lord, la);
+      if ((la === 'd1' || la === 'd2') && v[16]) inc(out.lossBy, la, String(v[16])); }  // 倒された夜の強敵（記録した戦績だけ）
     add2(out.lordDepth, lord, dk, win);
     add2(out.charDepthW, v[9], dk, win);
     if (v[15]) add2(out.charWeaponW, v[9], v[15], win);
@@ -332,8 +360,10 @@ function builds_() {
   const rs = sheet_('build_reports', BREPORT_COLS);
   const reps = {};
   (rs.getLastRow() > 1 ? rs.getRange(2, 2, rs.getLastRow() - 1, 1).getDisplayValues() : []).forEach(v => { reps[v[0]] = (reps[v[0]] || 0) + 1; });
-  const bans = banned_();
-  const list = values.filter(v => v[0] && !ngHit_(v[4]) && (reps[v[1]] || 0) < HIDE_REPORTS && !bans[v[1]]).map(v => ({ presetId: v[1], updatedAt: v[2], charId: v[3], name: v[4], data: v[5], ...(tally[v[1]] || { likes: 0, dislikes: 0, reactions: {} }), comments: commentsOf(v[1]) }))
+  const bans = banned_(), netaFix = adminNeta_();
+  // 管理人のネタ指定があるビルドは、中身（data）の neta を書き換えて返す
+  const fixNeta = (id, data) => { if (!(id in netaFix)) return data; try { const o = JSON.parse(data); o.neta = netaFix[id]; return JSON.stringify(o); } catch (err) { return data; } };
+  const list = values.filter(v => v[0] && !ngHit_(v[4]) && (reps[v[1]] || 0) < HIDE_REPORTS && !bans[v[1]]).map(v => ({ presetId: v[1], updatedAt: v[2], charId: v[3], name: v[4], data: fixNeta(v[1], v[5]), adminNeta: v[1] in netaFix, ...(tally[v[1]] || { likes: 0, dislikes: 0, reactions: {} }), comments: commentsOf(v[1]) }))
     .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)).slice(0, 300);
   const text = JSON.stringify({ ok: true, builds: list });
   try { cache.put('builds', text, 120); } catch (err) { /* 大きすぎるときは作り置きしない */ }

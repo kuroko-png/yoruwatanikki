@@ -1154,3 +1154,153 @@ button.neta-filter { width: 100%; font: inherit; color: var(--fg); cursor: point
 .bj-lord { display: flex; align-items: center; gap: 2px; padding: 6px 10px; border-radius: 10px; border: 1px solid var(--line-strong); background: rgba(255,255,255,.04); font-size: 13.5px; font-weight: 700; }
 .bj-lords.one .bj-lord { justify-content: center; font-size: 17px; padding: 10px; border-color: var(--accent); color: var(--accent); }
 .bj-detail:not(.open) .sec-toggle .chev { transform: rotate(45deg); margin-top: -4px; }
+
+/* 自分の統計：タブの中の小見出し（武器・型） */
+.m-sub { margin: 4px 2px 0; font-size: 13px; color: var(--dim); font-weight: 700; }
+/* 自分の統計：期間は3つなので3列。行タップの案内は小さく */
+.g-period.p3 .chips { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.g-hint { font-size: 11.5px; margin: 0; }
+/* アップデート情報：版ごとに折りたたみ（右の ▸ が開くと ▾） */
+.news-ver { border-bottom: 1px solid var(--line); padding: 2px 0; }
+.news-ver summary { list-style: none; cursor: pointer; padding: 8px 2px; }
+.news-ver summary::-webkit-details-marker { display: none; }
+.news-ver summary h3 { display: flex; align-items: center; gap: 8px; margin: 0; }
+.news-ver summary h3 small { color: var(--dim); font-size: 12px; font-weight: 500; }
+.news-ver summary h3::after { content: "▸"; margin-left: auto; color: var(--dim); font-size: 13px; }
+.news-ver[open] summary h3::after { content: "▾"; }
+.news-ver .help-points { margin: 0 0 10px; }
+.news-ver.latest h3 { display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 2px; }
+.news-ver.latest h3 small { color: var(--dim); font-size: 12px; font-weight: 500; }
+/* 記録：1日目・2日目に負けたとき、倒された夜の強敵を選ぶボタン（名前が長いので2列） */
+.foe-pick .rec-q { white-space: normal; }
+.foe-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-height: 46vh; overflow-y: auto; }
+.foe-btns .result-btn { font-size: 13.5px; letter-spacing: 0; padding: 10px 6px; line-height: 1.3; white-space: normal; }
+/* 統計の表：％の前に「勝率」「使用率」などの小さな名前を付ける（白＝勝率、黄＝全体のうちの割合） */
+.ci-row .num b i, .ci-row .num em i { font-style: normal; font-weight: 500; font-size: 10px; margin-right: 2px; opacity: .8; }
+.ci-row .num b i { color: var(--dim); }
+/* まとめの下の相性の表：見出しなし。上に小さなスイッチを3つ横に並べる（深き/浅き・使用数/勝率・すべて/通常/常夜） */
+.mx-card { display: grid; gap: 10px; }
+.mx-tools { display: flex; gap: 6px; flex-wrap: nowrap; justify-content: space-between; }
+.mx-sw { display: inline-flex; background: rgba(0,0,0,.25); border: 1px solid var(--line); border-radius: 999px; padding: 2px; flex: none; }
+.mx-sw button { border: 0; background: transparent; color: var(--dim); font: inherit; font-size: 11.5px; font-weight: 700; padding: 5px 7px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
+.mx-sw button[aria-pressed="true"] { background: var(--grad-gold); color: var(--accent-ink); }
+.mx-sw.ev button[data-v="ever"][aria-pressed="true"] { background: linear-gradient(90deg, #6a4bc4, #a77cf0); color: #fff; }
+@media (max-width: 359px) { .mx-sw button { font-size: 10.5px; padding: 5px 5px; } }
+/* なぞって選べるスイッチ：横の動きはページのスクロールにしない。指の下のボタンを薄く光らせる。押しやすいよう少し大きく */
+.mx-sw, .scope-seg { touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.mx-sw button { padding: 7px 8px; }
+.mx-sw button.sw-hover:not([aria-pressed="true"]), .scope-seg button.sw-hover:not([aria-pressed="true"]) { background: rgba(255,255,255,.14); color: var(--fg); }
+@media (max-width: 359px) { .mx-sw button { padding: 7px 5px; } }
+/* 多いものランキング：順位・名前・回数（右に全体のうちの割合）、下に一番多いものを100%とした棒 */
+.rk-card { display: grid; gap: 10px; }
+.rk-note { margin: 0; font-size: 11.5px; }
+.rk-list { display: grid; gap: 10px; }
+.rk-row { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; column-gap: 8px; row-gap: 4px; }
+.rk-no { grid-row: span 2; font-weight: 800; font-size: 14px; color: var(--dim); text-align: center; font-variant-numeric: tabular-nums; }
+.rk-row.top .rk-no { color: var(--accent); }
+.rk-name { display: flex; align-items: center; gap: 6px; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rk-name .ico { width: 20px; height: 20px; margin: 0; top: 0; flex: none; }
+.rk-num { font-size: 12px; color: var(--dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rk-num b { color: var(--fg); font-size: 14px; margin-right: 1px; }
+.rk-num small { margin-left: 6px; color: var(--accent); font-size: 11.5px; }
+.rk-bar { grid-column: 2 / 4; height: 6px; border-radius: 999px; background: rgba(255,255,255,.06); overflow: hidden; }
+.rk-bar i { display: block; height: 100%; border-radius: inherit; background: var(--grad-win); }
+/* ランキング：右上に黄色で「使用率」など（右の％の名前）。夜渡りの行は押せる。開くと型ごとの回数 */
+.rk-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 11.5px; color: var(--dim); margin: 0 0 -4px; }
+.rk-head small { color: var(--accent); font-size: 11.5px; font-weight: 700; padding-right: 2px; }
+button.rk-row { width: 100%; border: 0; background: transparent; font: inherit; color: inherit; text-align: left; padding: 4px 2px; border-radius: 10px; cursor: pointer; }
+button.rk-row.open { background: rgba(255,255,255,.05); }
+.rk-num .go { margin-left: 8px; color: var(--dim); font-weight: 700; }
+.rk-sub { display: grid; gap: 6px; margin: -4px 0 4px 30px; padding: 8px 10px; border-left: 2px solid var(--line-strong); }
+.rk-subrow { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.rk-subrow b { font-variant-numeric: tabular-nums; }
+.rk-subrow.dim { color: var(--dim); }
+/* 見出しの横の「!」（丸の中に！）。押すと説明が開く */
+.info-btn { display: inline-grid; place-items: center; width: 20px; height: 20px; margin-left: 8px; padding: 0; border-radius: 50%; border: 1.5px solid var(--dim); background: transparent; color: var(--dim); font: inherit; font-size: 12px; font-weight: 800; line-height: 1; vertical-align: 2px; cursor: pointer; }
+.info-btn[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+.info-text { margin-top: 0; }
+.scan-links { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+/* ビルドの一覧の上：作る／みんなのビルド／ガチャ を1列に。右端に「!」 */
+.build-top { display: grid; grid-template-columns: 3fr 7fr auto; gap: 6px; align-items: center; }  /* 作る3：ガチャ7 */
+.bt-btn { border: 1px solid var(--line-strong); background: rgba(255,255,255,.04); color: var(--fg); font: inherit; font-size: 13px; font-weight: 700; padding: 10px 4px; border-radius: 12px; cursor: pointer; white-space: nowrap; }
+.bt-btn.add { background: var(--grad-gold); color: var(--accent-ink); border-color: transparent; }
+.bt-btn.add.danger { background: var(--loss); color: #fff; }
+.bt-btn:disabled { opacity: .45; cursor: default; }
+.build-top .info-btn { margin-left: 2px; }
+/* ビルドの一覧のプリセット：左に名前と中身、右に勝率と使用数（縦を低く） */
+.card.preset-card { grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 4px 10px; padding: 11px 14px; }
+.preset-card .pc-ico .ico { width: 26px; height: 26px; margin: 0; top: 0; }
+.preset-card .pc-main .title > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preset-card .pc-main { display: grid; gap: 3px; min-width: 0; }
+.preset-card .pc-main .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preset-card .pc-side { display: grid; justify-items: end; gap: 1px; white-space: nowrap; }
+.preset-card .pc-side small { font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
+/* プリセット編集の一番下：キャンセル1：保存2 → 共有・複製を同じ幅で → 削除は小さな文字ボタン */
+.edit-actions { display: grid; gap: 10px; padding-top: 4px; }
+.edit-main { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; }
+.edit-main > button { padding: 14px 8px; border-radius: 14px; }
+.edit-sub { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
+.edit-sub > button { padding: 10px 6px; font-size: 13.5px; }
+.edit-del { justify-self: center; border: 0; background: transparent; color: var(--loss); font: inherit; font-size: 13px; padding: 8px 12px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.edit-del.on { font-weight: 700; }
+.scan-body { display: grid; gap: 10px; }
+/* プリセット一覧：勝率の右に「勝ち数/使った回数」を横並びで */
+.preset-card .pc-side { grid-auto-flow: column; align-items: baseline; gap: 6px; }
+/* みんなのビルド：ネタビルドのスイッチの右に「!」 */
+.pub-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-items: center; }
+/* 夜渡りの四角（自分・みんなのビルドの絞り込み）：少しだけ小さく（高さを低く、アイコンも少し小さく） */
+.char-grid { gap: 5px; }
+.char-sq { aspect-ratio: 1 / .82; border-radius: 10px; padding: 3px 2px; }
+.char-sq .ico { width: 22px; height: 22px; }
+.char-sq span { font-size: 10px; }
+/* みんなのビルド：夜渡りの四角の上に「共有する」「ガチャ」 */
+.pub-actions { display: grid; grid-template-columns: 3fr 7fr auto; gap: 6px; align-items: center; }  /* 共有3：ガチャ7 */
+.share-card { display: grid; gap: 4px; }
+.share-name { display: flex; align-items: center; gap: 8px; }
+.share-name .ico { width: 24px; height: 24px; margin: 0; top: 0; }
+/* みんなのビルドの1枚：アイコン＋プリセット名／コメント／リアクション */
+.pub-title > span { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pub-title .ico { width: 24px; height: 24px; margin: 0; top: 0; flex: none; }
+/* プリセットの作成日時・みんなのビルドの公開日時（小さく薄く） */
+.pc-date { font-size: 11px; color: var(--dim); font-weight: 400; }
+.pub-date { font-size: 11px; color: var(--dim); font-weight: 400; white-space: nowrap; margin-left: auto; }
+.pub-title { gap: 8px; }
+/* 管理人モード：みんなのビルドを開いたときの管理人だけのボタン */
+.admin-box { display: grid; gap: 8px; padding: 10px 12px; border: 1px dashed color-mix(in srgb, var(--accent) 55%, transparent); border-radius: 12px; }
+.admin-h { font-weight: 700; font-size: 13px; color: var(--accent); }
+.admin-h small { font-weight: 400; color: var(--dim); margin-left: 6px; }
+.admin-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.admin-btns > button { flex: 1 1 auto; padding: 9px 8px; font-size: 13px; }
+.pick.dim-item { opacity: .6; }
+/* 管理人モードの入力欄（ほかの入力欄と同じ見た目） */
+input[type="password"] { width: 100%; background: rgba(5, 8, 24, .55); border: 1px solid var(--line-strong); color: var(--fg); border-radius: 10px; padding: 10px 12px; font: inherit; font-size: 16px; }
+/* 履歴：夜渡りは名前を出さずアイコンだけ、その横にビルド名。詳細に夜渡り名・常夜・人数 */
+.run .who .dim { color: var(--dim); font-weight: 400; }
+.run-info { font-size: 12px; color: var(--dim); }
+/* 履歴の1行：夜の王 × アイコン＋ビルド名 を1行に（長いビルド名は「…」）。倒れた場所・相手も長ければ「…」 */
+.run .who { flex-wrap: nowrap; min-width: 0; }
+.run .who .nm-ico:last-child { min-width: 0; overflow: hidden; }
+.run .who .nm-ico:last-child > :not(.ico) { overflow: hidden; text-overflow: ellipsis; }
+.run .who .nm-ico:last-child { display: flex; }
+.run .res small { max-width: 9.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: auto; }
+.run .who .bn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* 履歴：どの行も同じ高さに。深き夜は夜の王の前に小さな「深3」の札（地図欠損などは開いたときに） */
+.run { min-height: 58px; align-items: center; }
+.run .deep-tag { flex: none; font-size: 11px; font-weight: 800; line-height: 1; padding: 4px 5px; border-radius: 6px; color: var(--deep); border: 1px solid color-mix(in srgb, var(--deep) 55%, transparent); background: color-mix(in srgb, var(--deep) 12%, transparent); }
+.run .res { line-height: 1.15; }
+.run .res small { margin-top: 2px; line-height: 1.2; }
+.run { padding-top: 8px; padding-bottom: 8px; }
+/* プリセット編集の夜渡り：アイコンだけを5列×2行に */
+.char-pick { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.char-pick-btn { aspect-ratio: 1 / 1; display: grid; place-items: center; padding: 0; border-radius: 10px; border: 1px solid var(--line-strong); background: rgba(255,255,255,.04); cursor: pointer; }
+.char-pick-btn .ico { width: 30px; height: 30px; margin: 0; top: 0; }
+.char-pick-btn[aria-pressed="true"] { background: var(--grad-gold); border-color: transparent; }
+.char-pick-btn[aria-pressed="true"] .ico { filter: brightness(0); opacity: .8; }
+/* 履歴：夜の王の前に、深度の札とその下に地変の名前を縦に積む */
+.run .run-tags { flex: none; display: grid; gap: 2px; justify-items: start; }
+.run .shift-tag { font-size: 9.5px; font-weight: 700; line-height: 1; padding: 2px 4px; border-radius: 5px; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); white-space: nowrap; }
+
+/* 履歴：日付ごとの区切りを詰める（行の高さ・行どうしの間・日付どうしの間） */
+.day { gap: 5px; }
+.day + .day { margin-top: -4px; }
+.day .run { min-height: 48px; padding-top: 5px; padding-bottom: 5px; }
