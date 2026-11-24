@@ -517,7 +517,7 @@ async function cloudSave() {
     const res = await postOnline({ type: 'backup_put', id, data: await seal(payload, key) });
     if (!res?.ok) throw new Error(res?.error || 'failed');
     Object.assign(cl, { sig, savedAt: Date.now(), failed: false });
-  } catch (e) { cl.failed = true; } finally { cloudBusy = false; save(db); if (S.sheet?.type === 'menu') renderSheet(); }
+  } catch (e) { cl.failed = true; } finally { cloudBusy = false; save(db); if (S.sheet?.type === 'menu' || S.sheet?.type === 'backup') renderSheet(); }
 }
 // アプリを閉じる・ほかのアプリに切り替えるときは、待たずに保存する
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') cloudSave(); });
@@ -1553,6 +1553,7 @@ function renderSheetInner() {
   lockScroll(!!sh);
   if (!sh) { el.innerHTML = ''; return; }
   if (sh.type === 'menu') { el.innerHTML = menuSheet(); return; }
+  if (sh.type === 'backup') { el.innerHTML = backupSheet(); return; }
   if (sh.type === 'guide') { el.innerHTML = guideSheet(); return; }
   if (sh.type === 'help') { el.innerHTML = helpSheet(); return; }
   if (sh.type === 'import') { el.innerHTML = importSheet(); return; }
@@ -1663,13 +1664,31 @@ function cloudBox() {
       ${cl.confirmed ? '<span class="hint ok">✓ 控え済み</span>' : '<button class="link-btn" data-act="codeConfirm">控えた</button>'}
       <button class="link-btn ${S.confirmDel === 'cloudOff' ? 'danger-text' : 'dim-link'}" data-act="cloudOff">${S.confirmDel === 'cloudOff' ? 'もう一度押すとオフ' : 'オフにする'}</button></div></div>`;
 }
+const menuItem = (act, title, sub, cls = '') => `<button class="pick ${cls}" data-act="${act}"><span><b>${title}</b><br><span class="hint">${sub}</span></span><span class="cat">›</span></button>`;
+// データ管理：見出しなしで、よく使う順に1行ずつ。バックアップは1行にまとめ、押すと引き継ぎコードなどの画面を開く
 function menuSheet() {
-  const n = liveRuns().length;
-  const item = (act, title, sub, cls = '') => `<button class="pick ${cls}" data-act="${act}"><span><b>${title}</b><br><span class="hint">${sub}</span></span><span class="cat">›</span></button>`;
+  const n = liveRuns().length, item = menuItem, cl = cloud();
+  const backupSub = !cl.on ? '自動バックアップ：オフ（引き継ぎコード・ファイルでの保存と戻し）' : cl.failed ? '<span class="bad">保存できませんでした（自動でやり直します）</span>' : `自動バックアップ：オン・最後の保存：${agoText(cl.savedAt)}`;
   return `<div class="scrim" data-act="sClose"></div><div class="sheet" role="dialog" aria-label="データ管理">
     <div class="sheet-head"><h2>データ管理</h2><button class="ghost" data-act="sClose">閉じる</button></div>
     <div class="sheet-list">
-      <div class="sub-group">バックアップ</div>
+      ${item('newsOpen', `アップデート情報${newsUnseen() ? '<span class="badge new">NEW</span>' : ''}`, `いつ、どんな機能が増えたか（最新：${CHANGELOG[0]?.v || ''}）`)}
+      ${item('requestOpen', '機能の実装リクエスト', '「こんな機能がほしい」を開発者に送れます')}
+      ${item('guide', '使い方・ホーム画面に追加', 'はじめに出た案内をもう一度見る')}
+      ${item('shareApp', '夜渡り日記を共有する', 'アプリのURLをコピーして、友だちに送れます')}
+      ${item('backupOpen', `バックアップ${backupState().due || codeNoticeDue() ? '<span class="badge new">！</span>' : ''}`, backupSub)}
+      ${item('privacyOpen', 'プライバシーについて', '何を保存・送信しているか、消し方など')}
+      ${item('exportCsv', 'これまでの戦績をCSVで書き出す', `戦績 ${n}件を、Excelなどで開ける形にします`)}
+      ${DEV_HOST ? item('loadSample', S.confirmDel === 'sample' ? 'もう一度押すとサンプルに置き換えます' : 'サンプルデータを入れる', '（開発用）今のデータは消えて、試し用の戦績64件とプリセット3件になります', S.confirmDel === 'sample' ? 'danger' : '') : ''}
+      ${item('wipe', S.confirmDel === 'wipe' ? 'もう一度押すとすべて削除します' : 'すべてのデータを削除', '戦績とプリセットをすべて消します。元に戻せません', 'danger')}
+    </div></div>`;
+}
+// バックアップの画面：自動バックアップ（引き継ぎコード）・コードで戻す・予備のファイル
+function backupSheet() {
+  const item = menuItem;
+  return `<div class="scrim" data-act="sClose"></div><div class="sheet" role="dialog" aria-label="バックアップ">
+    <div class="sheet-head"><h2>バックアップ</h2><button class="ghost" data-act="menu">戻る</button></div>
+    <div class="sheet-list">
       ${cloudBox()}
       ${item('restoreOpen', '引き継ぎコードで戻す', '機種変更した・アプリを入れ直したときに、前のデータを戻します')}
       <details class="spare"><summary>予備のバックアップ（ファイル）</summary>
@@ -1677,17 +1696,6 @@ function menuSheet() {
         ${item('exportJson', 'ファイルに保存', `最後に保存：${backupAgo(backupState())}`)}
         <label class="pick" for="importFile"><span><b>ファイルから戻す</b><br><span class="hint">今のデータは、ファイルの内容に置き換わります</span></span><span class="cat">›</span></label>
         <input type="file" id="importFile" accept="application/json,.json" hidden></details>
-      <div class="sub-group">共有・連絡</div>
-      ${item('shareApp', '夜渡り日記を共有する', 'アプリのURLをコピーして、友だちに送れます')}
-      ${item('requestOpen', '機能の実装リクエスト', '「こんな機能がほしい」を開発者に送れます')}
-      <div class="sub-group">その他</div>
-      ${item('guide', '使い方・ホーム画面に追加', 'はじめに出た案内をもう一度見る')}
-      ${item('newsOpen', `アップデート情報${newsUnseen() ? '<span class="badge new">NEW</span>' : ''}`, `いつ、どんな機能が増えたか（最新：${CHANGELOG[0]?.v || ''}）`)}
-      ${item('privacyOpen', 'プライバシーについて', '何を保存・送信しているか、消し方など')}
-      <p class="hint" style="padding:0 4px">この端末の記録：戦績 ${n}件・プリセット ${activePresets().length}件</p>
-      ${item('exportCsv', 'CSVで書き出す', '戦績をExcelなどで開ける形にします')}
-      ${DEV_HOST ? item('loadSample', S.confirmDel === 'sample' ? 'もう一度押すとサンプルに置き換えます' : 'サンプルデータを入れる', '（開発用）今のデータは消えて、試し用の戦績64件とプリセット3件になります', S.confirmDel === 'sample' ? 'danger' : '') : ''}
-      ${item('wipe', S.confirmDel === 'wipe' ? 'もう一度押すとすべて削除します' : 'すべてのデータを削除', '戦績とプリセットをすべて消します。元に戻せません', 'danger')}
     </div></div>`;
 }
 function replaceDb(next) {
@@ -1801,6 +1809,7 @@ document.addEventListener('click', e => {
     case 'kotsuboOpen': if (S.tab === 'kotsubo') return; if (S.edit) S.edit = null; S.kotsuboFrom = S.tab; S.tab = 'kotsubo'; S.sheet = null; startKotsubo(); scrollTop(); break;
     case 'kotsuboBack': S.tab = S.kotsuboFrom || 'record'; scrollTop(); break;
     case 'menu': S.sheet = { type: 'menu' }; break;
+    case 'backupOpen': S.sheet = { type: 'backup' }; S.confirmDel = null; break;
     case 'help': S.sheet = { type: 'help' }; break;
     case 'secretImage': S.sheet = { type: 'image' }; break;
     case 'scanSample': S.sheet = { type: 'scanSample' }; break;
