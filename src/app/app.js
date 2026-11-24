@@ -421,7 +421,7 @@ function runRow(r) {
   return `<button class="run ${r.result}" data-act="openRun" data-v="${r.id}" aria-expanded="${open}">
     <span class="stripe"></span>
     <span class="main"><span class="who">${(() => { const sh = (r.flags || []).includes('shift') && r.shift ? SHIFT[r.shift]?.name : '';  // 深度の札の下に地変の名前
-      return r.mode === 'deep' || sh ? `<span class="run-tags">${r.mode === 'deep' ? `<span class="deep-tag">深${r.depth || ''}</span>` : ''}${sh ? `<span class="shift-tag">${esc(sh)}</span>` : ''}</span>` : ''; })()}<span class="nm-ico">${lordName(r.lordId, r.everdark)}</span><span class="x">×</span><span class="nm-ico">${ico('char', r.charId)}<span class="${pname ? 'bn' : 'bn dim'}">${pname ? esc(pname) : 'ビルドなし'}</span></span></span>
+      return r.mode === 'deep' || sh ? `<span class="run-tags">${r.mode === 'deep' ? `<span class="deep-tag">深${r.depth || ''}</span>` : ''}${sh ? `<span class="shift-tag">${esc(sh)}</span>` : ''}</span>` : ''; })()}<span class="nm-ico" title="${esc(LORD[r.lordId]?.name ?? r.lordId)}">${ico('lord', r.lordId, r.everdark)}</span><span class="x">×</span><span class="nm-ico">${ico('char', r.charId)}<span class="${pname ? 'bn' : 'bn dim'}">${pname ? esc(pname) : 'ビルドなし'}</span></span></span>
 </span>
     <span class="res">${r.result === 'win' ? '勝利' : '敗北'}${r.lossAt ? `<small>${LOSS[r.lossAt].name}${r.lossBy ? `・${esc(r.lossBy)}` : ''}</small>` : ''}</span>
     <span class="more-dots" aria-hidden="true">${open ? '×' : '⋯'}</span>
