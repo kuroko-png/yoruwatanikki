@@ -90,8 +90,11 @@ const itemsOf = k => (k.items ||= {});
 function paintItem(k, id) {
   const c = $(`k-item-${id}`); if (!c) return;
   const n = itemsOf(k)[id] || 0, row = c.closest('.k-item'); c.textContent = n; row?.classList.toggle('none', !n);
-  const b = row?.querySelector('.k-use'); if (b) b.disabled = !n || (id === 'scar' && (fight ? !!fight.scar : !!k.scarReady));
+  const b = row?.querySelector('.k-use'); if (b) b.disabled = !n || itemOff(k, id);
 }
+// 1回の夜の王との戦いで使えるアイテムは1つまで（挑む前に刻んだ爪痕・挑む時に燃えている香も1つと数える）
+const ITEM_PER_FIGHT = 1;
+const itemOff = (k, id) => fight ? (fight.items || 0) >= ITEM_PER_FIGHT : id === 'scar' && !!k.scarReady;
 // 消えぬ爪痕の印（使ったあと・戦い中）と、残っている傷（削った体力）の表示
 const scarText = k => fight ? (fight.scar ? '🩸 爪痕を刻んだ：この戦いで削った体力は、逃げられても残る' : '')
   : [k.scarReady ? '🩸 爪痕を刻んだ：次の戦いで削った体力は、逃げられても残る' : '', k.scarHp && k.scarHp.i === (k.lords || 0) ? `🩸 王には傷が残っている（残り体力 ${Math.ceil(k.scarHp.frac * 100)}%）` : ''].filter(Boolean).join('<br>');
@@ -194,7 +197,7 @@ function warSpoils(k) {
 
 // ---------- 動き（叩く・時間がたつ・常夜の小壺・戦い） ----------
 let tuckTimer = null;
-let loop = null, lastTick = 0, lastSave = 0, rushUntil = 0, jar = null, nextJarAt = 0, fight = null, combo = 0, onTab = false;
+let loop = null, lastTick = 0, lastSave = 0, rushUntil = 0, itemRushUntil = 0, jar = null, nextJarAt = 0, fight = null, combo = 0, onTab = false;
 const $ = id => document.getElementById(id);
 function gain(k, n) { k.mark += n; k.total += n; }
 function scheduleJar(k) { nextJarAt = Date.now() + (50 + Math.random() * 100) * 1000 / (k.ups.jar1 ? 2 : 1); }
@@ -203,7 +206,7 @@ function tick() {
   // ミニゲームの画面を開いていないときは、何もしない（端末への保存もしない）。
   // 離れた瞬間に、戦いと常夜の小壺はお知らせなしで終わらせ、離れた時刻を残す（稼ぎは、次に開いたときに「留守の間」としてまとめて入れる）
   if (H.tab() !== 'kotsubo') {
-    if (onTab) { onTab = false; setLock(false); fight = null; rushUntil = 0; if (jar) { $('k-jar')?.remove(); jar = null; nextJarAt = 0; } st().lastAt = now; H.save(); }
+    if (onTab) { onTab = false; setLock(false); fight = null; rushUntil = itemRushUntil = 0; if (jar) { $('k-jar')?.remove(); jar = null; nextJarAt = 0; } st().lastAt = now; H.save(); }
     return;
   }
   onTab = true;
@@ -317,7 +320,7 @@ export function viewKotsubo() {
       <p class="hint">${FIGHT_SEC}秒のうちに削り切れば討伐。討伐するたびに、すべての稼ぎが永久に1.25倍（今 ${fmtX(globalMult(k))}倍）</p>
       <button class="primary small-primary" data-act="kFight">挑む</button></div>`
     : d < DEPTH_MAX ? `<div class="k-boss done"><b>🌅 ${d ? `深度${d}の` : ''}すべての夜の王を討伐しました</b><p class="hint">稼ぎは今 ${fmtX(globalMult(k))}倍です。</p>
-      <p class="hint">深き壺に潜ると、深度${d + 1}で最初から周回できます。マークと雇った夜渡りは最初に戻りますが、夜の王の討伐ボーナスと遺物はそのまま。深度${d + 1}では稼ぎが${fmtX(DEPTH_GAIN[d + 1])}倍になり、そのぶん夜の王も硬くなります（深度${DEPTH_MAX}まで）。${d + 1 >= HARD_ONLY_DEPTH ? `深度${HARD_ONLY_DEPTH}からは、高難易度でしか挑めません。` : ''}${d + 1 > SCAR_KEEP_DEPTH && itemsOf(k).scar ? '🩸消えぬ爪痕は、この先へは持っていけない。' : ''}</p>
+      <p class="hint">深き壺に潜ると、深度${d + 1}で最初から周回できます。マークと雇った夜渡りは最初に戻りますが、夜の王の討伐ボーナスと遺物はそのまま。深度${d + 1}では稼ぎが${fmtX(DEPTH_GAIN[d + 1])}倍になり、そのぶん夜の王も硬くなります（深度${DEPTH_MAX}まで）。${d + 1 >= HARD_ONLY_DEPTH ? `深度${HARD_ONLY_DEPTH}からは、高難易度でしか挑めません。` : ''}${d + 1 > SCAR_KEEP_DEPTH && (itemsOf(k).scar || itemsOf(k).rush) ? 'アイテムは、この先へは持っていけない。' : ''}</p>
       <button class="primary small-primary ${S().confirmDive ? 'danger' : ''}" data-act="kDive">${S().confirmDive ? 'もう一度押すと潜ります' : `深き壺に潜る（深度${d + 1}へ）`}</button></div>`
     : `<div class="k-boss done"><b>🌌 深度${DEPTH_MAX}のすべての夜の王を討伐しました</b><p class="hint">深き壺の底にたどり着きました。稼ぎは今 ${fmtX(globalMult(k))}倍です。</p>
       <p class="hint">壺の底から、深度1へ戻ることができます。マークと雇った夜渡りは最初に戻り、討伐のボーナスも1周目を終えたときの分に戻ります。遺物とアイテムはそのまま。</p>
@@ -339,7 +342,7 @@ export function viewKotsubo() {
   // アイテム：絵・名前・数と「使う」だけ。名前を押すと、効果とフレーバーテキストが開く（説明は開いたときだけ）
   const items = itemsOf(k), itemRows = ITEMS.map(([id, icon, name, desc, flavor]) => { const n = items[id] || 0, open = S().itemOpen === id;
     return `<div class="k-item ${open ? 'open' : ''} ${n ? '' : 'none'}"><button class="k-item-main" data-act="kItemInfo" data-v="${id}" aria-expanded="${open}"><span class="k-ico">${icon}</span><b>${esc(name)}</b><i id="k-item-${id}">${n}</i></button>
-      <button class="ghost small k-use" data-act="kItemUse" data-v="${id}" ${n && !(id === 'scar' && (fight ? fight.scar : k.scarReady)) ? '' : 'disabled'}>使う</button></div>
+      <button class="ghost small k-use" data-act="kItemUse" data-v="${id}" ${n && !itemOff(k, id) ? '' : 'disabled'}>使う</button></div>
       <div class="k-flavor" data-flv="${id}" ${open ? '' : 'hidden'}><span class="k-eff">${esc(desc)}</span>${esc(flavor).replace(/\n/g, '<br>')}</div>`; }).join('');
   return `<div class="stack-lg kotsubo">
     <button class="ghost back-btn" data-act="kotsuboBack">‹ もどる</button>
@@ -384,15 +387,21 @@ export function kotsuboAct(a, v) {
   if (a === 'kItemInfo') { ui.itemOpen = ui.itemOpen === v ? null : v; showFlavor('kItemInfo', ui.itemOpen); return false; }
   if (a === 'kItemUse') {
     const it = itemsOf(k); if (!ITEM[v] || !(it[v] > 0)) return false;
-    if (v === 'rush') { it.rush--; rushUntil = Math.max(rushUntil, Date.now()) + 12000; H.toast('🕯️常夜の香を焚いた…常夜ラッシュ！12秒間、叩く力が7倍'); }
+    if (fight && (fight.items || 0) >= ITEM_PER_FIGHT) { H.toast('この戦いでは、もうアイテムを使った'); return false; }
+    if (v === 'rush') {
+      // 香は重ねて焚けない（燃えている間は使えない。続けて焚いて長いラッシュを作れないように）
+      if (rushUntil > Date.now()) { H.toast('🕯️常夜の香は、まだ燃えている'); return false; }
+      it.rush--; rushUntil = itemRushUntil = Date.now() + 12000; if (fight) fight.items = (fight.items || 0) + 1;
+      H.toast('🕯️常夜の香を焚いた…常夜ラッシュ！12秒間、叩く力が7倍');
+    }
     if (v === 'scar') {
       if (fight ? fight.scar : k.scarReady) { H.toast('🩸爪痕は、もう刻まれている'); return false; }
       if (!fight && !BOSSES[k.lords || 0]) { H.toast('挑む夜の王がいません'); return false; }
-      it.scar--; if (fight) fight.scar = true; else k.scarReady = true;
+      it.scar--; if (fight) { fight.scar = true; fight.items = (fight.items || 0) + 1; } else k.scarReady = true;
       H.toast(fight ? '🩸爪痕を刻んだ…この戦いで削った体力は、逃げられても残る' : '🩸爪痕を刻んだ…次の戦いで削った体力は、逃げられても残る');
     }
     // 画面は作り直さず、持っている数・「使う」ボタン・効果中の印だけをその場で書き換える（作り直すとカクつくため）
-    paintItem(k, v); paintScar(k);
+    ITEMS.forEach(([id]) => paintItem(k, id)); paintScar(k);
     H.save(); paint(k); return false;
   }
   if (a === 'kOwned') {
@@ -421,7 +430,8 @@ export function kotsuboAct(a, v) {
     const i = k.lords || 0; if (!BOSSES[i] || fight) return false;
     // 消えぬ爪痕の傷が残っていれば、その分だけ削れた体力から始める。爪痕を刻んでいれば、この戦いで削った分も残る
     const full = bossHp(k, i), frac = k.scarHp && k.scarHp.i === i ? k.scarHp.frac : 1;
-    fight = { i, hp: full * frac, max: full, end: Date.now() + FIGHT_SEC * 1000, scar: !!k.scarReady }; k.scarReady = false; return true;
+    fight = { i, hp: full * frac, max: full, end: Date.now() + FIGHT_SEC * 1000, scar: !!k.scarReady,
+      items: (k.scarReady ? 1 : 0) + (itemRushUntil > Date.now() ? 1 : 0) }; k.scarReady = false; return true;
   }
   // 深き壺に潜る：討伐した数を bank に移して、マーク・雇った夜渡り・討伐の進み具合を最初に戻し、深度を1つ上げる
   if (a === 'kDiff') {
@@ -438,17 +448,17 @@ export function kotsuboAct(a, v) {
   if (a === 'kReturn') {
     if (depthOf(k) < DEPTH_MAX || (k.lords || 0) < BOSSES.length || fight) return false;
     if (!ui.confirmReturn) { ui.confirmReturn = true; return true; }
-    ui.confirmReturn = false; rushUntil = 0;
+    ui.confirmReturn = false; rushUntil = itemRushUntil = 0;
     Object.assign(k, { bank: BOSSES.length, lords: 0, lordAt: Date.now(), scarHp: null, scarReady: false, depth: 1, order: makeOrder(), mark: 0, hires: {} });
     H.toast('壺の底から、深度1へ戻った'); H.save(); return true;
   }
   if (a === 'kDive') {
     if ((k.lords || 0) < BOSSES.length || depthOf(k) >= DEPTH_MAX || fight) return false;
     if (!ui.confirmDive) { ui.confirmDive = true; return true; }
-    ui.confirmDive = false; rushUntil = 0;
+    ui.confirmDive = false; rushUntil = itemRushUntil = 0;
     k.bank = (k.bank || 0) + k.lords; k.lords = 0; k.lordAt = Date.now(); k.scarHp = null; k.scarReady = false; k.depth = depthOf(k) + 1; k.order = makeOrder();
     k.mark = 0; k.hires = {};
-    if (k.depth > SCAR_KEEP_DEPTH) itemsOf(k).scar = 0;  // 消えぬ爪痕は深度3までしか持ち越せない（深度4・5へ潜るときに消える）
+    if (k.depth > SCAR_KEEP_DEPTH) { itemsOf(k).scar = 0; itemsOf(k).rush = 0; }  // 消えぬ爪痕・常夜の香は深度3までしか持ち越せない（深度4・5へ潜るときに消える）
     H.toast(`深き壺に潜った…深度${k.depth}。稼ぎは${fmtX(globalMult(k))}倍から`); H.save(); return true;
   }
   if (a === 'kClaim') { const s = warSpoils(k); gain(k, s.gain); k.claimAt = Date.now(); H.toast(`戦果ボーナス ${fmtM(s.gain)} マーク！`); return true; }
