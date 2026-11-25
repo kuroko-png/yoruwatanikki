@@ -50,6 +50,31 @@ const FAM = Object.fromEntries([...NORMAL_FAMS, ...DEEP_FAMS, ...DEMERIT_FAMS].m
 const ALL_EFF = {};
 const nameMap = (fams, label) => Object.fromEntries(fams.flatMap(f => f.levels).map(e => { e.label = e.name + label; ALL_EFF[e.id] = e; return [e.name, e.id]; }));
 const NAME_N = nameMap(NORMAL_FAMS, ''), NAME_P = nameMap(DEEP_FAMS, '（深層）'), NAME_M = nameMap(DEMERIT_FAMS, '（デメリット）');
+// 1つの遺物に同時に付かない組み合わせ（出典：神攻略wiki「遺物効果」の「遺物効果組み合わせのルール」）
+//   ・同じ効果（+の数字違い・○○の種類違いも同じ効果）　・キャラ固有の効果どうし　・同じ「効果分類」の効果どうし
+//   ・深層のデメリットは、同じデメリットだけが付かない（似たデメリットは付くことがある）
+//   ・夜の王の遺物・固有遺物などは、この決まりの外（効果を選ばないので、ここでは調べない）
+const EFF_GROUPS = [
+  ['攻撃力', ['○○の攻撃力上昇', '○○の武器種を3つ以上装備していると攻撃力上昇', '物理攻撃力上昇', '魔力攻撃力上昇', '炎攻撃力上昇', '雷攻撃力上昇', '聖攻撃力上昇', '属性攻撃力上昇',
+    '脂アイテム使用時、追加で物理攻撃力上昇', '通常攻撃の1段目強化', '致命の一撃強化', '魔術強化', '祈祷強化', '咆哮とブレス強化', '両手持ちの、体勢を崩す力上昇', '二刀持ちの、体勢を崩す力上昇',
+    '攻撃を受けると攻撃力上昇', '封牢の囚を倒す度、攻撃力上昇', '夜の侵入者を倒す度、攻撃力上昇', 'ガードカウンター強化', 'ガードカウンターに、自身の現在HPの一部を加える',
+    '周囲で睡眠状態の発生時、攻撃力上昇', '周囲で発狂状態の発生時、攻撃力上昇']],
+  ['攻撃でHP', ['○○の攻撃でHP回復']],
+  ['攻撃でFP', ['○○の攻撃でFP回復']],
+  ['魔術/祈祷', ['○○の魔術を強化', '○○の祈祷を強化']],
+];
+const effGroupOf = f => f.name.startsWith('出撃時の武器の戦技を') ? '出撃時の武器（戦技）' : /^出撃時の武器に.+を付加$/.test(f.name) ? '出撃時の武器（付加）'
+  : EFF_GROUPS.find(([, names]) => names.includes(f.name))?.[0] || null;
+// 効果の一族 f を、同じ遺物のほかの効果（id の並び）と一緒に付けられない理由。付けられるなら null
+function effClash(f, otherIds) {
+  for (const id of otherIds) {
+    const o = id && ALL_EFF[id] && FAM[ALL_EFF[id].fid]; if (!o) continue;
+    if (o.fid === f.fid) return '同じ効果がもう付いています';
+    if (f.cat === 'キャラ固有' && o.cat === 'キャラ固有') return 'キャラ固有の効果は1つまで';
+    const g = effGroupOf(f); if (g && g === effGroupOf(o)) return `「${g}」の効果は1つまで`;
+  }
+  return null;
+}
 // 深層の効果に、その段階でデメリットが付くか
 const demeritAllowed = e => !!e && e.dem !== null && e.dem !== undefined && (e.dem <= 0 || e.lv >= e.dem);
 const COLOR = byIdEarly(COLORS);
@@ -680,14 +705,18 @@ const gKeyOf = r => r.from || r.to ? `${r.from}:${r.to}` : 'all';
 const gState = k => (GLOBALS[k] ||= { data: k === 'all' ? readCache('stats') : null, at: 0, loading: false, failed: false, unsupported: false });  // 全期間は前回の結果をすぐ出す
 const resetGlobal = () => Object.values(GLOBALS).forEach(x => { x.at = 0; });  // 次に開いたときは取り直す
 const gRangeOk = r => S.stats.gPeriod !== 'custom' || (!!r.from && !!r.to && r.from <= r.to && r.to <= today());
-function loadGlobal() {
-  const r = gRange(), k = gKeyOf(r), G = gState(k);
+// f：ランキング用の絞り込み（mode＝deep・normal・空、depth＝'1'〜'5'・空）。付けると別に読み込む（全期間の前回の結果は使わない）
+function loadGlobal(f) {
+  const fk = f && (f.mode || f.depth) ? `|${f.mode}:${f.depth}` : '';
+  const r = gRange(), k = gKeyOf(r) + fk, G = gState(k);
   if (G.loading || !gRangeOk(r) || Date.now() - G.at < 3 * 60e3) return G;
   G.loading = true;
   // 失敗したときは1分あけてからやり直す（すぐにやり直すと、通信できないときに読み込みが止まらず画面が固まるため）
-  net(`${ONLINE_URL}?type=stats${k === 'all' ? '' : `&from=${r.from}&to=${r.to}`}`).then(res => res.json()).then(d => { if (!d.ok) throw new Error('bad');
-      // 期間の絞り込みに対応していない受け取り口（古い版）は、期間を無視して全期間を返すので、使わない
-      G.unsupported = k !== 'all' && !(d.range && d.range.from === r.from && d.range.to === r.to);
+  const rk = gKeyOf(r);
+  net(`${ONLINE_URL}?type=stats${rk === 'all' ? '' : `&from=${r.from}&to=${r.to}`}${fk ? `&mode=${f.mode}&depth=${f.depth}` : ''}`).then(res => res.json()).then(d => { if (!d.ok) throw new Error('bad');
+      // 期間・夜の種類と深度の絞り込みに対応していない受け取り口（古い版）は、絞り込みを無視して返すので、使わない
+      G.unsupported = (rk !== 'all' && !(d.range && d.range.from === r.from && d.range.to === r.to))
+        || (!!fk && !(d.filter && (d.filter.mode || '') === f.mode && String(d.filter.depth || '') === String(f.depth || '')));
       G.data = G.unsupported ? null : d; G.failed = false; G.at = Date.now(); if (k === 'all') writeCache('stats', d); },
     () => { G.failed = true; G.at = Date.now() - 2 * 60e3; })
     .finally(() => { G.loading = false; if (S.tab === 'stats') render(); });
@@ -729,7 +758,7 @@ function globalStats() {
     ${matrixCard(g, 'g')}
     ${fewNote}
     <div class="join-wrap">${join}</div>
-    ${rankCard(g, 'g')}`;
+    ${rankCardG(g)}`;
 }
 // 分析のカード（タブで切り替え）。みんなの統計と自分の統計で同じものを使う。g は集計（みんな：受け取り口から／自分：myAgg で端末の戦績から）、K は状態の頭文字（'g'＝みんな、'm'＝自分）
 const statsK = () => S.stats.scope === 'all' ? 'g' : 'm';
@@ -760,8 +789,20 @@ function matrixCard(g, K) {
 // 相性の表の下の「多いものランキング」：見たいもの（夜渡り・夜の王・武器・型・深度・敗北した敵）を選ぶと、多い順に並ぶ
 // （前のタブ式の分析 analysisCard は、いったん使わずに残している）
 // レベルは自分の統計だけ（みんなの統計には送っていない）
+// ランキングの絞り込み：深き／浅き／両方（最初は深き）と、深度（深き・両方のときだけ。両方のときは、浅き夜＋その深度の深き夜）
+const rkMode = K => S.stats[K + 'RkMode'] || 'deep';
+const rkDepth = K => rkMode(K) === 'normal' ? '' : (S.stats[K + 'RkDepth'] || '');
+const rkFilterRuns = (runs, K) => { const m = rkMode(K), d = rkDepth(K); return runs.filter(r => (m === 'all' || r.mode === m) && (!d || r.mode !== 'deep' || String(r.depth) === d)); };
+// みんなの統計のランキング：絞り込んだ集計を、受け取り口から別に読み込む（絞り込みなしなら、上の集計をそのまま使う）
+function rankCardG(g) {
+  const m = rkMode('g'), d = rkDepth('g');
+  if (m === 'all' && !d) return rankCard(g, 'g');
+  const G = loadGlobal({ mode: m === 'all' ? '' : m, depth: d });
+  if (G.data && !G.unsupported) return rankCard(G.data, 'g');
+  return rankCard({}, 'g', G.unsupported ? 'この絞り込みは、スプレッドシート側の更新後に使えます。' : G.loading || !G.at ? '読み込んでいます…' : '読み込めませんでした。通信できる所で、もう一度開いてください。');
+}
 const RANK_KINDS = [['char', '夜渡り'], ['lord', '夜の王'], ['weapon', '武器'], ['style', '型'], ['depth', '深度'], ['foe', '敗北した敵'], ['level', 'レベル']];
-function rankCard(g, K) {
+function rankCard(g, K, msg) {
   const kinds = RANK_KINDS.filter(([v]) => v !== 'level' || K === 'm');
   const kind = kinds.some(([v]) => v === S.stats[K + 'Rank']) ? S.stats[K + 'Rank'] : 'char';
   const sumBy = (obj, keyOf) => { const out = {}; Object.entries(obj || {}).forEach(([k, x]) => { const id = keyOf(k); if (id == null) return; const o = out[id] || (out[id] = { n: 0, w: 0 }); o.n += typeof x === 'number' ? x : x.n; o.w += typeof x === 'number' ? 0 : x.w; }); return out; };
@@ -812,11 +853,12 @@ function rankCard(g, K) {
     return canOpen ? `<button class="rk-row tap ${i < 3 ? 'top' : ''} ${open ? 'open' : ''}" data-act="rankOpen" data-v="${esc(it.id)}" aria-expanded="${open}">${inner}</button>${open ? `<div class="rk-sub">${subOf(it)}</div>` : ''}`
       : `<div class="rk-row ${i < 3 ? 'top' : ''}">${inner}</div>`; }).join('');
   return `<section class="card-sec rk-card">
-    <div class="sec-head"><h2>ランキング</h2></div>
+    <div class="sec-head"><h2>ランキング</h2><div class="rk-tools"><span class="mx-sw">${[['deep', '深き'], ['normal', '浅き'], ['all', '両方']].map(([v, l]) => `<button data-act="rkMode" data-v="${v}" ${pressed(rkMode(K) === v)}>${l}</button>`).join('')}</span>
+      ${rkMode(K) !== 'normal' ? `<select class="mini-select rk-depth ${rkDepth(K) ? 'on' : ''}" data-gsel="${K}RkDepth" aria-label="深度で絞り込む"><option value="">全深度</option>${[1, 2, 3, 4, 5].map(n => `<option value="${n}" ${rkDepth(K) === String(n) ? 'selected' : ''}>深度${n}</option>`).join('')}</select>` : ''}</div></div>
     <div class="g-tabs" role="tablist">${kinds.map(([v, l]) => `<button role="tab" data-act="rankKind" data-v="${v}" aria-selected="${kind === v}">${l}</button>`).join('')}</div>
     ${note ? `<p class="hint rk-note">${note}</p>` : ''}
     ${rows ? `<div class="rk-head"><span>${{ char: '押すと型ごとの出撃回数が見られます', lord: '押すと深き・浅き、通常・常夜の内訳が見られます', foe: '押すと負けた夜渡り・型が見られます', level: '押すと勝ち負けの数が見られます' }[kind] || ''}</span><small>${shareName}</small></div>` : ''}
-    <div class="rk-list">${rows || (kind === 'foe' && !g.lossBy ? '' : '<p class="hint">まだデータがありません。</p>')}</div>
+    <div class="rk-list">${msg ? `<p class="hint">${msg}</p>` : rows || (kind === 'foe' && !g.lossBy ? '' : '<p class="hint">まだデータがありません。</p>')}</div>
   </section>`;
 }
 function analysisCard(g, K, range) {
@@ -1064,7 +1106,7 @@ function viewStats() {
       <div class="tile"><div class="k">勝率</div><div class="v">${pct(all.p)}</div><div class="s">${esc(label)}</div></div>
       <div class="tile"><div class="k">連勝</div><div class="v">${streak}</div><div class="s">最高 ${best}</div></div>
     </div>
-    ${(agg => matrixCard(agg, 'm') + rankCard(agg, 'm'))(myAgg(runs))}` : `<div class="empty-state">この期間の記録はありません</div>`}
+    ${matrixCard(myAgg(runs), 'm') + rankCard(myAgg(rkFilterRuns(runs, 'm')), 'm')}` : `<div class="empty-state">この期間の記録はありません</div>`}
   </div>`;
 }
 function spark(chrono) {
@@ -1322,29 +1364,32 @@ function pubGachaSheet() {
       <div class="form-actions"><button class="ghost" data-act="pubGacha">もう一回</button><button class="primary" data-act="pubPick" data-v="${S.sheet.idx}">中身を見る</button></div>
     </div></div>`;
 }
+// みんなのビルドで、ネタビルドをどう見せるか（all＝すべて／only＝ネタだけ／hide＝ネタを隠す）
+const netaMode = () => prefs().pubNeta || (prefs().pubOnlyNeta ? 'only' : 'all');
+const netaOk = (p, nm) => nm === 'only' ? !!p.neta : nm === 'hide' ? !p.neta : true;
 function publicBuilds() {
   loadPublic();
   const f = S.pubChar || '';
   const mine = new Set(db.presets.map(p => p.id));
-  // 「ネタビルドだけ」のスイッチ：オンのときは、ネタビルドだけを並べる（オフはすべて）
-  const onlyNeta = !!prefs().pubOnlyNeta;
+  // ネタビルドの見せ方：すべて／ネタだけ／ネタを隠す（前の「ネタだけ」のスイッチがオンなら「ネタだけ」から）
+  const nm = netaMode(), onlyNeta = nm === 'only';
   const all = (PUB.list || []).map(b => ({ ...b, p: parsePublic(b.data) })).filter(b => b.p && (!f || b.p.charId === f));
-  const items = all.filter(b => !onlyNeta || b.p.neta), netaN = all.filter(b => b.p.neta).length;
-  // 夜渡りの四角の数：「ネタビルドだけ」がオンのときは、その夜渡りのネタビルドの数にする
-  const chips = charGrid('pubChar', f, id => (PUB.list || []).filter(b => { const p = parsePublic(b.data); return p?.charId === id && (!onlyNeta || p.neta); }).length);
+  const items = all.filter(b => netaOk(b.p, nm)), netaN = all.filter(b => b.p.neta).length;
+  // 夜渡りの四角の数：ネタの見せ方に合わせた数（ネタだけ→ネタの数、ネタを隠す→ネタ以外の数）
+  const chips = charGrid('pubChar', f, id => (PUB.list || []).filter(b => { const p = parsePublic(b.data); return p?.charId === id && netaOk(p, nm); }).length);
   const body = !PUB.list ? `<div class="empty-state">${PUB.failed && !PUB.loading ? '読み込めませんでした。通信できる所で、もう一度読み込んでください。<br><button class="ghost small" data-act="publicOpen" style="margin-top:8px">もう一度読み込む</button>' : '読み込んでいます…'}</div>`
     : items.length ? items.map((b, i) => `<button class="card" data-act="pubPick" data-v="${(PUB.list || []).indexOf(PUB.list.find(x => x.data === b.data))}">
         <span class="title pub-title"><span>${b.p.charId ? ico('char', b.p.charId) : ''}${esc(presetName(b.p))}${b.p.neta ? '<span class="badge neta">ネタ</span>' : ''}${mine.has(b.presetId) ? '<span class="badge pub">あなた</span>' : ''}</span>${fmtWhen(b.updatedAt) ? `<small class="pub-date">公開 ${fmtWhen(b.updatedAt)}</small>` : ''}</span>
         ${b.p.pubNote ? `<span class="pub-note one">${esc(b.p.pubNote)}</span>` : ''}
         <span class="vote-count">${[reactSummary(b), cmtCount(b) ? `💬 ${cmtCount(b)}` : ''].filter(Boolean).join('　') || 'リアクションはまだありません'}</span></button>`).join('')
-    : `<div class="empty-state">${onlyNeta ? `${f ? 'この夜渡りの' : ''}ネタビルドはまだありません。` : `${f ? 'この夜渡りの' : ''}公開されたビルドはまだありません。`}</div>`;
+    : `<div class="empty-state">${onlyNeta ? `${f ? 'この夜渡りの' : ''}ネタビルドはまだありません。` : `${f ? 'この夜渡りの' : ''}${nm === 'hide' ? 'ネタ以外の' : ''}公開されたビルドはまだありません。`}</div>`;
   return `<div class="stack-lg">
     ${buildSeg()}
     <div class="pub-actions"><button class="bt-btn add" data-act="pubShareOpen">共有する</button><button class="bt-btn" data-act="pubGacha" ${PUB.list?.length ? '' : 'disabled'}>🎲 ガチャ</button>
       <button class="info-btn" data-act="pubListInfo" aria-label="みんなのビルドの説明" aria-expanded="${!!S.pubListInfo}">!</button></div>
     ${S.pubListInfo ? '<p class="hint info-text">みんなが「みんなに公開」にしたプリセットです。タップすると中身（遺物）を見て、取り込めます。作った人の名前などは表示されません。</p>' : ''}
     ${chips}
-    <div class="pub-row"><button class="neta-filter" role="switch" aria-checked="${onlyNeta}" data-act="pubNeta"><span>ネタビルドだけ表示${netaN ? `<small>（${netaN}件）</small>` : ''}</span><i class="tgl ${onlyNeta ? 'on' : ''}" aria-hidden="true"></i></button></div>
+    <div class="seg seg3 neta-seg" role="group" aria-label="ネタビルドの見せ方">${[['all', 'すべて'], ['only', `ネタだけ${netaN ? `（${netaN}）` : ''}`], ['hide', 'ネタを隠す']].map(([v, l]) => `<button data-act="pubNeta" data-v="${v}" ${pressed(nm === v)}>${l}</button>`).join('')}</div>
     ${body}</div>`;
 }
 function slotDots(p) {
@@ -1669,10 +1714,11 @@ function editPreset() {
   // スクショから読み取る：畳める項目。最初は畳んでおく（読み取り中は開く）
   const scanCard = disc('scan', 'スクショから読み取る', { html: '<span class="txt">遺物を自動で入れる</span>', set: false }, `<div class="scan-body">
     <div class="scan-btns">${scanBtn('normal', '表')}${scanBtn('deep', '深層')}</div>
+    ${S.edit.pasted && !S.edit.scanning ? `<div class="scan-paste"><span>貼り付けた画像を読み取る</span><div class="scan-btns"><button class="ghost scan-btn" data-act="scanPaste" data-v="normal">表として</button><button class="ghost scan-btn" data-act="scanPaste" data-v="deep">深層として</button></div></div>` : ''}
     ${p.charId ? '' : '<p class="hint">先に夜渡りを選んでください。</p>'}
     <div class="scan-links"><button class="link-btn" data-act="scanHow" aria-expanded="${!!S.edit.scanHow}">使い方${S.edit.scanHow ? '（閉じる）' : ''}</button><button class="link-btn scan-sample" data-act="scanSample">📷 見本を見る</button></div>
-    ${S.edit.scanHow ? `<p class="hint">ゲームの「遺物儀式」画面のスクショを、表（スロット1〜3を選んだ画面）と深層（スロット4〜6を選んだ画面）で1枚ずつ選ぶと、遺物を自動で入れます。</p>
-    <p class="hint scan-note">※ 端末の中で文字を読み取るので、とくに「＋」のあとの数字は間違っていることがあります。読み取ったあとは、ゲームの画面と見比べて確かめてください。</p>` : ''}</div>`, false, !!S.edit.scanning);  // 説明は「使い方」を押したときだけ
+    ${S.edit.scanHow ? `<p class="hint">ゲームの「遺物儀式」画面のスクショを、表（スロット1〜3を選んだ画面）と深層（スロット4〜6を選んだ画面）で1枚ずつ選ぶと、遺物を自動で入れます。パソコンでは、コピーしたスクショを Ctrl+V で貼り付けても読み取れます。</p>
+    <p class="hint scan-note">※ 端末の中で文字を読み取るので、とくに「＋」のあとの数字は間違っていることがあります。読み取ったあとは、ゲームの画面と見比べて確かめてください。</p>` : ''}</div>`, false, !!S.edit.scanning || !!S.edit.pasted);  // 説明は「使い方」を押したときだけ
   const styleName = p.style ? (STYLES.find(x => x.id === p.style)?.name || '') + ((p.spec || []).length ? `・${p.spec.join('/')}` : '') + (effWeapon(p) ? `・${effWeapon(p)}` : '') : '';
   // 武器の名前は、特定武器のときだけ一番下に出す（一点狙いのビルド用。任意）
   // メイン武器（近接）：選ばなければ夜渡りの得意武器。得意武器のボタンには「（得意）」
@@ -1749,6 +1795,8 @@ function editSlot() {
         ? `<button class="chip small" data-act="eColor" data-v="${c.id}" ${pressed(r.color === c.id)}><span class="color-dot c-${c.id}" style="width:10px;height:10px;vertical-align:0;margin-right:6px"></span>${c.word}</button>`
         : `<button class="chip small" disabled title="適合する献器がありません"><span class="color-dot c-${c.id}" style="width:10px;height:10px;vertical-align:0;margin-right:6px;opacity:.4"></span>${c.word}（適合する献器なし）</button>`).join('')}</div>
       <div class="section">${pairs.join('')}</div>
+      ${(() => { const bad = [...new Set(['effects', 'demerits'].flatMap(kind => r[kind].map((id, j) => id && ALL_EFF[id] && effClash(FAM[ALL_EFF[id].fid], r[kind].filter((x, m) => m !== j))).filter(Boolean)))];  // 前に登録した組み合わせが決まりに合わないとき
+        return bad.length ? `<p class="hint bad">⚠ ゲームでは1つの遺物に同時に付かない組み合わせです（${esc(bad.join('・'))}）</p>` : ''; })()}
       <p class="hint">大きさ（壮大・端正・繊細）は効果の数で自動で決まります。${k === 'deep' ? 'デメリットは、付く効果・段階を選んだときだけ入力欄が出ます。' : ''}</p>
     </section>`}
     ${existed ? `<div class="row-actions" style="justify-content:center"><button class="ghost danger" data-act="eSlotClear">この枠を空にする</button></div>` : ''}
@@ -1761,7 +1809,7 @@ function autoName(p) {
 }
 const presetName = p => (p.nameAuto || !p.name?.trim()) ? autoName(p) : p.name;
 // 自分で付けるビルド名の上限（共有・公開でもこの長さで切る）
-const NAME_MAX = 20;
+const NAME_MAX = 30;  // ビルド名の上限（自分のビルド一覧は2行まで折り返すので、スマホ幅でも30文字なら収まる）
 function styleText(p) {
   const parts = [];
   if (p.style) parts.push(STYLES.find(x => x.id === p.style).name + ((p.spec || []).length ? `（${p.spec.join('・')}特化）` : ''));
@@ -1855,8 +1903,12 @@ function renderSheetInner() {
   const catItems = [['', 'すべて'], ...cats.map(c => [c, c]), ...specialCats];
   const tools = `<div class="cat-grid">${catItems.map(([v, l]) => `<button class="cat-btn" data-act="sCat" data-v="${v}" ${pressed((sh.cat || '') === v)}>${l.replace('/', '/<wbr>')}</button>`).join('')}</div>`;
   const demTag = f => !deep || isDem ? '' : f.dem === null ? '' : f.dem === 0 ? '<span class="dem-tag">デメリット有</span>' : f.dem > 0 ? `<span class="dem-tag">+${f.dem}以上でデメリット</span>` : '';
+  // 同じ遺物のほかの枠に入っている効果（今選んでいる枠は除く）。一緒に付けられない効果は薄くして選べなくする
+  const others = S.edit.slot.data[sh.kind].filter((id, j) => j !== sh.idx);
   const row = f => {
     const on = f.levels.some(e => e.id === current);
+    const ng = !on && effClash(f, others);
+    if (ng) return `<div class="pick pick-ng" aria-disabled="true"><span>${f.name}</span><span class="cat">${esc(ng)}</span></div>`;
     if (f.opts) {
       // ○○ は行をタップすると、その場で武器種・系統のチップが開く
       const open = sh.open === f.fid || (q && f.levels.some(e => e.name.includes(q)) && !f.name.includes(q));
@@ -2185,6 +2237,7 @@ document.addEventListener('click', e => {
     case 'rankKind': S.stats[statsK() + 'Rank'] = v; S.stats[statsK() + 'RankOpen'] = null; break;
     case 'rankOpen': { const k = statsK() + 'RankOpen'; S.stats[k] = S.stats[k] === v ? null : v; break; }
     case 'mxDeep': S.stats[statsK() + 'MxDeep'] = v === 'deep'; break;
+    case 'rkMode': if (['deep', 'normal', 'all'].includes(v)) S.stats[statsK() + 'RkMode'] = v; break;  // 統計のランキング：深き／浅き／両方
     case 'mxVal': S.stats[statsK() + 'MxVal'] = v; break;
     case 'mxEver': S.stats[statsK() + 'MxEver'] = v; S.stats[statsK() + 'Cell'] = null; break;
     case 'gMin': S.stats[statsK() + 'Min'] = v; break;
@@ -2251,6 +2304,7 @@ document.addEventListener('click', e => {
     case 'buildInfo': S.buildInfo = !S.buildInfo; break;
     case 'pubListInfo': S.pubListInfo = !S.pubListInfo; break;  // みんなのビルドの ! ：説明を出す・隠す  // ビルドの一覧の ! ：説明を出す・隠す
     case 'scanHow': S.edit.scanHow = !S.edit.scanHow; break;  // スクショから読み取る：使い方を出す・隠す
+    case 'scanPaste': { const f = S.edit?.pasted; if (S.edit) S.edit.pasted = null; if (f && (v === 'normal' || v === 'deep')) runScan(v, f); break; }  // 貼り付けた画像を、表・深層として読み取る
     case 'discInfo': { S.edit.info ||= {}; S.edit.info[v] = !S.edit.info[v]; if (S.edit.info[v]) S.edit.open[v] = true; break; }  // 見出しの横の ! ：説明を出す（閉じていれば開く）  // 「みんなに公開」の ! を押すと説明を出す・隠す
     case 'openSlot': {
       const k = t.dataset.k, i = +v, cur = S.edit.data[k][i];
@@ -2420,8 +2474,8 @@ document.addEventListener('click', e => {
       break;
     }
     // みんなのビルドのガチャ：今の絞り込み（夜渡り・ネタだけ）の中から1つ選んで、取り込みの画面を開く
-    case 'pubGacha': { const f = S.pubChar || '', onlyNeta = !!prefs().pubOnlyNeta;
-      const cand = (PUB.list || []).filter(b => { const d = parsePublic(b.data); return d && (!f || d.charId === f) && (!onlyNeta || d.neta); });
+    case 'pubGacha': { const f = S.pubChar || '', nm = netaMode();
+      const cand = (PUB.list || []).filter(b => { const d = parsePublic(b.data); return d && (!f || d.charId === f) && netaOk(d, nm); });
       if (!cand.length) { toast('選べるビルドがありません'); return; }
       const b = cand[Math.floor(Math.random() * cand.length)]; S.sheet = { type: 'pubGacha', idx: PUB.list.indexOf(b), n: cand.length, spin: (S.sheet?.spin || 0) + 1 }; break; }  // まず結果を見せ、「中身を見る」で取り込みの画面へ
     case 'pubPick': { const b = PUB.list?.[+v], d = b && parsePublic(b.data); if (!d) return; S.sheet = { type: 'import', data: d, pub: b }; break; }
@@ -2450,7 +2504,7 @@ document.addEventListener('click', e => {
     }
     case 'ePublic': { const d = S.edit.data; d.public = !d.public; break; }
     case 'eNeta': { const d = S.edit.data; d.neta = !d.neta; break; }
-    case 'pubNeta': prefs().pubOnlyNeta = !prefs().pubOnlyNeta; delete prefs().pubHideNeta; break;
+    case 'pubNeta': if (['all', 'only', 'hide'].includes(v)) prefs().pubNeta = v; delete prefs().pubOnlyNeta; delete prefs().pubHideNeta; break;
     case 'restoreOpen': prefs().onboarded = true; S.sheet = { type: 'restore' }; break;
     case 'restoreFind': {
       const code = document.getElementById('restore-code')?.value || '';
@@ -2627,7 +2681,9 @@ if (location.hash.startsWith('#build=')) {
   S.tab = 'builds'; S.sheet = d ? { type: 'import', data: d } : { type: 'import', err: true };
 }
 // ミニゲームに、使う道具を渡す（動き出すのは、タイトル横の小壺から開いたとき）
-initKotsubo({ prefs, save: () => save(db), toast, render: () => render(), liveRuns, ico, esc, CHAR, LORD, tab: () => S.tab, ui: () => (S.kui ||= {}) });
+initKotsubo({ prefs, save: () => save(db), toast, render: () => render(), liveRuns, ico, esc, CHAR, LORD, tab: () => S.tab, ui: () => (S.kui ||= {}),
+  // 壺渡りのランキング：送る（一覧は送った返事に付いてくる）・管理人の操作（合言葉は app.js の管理人モードのもの）
+  postOnline, adminKey, devHost: DEV_HOST });
 // 知識タブ（敵の情報・ボス判別など）に、使う道具を渡す
 initKnowledge({ ico, esc, pressed, wheel, viewEnemies, ui: () => (S.know ||= {}) });
 render();
@@ -2642,6 +2698,15 @@ render();
   } catch { /* 読めなければ、今までどおり icons/ から読む */ }
 })));
 
+// パソコン：ビルドの編集中に、コピーしたスクショを Ctrl+V で貼り付けると、表・深層のどちらとして読み取るかを選べる
+// （画像でない貼り付け＝名前の欄などへの文字の貼り付けは、そのまま通す）
+document.addEventListener('paste', e => {
+  if (S.tab !== 'builds' || S.edit?.type !== 'preset' || S.edit.slot || S.edit.scanning) return;
+  const f = [...(e.clipboardData?.files || [])].find(x => x.type.startsWith('image/')); if (!f) return;
+  e.preventDefault();
+  if (!S.edit.data.charId) { toast('先に夜渡りを選んでください'); return; }
+  S.edit.pasted = f; render(); toast('貼り付けた画像を、表・深層のどちらとして読み取るか選んでください');
+});
 document.addEventListener('change', e => {
   // 日付をカレンダー（一覧）から選んだとき。未来の日は選べない
   if (e.target.id === 'f-date-pick') { const d = e.target.value; if (/^\d{4}-\d{2}-\d{2}$/.test(d) && d <= today()) { S.form.date = d; S.form.dateMode = d === today() ? 'today' : 'pick'; S.dayStripX = null; render(); } return; }

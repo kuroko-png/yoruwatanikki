@@ -1306,7 +1306,7 @@ input[type="password"] { width: 100%; background: rgba(5, 8, 24, .55); border: 1
 .day .run { min-height: 48px; padding-top: 5px; padding-bottom: 5px; }
 
 /* ビルド一覧：長いビルド名は2行まで折り返す（それより長ければ「…」） */
-.preset-card .pc-main .title > span { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; line-height: 1.35; }
+.preset-card .pc-main .title > span { white-space: normal; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow-wrap: anywhere; line-height: 1.35; }
 /* ランキングの内訳：アイコンつきの行・小見出し */
 .rk-subrow > span { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .rk-subrow .ico { width: 18px; height: 18px; margin: 0; top: 0; flex: none; }
@@ -1364,6 +1364,9 @@ html.k-locked .kotsubo { touch-action: none; }
 .k-list[hidden] { display: none; }
 .k-scar { margin: 10px 0 0; color: #e58a8a; font-size: 12px; line-height: 1.6; }
 .k-scar[hidden] { display: none; }
+/* 効果を選ぶ画面：同じ遺物に一緒に付けられない効果は薄く（押せない） */
+.pick.pick-ng { opacity: .38; cursor: default; pointer-events: none; }
+.pick.pick-ng .cat { font-size: 11px; }
 
 /* 左上の小見出しが長くても（壺渡りの大きな数字など）、右上のボタンの手前で「…」にする */
 .brand > div { min-width: 0; }
@@ -1372,3 +1375,32 @@ html.k-locked .kotsubo { touch-action: none; }
 
 /* 夜の王・夜渡りのアイコンは <i> の背景の絵（タブを切り替えたときの点滅をなくすため。大きさは .ico の決まりのまま） */
 i.ico { display: inline-block; background-position: center; background-size: contain; background-repeat: no-repeat; }
+
+/* ビルドの編集：貼り付けた画像を、表・深層のどちらとして読み取るか */
+.scan-paste { display: grid; gap: 6px; margin-top: 8px; padding: 8px; border: 1px dashed var(--line); border-radius: 12px; }
+.scan-paste > span { font-size: 13px; color: var(--dim); }
+
+/* 壺渡り：マークの数を、すべての桁で出すとき（長いので小さめにして折り返す） */
+.k-mark { flex-wrap: wrap; }
+.k-mark span.full { font-size: 20px; letter-spacing: 0; overflow-wrap: anywhere; text-align: center; max-width: 100%; }
+.k-digits { display: block; margin: 2px auto 0; font-size: 12px; }
+
+/* 壺渡り：ランキング */
+.k-rank-me { margin: 0 0 8px; font-size: 14px; }
+.k-rank-me b { color: var(--accent); }
+.k-rank-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.k-rank-list li { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 10px; border-radius: 10px; background: rgba(255,255,255,.03); font-variant-numeric: tabular-nums; }
+.k-rank-list li b { min-width: 3em; color: var(--dim); }
+.k-rank-list li span:not(.badge) { overflow-wrap: anywhere; }
+.k-rank-list li.me { outline: 1px solid var(--accent); }
+.k-rank-list .k-rank-adm { font-size: 12px; margin-left: auto; }
+.k-rank-list .k-rank-adm + .k-rank-adm { margin-left: 0; }
+.k-rank-leave { display: block; margin: 10px auto 0; font-size: 12px; }
+
+/* 統計のランキング：深き／浅き／両方と深度 */
+.rk-card .sec-head { flex-wrap: wrap; gap: 6px; }
+.rk-tools { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.rk-tools .mini-select { padding-top: 4px; padding-bottom: 4px; font-size: 12px; }
+/* 浅きのときは深度のプルダウンを出さないので、切り替えはタイトルの右に左寄せで置く（出し入れしてもボタンが動かないように） */
+.rk-card .rk-tools { margin-left: 4px; }
+.rk-card .sec-head { justify-content: flex-start; }

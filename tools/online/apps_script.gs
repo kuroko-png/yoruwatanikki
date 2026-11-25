@@ -24,6 +24,10 @@
  *  - 管理人の操作（type=admin）：アプリの管理人モードから、ネタ指定・非公開・削除をする。
  *    合言葉は「スクリプト プロパティ」に ADMIN_KEY という名前で入れる（INBOX_KEY とは別にする）。未設定なら誰も操作できない
  *  - みんなのビルドの通報（build_reports：3つ以上の端末から通報されたビルドは、自動で一覧から外す。行を消せば戻る）
+ *  - 壺渡りのランキング（kotsubo：参加した端末の「これまでのマーク」だけ。名前は受け取らない。一覧には端末の番号から作った別の番号 rid だけを出す）
+ *    一覧は、参加して数字を送ってきた端末への返事にだけ付ける（参加していない人は見られない。読み出すだけの口は作らない）
+ *    不正対策：① 前回から急に増えすぎた数字（1時間あたり100倍＋余裕10倍を超える）は受け付けない ② たどり着いた深度でありえない大きさの数字は受け付けない
+ *    ③ 管理人の操作（rank_del＝消す／rank_ban＝消して、その端末はもう載せない。kotsubo_bans に rid が入る）。受け付けなかった回数は flags に数える
  * 不正対策：1つの端末が同じ日に30戦を超えて送ってきた日の戦績は、集計に入れない（人が遊べる数を超えるため）
  * 受信箱（type=inbox）：機能リクエストと誤りの報告を、合言葉つきで読み出す（持ち主の毎朝の確認用）。
  *   合言葉は「プロジェクトの設定（歯車）→ スクリプト プロパティ」に INBOX_KEY という名前で入れる。合言葉が未設定なら誰にも返さない
@@ -45,6 +49,15 @@ const ADMIN_COLS = ['presetId', 'neta', 'at'];
 const adminNeta_ = () => { const sh = sheet_('build_admin', ADMIN_COLS); const n = sh.getLastRow() - 1; const m = {}; (n > 0 ? sh.getRange(2, 1, n, 2).getDisplayValues() : []).forEach(v => { if (v[0] && (v[1] === 'yes' || v[1] === 'no')) m[String(v[0]).trim()] = v[1] === 'yes'; }); return m; };
 const banned_ = () => { const sh = sheet_('build_bans', BAN_COLS); const n = sh.getLastRow() - 1; const set = {}; (n > 0 ? sh.getRange(2, 1, n, 1).getDisplayValues() : []).forEach(v => { if (v[0]) set[String(v[0]).trim()] = 1; }); return set; };
 const MAX_RUNS_PER_DAY = 30, MAX_VOTES_PER_DAY = 20, HIDE_REPORTS = 3;
+// 壺渡りのランキング
+const KOTSUBO_COLS = ['clientId', 'rid', 'total', 'maxDepth', 'updatedAt', 'firstAt', 'flags'];
+const KBAN_COLS = ['rid', 'memo', 'at'];
+// たどり着いた深度（0〜5）ごとの「これまでのマーク」の上限（10の何乗か）。高難易度の最後の夜の王の体力のおよそ1億倍（遊び続けても届かない大きさ）
+const KOTSUBO_CAP_LOG10 = [20, 24, 28, 33, 39, 46];
+const KOTSUBO_FLOOR = 1e9, KOTSUBO_SLACK_LOG10 = 1, KOTSUBO_RATE_LOG10_PER_H = 2;  // この数までは自由。それより上は「前回×10×（1時間ごとに100倍）」まで
+const KOTSUBO_TOP = 10;  // 上位10人だけ返す。参加している人数は返さない（分母は見せない）
+const ridOf_ = clientId => Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, 'kotsubo:' + clientId).slice(0, 6).map(b => ((b + 256) % 256).toString(16).padStart(2, '0')).join('');
+const kbanned_ = () => { const sh = sheet_('kotsubo_bans', KBAN_COLS); const n = sh.getLastRow() - 1; const set = {}; (n > 0 ? sh.getRange(2, 1, n, 1).getDisplayValues() : []).forEach(v => { if (v[0]) set[String(v[0]).trim()] = 1; }); return set; };
 // みんなのビルドのリアクションの種類（アプリの REACTIONS と同じ順・同じ名前）。前の「いいね」は like として数える
 const REACTIONS = ['like', 'lol', 'strong', 'tips', 'wow'];
 // 定型文コメント（comments：1人が1つのビルドに1つ。送り直すと置き換え）。文の型と言葉はアプリ側の src/data/comments.js の「何番目か」だけを受け取る
@@ -140,9 +153,46 @@ function doPost(e) {
         const sh = sheet_('build_bans', BAN_COLS); if (!findRow(sh, 'A')) sh.appendRow([id, 'アプリの管理人モードから', now.toISOString()]);
       } else if (body.op === 'del') {
         const sh = sheet_('builds', BUILD_COLS); let hit; while ((hit = findRow(sh, 'B'))) sh.deleteRow(hit.getRow());
+      } else if (body.op === 'rank_del' || body.op === 'rank_ban') {
+        // 壺渡りのランキング：id は rid。消す（rank_ban は、その端末をもう載せない）
+        const sh = sheet_('kotsubo', KOTSUBO_COLS); let hit; while ((hit = findRow(sh, 'B'))) sh.deleteRow(hit.getRow());
+        if (body.op === 'rank_ban') { const bs = sheet_('kotsubo_bans', KBAN_COLS); if (!findRow(bs, 'A')) bs.appendRow([id, 'アプリの管理人モードから', now.toISOString()]); }
+        CacheService.getScriptCache().remove('kotsubo_rank');
+        return json_({ ok: true });
       } else return json_({ ok: false, error: 'bad op' });
       CacheService.getScriptCache().remove('builds');
       return json_({ ok: true });
+    }
+    // 壺渡りのランキング：これまでのマーク（total）と、たどり着いた深度（maxDepth）を受け取る。返すのは順位と人数と自分の rid
+    if (body.type === 'kotsubo' || body.type === 'kotsubo_leave') {
+      const sh = sheet_('kotsubo', KOTSUBO_COLS), rid = ridOf_(clientId);
+      const hit = sh.getRange('A:A').createTextFinder(clientId).matchEntireCell(true).findNext();
+      if (body.type === 'kotsubo_leave') { if (hit) sh.deleteRow(hit.getRow()); CacheService.getScriptCache().remove('kotsubo_rank'); return json_({ ok: true }); }
+      if (kbanned_()[rid]) { if (hit) sh.deleteRow(hit.getRow()); return json_({ ok: false, error: 'banned' }); }
+      const total = Math.floor(Number(body.total)), maxDepth = Math.floor(Number(body.maxDepth));
+      if (!isFinite(total) || total < 0 || !(maxDepth >= 0 && maxDepth <= 5)) return json_({ ok: false, error: 'bad data' });
+      const prev = hit ? sh.getRange(hit.getRow(), 1, 1, KOTSUBO_COLS.length).getValues()[0] : null;
+      const prevTotal = prev ? Number(prev[2]) || 0 : 0, prevAt = prev ? Date.parse(prev[4]) || now.getTime() : now.getTime();
+      const hours = Math.max(0, (now.getTime() - prevAt) / 3600e3);
+      const lg = x => Math.log10(Math.max(1, x));
+      // ① 急に増えすぎていないか（前回の記録があるときだけ）② 深度にくらべて大きすぎないか
+      const tooFast = prev && total > Math.max(prevTotal, KOTSUBO_FLOOR) && lg(total) > lg(Math.max(prevTotal, KOTSUBO_FLOOR)) + KOTSUBO_SLACK_LOG10 + KOTSUBO_RATE_LOG10_PER_H * hours;
+      const tooBig = lg(total) > KOTSUBO_CAP_LOG10[maxDepth];
+      let accepted = true;
+      if (tooFast || tooBig) {
+        accepted = false;
+        if (hit) sh.getRange(hit.getRow(), 7).setValue((Number(prev[6]) || 0) + 1);
+        else sh.getRange(sh.getLastRow() + 1, 1, 1, KOTSUBO_COLS.length).setNumberFormat('@').setValues([[clientId, rid, '0', String(maxDepth), now.toISOString(), now.toISOString(), '1']]);
+      } else {
+        const row = [clientId, rid, String(total), String(maxDepth), now.toISOString(), prev ? String(prev[5]) : now.toISOString(), prev ? String(prev[6] || 0) : '0'];
+        sh.getRange(hit ? hit.getRow() : sh.getLastRow() + 1, 1, 1, row.length).setNumberFormat('@').setValues([row]);
+      }
+      // 自分の順位（受け付けなかったときは、前の記録で数える）。人数は返さない
+      const mine = accepted ? total : prevTotal, bans = kbanned_();
+      const all = sh.getLastRow() > 1 ? sh.getRange(2, 2, sh.getLastRow() - 1, 2).getValues().filter(v => v[0] && !bans[v[0]] && Number(v[1]) > 0) : [];
+      const rank = mine > 0 ? all.filter(v => Number(v[1]) > mine).length + 1 : 0;
+      // 上位の一覧は、ここ（参加して数字を送ってきた端末への返事）でだけ返す。参加していない人は見られない
+      return json_({ ok: true, accepted: accepted, rank: rank, rid: rid, top: kotsuboTop_() });
     }
     if (body.type === 'build_put' || body.type === 'build_del') {
       const presetId = str_(body.id, 60);
@@ -252,7 +302,9 @@ function doGet(e) {
   if (type !== 'stats') return json_({ ok: true, app: 'yoru-no-konseki' });
   const ymd = x => (/^\d{4}-\d{2}-\d{2}$/.test(String(x || '')) ? String(x) : '');
   const from = ymd(prm.from), to = ymd(prm.to);
-  const cacheKey = 'stats' + (from || to ? ':' + from + ':' + to : '');
+  // 夜の種類と深度で絞る（ランキング用）：mode＝deep（深き）／normal（浅き）／空（両方）。depth＝1〜5（深き夜のうち、その深度だけ。両方のときは浅き夜＋その深度の深き夜）
+  const fMode = prm.mode === 'deep' || prm.mode === 'normal' ? prm.mode : '', fDepth = /^[1-5]$/.test(String(prm.depth || '')) ? Number(prm.depth) : 0;
+  const cacheKey = 'stats' + (from || to ? ':' + from + ':' + to : '') + (fMode || fDepth ? '|' + fMode + ':' + fDepth : '');
   const cache = CacheService.getScriptCache();
   const hit = cache.get(cacheKey);
   if (hit) return ContentService.createTextOutput(hit).setMimeType(ContentService.MimeType.JSON);
@@ -262,7 +314,7 @@ function doGet(e) {
   const latest = {};
   values.forEach(v => { const k = v[1] + '/' + v[2]; if (!latest[k] || v[13] >= latest[k][13]) latest[k] = v; });
   const add = (map, key, win) => { const x = map[key] || (map[key] = { n: 0, w: 0 }); x.n++; if (win) x.w++; };
-  const out = { ok: true, updatedAt: Date.now(), range: { from: from, to: to }, players: 0, total: { n: 0, w: 0 }, lord: {}, char: {}, lordChar: {}, style: {}, weapon: {}, depth: {}, party: {},
+  const out = { ok: true, updatedAt: Date.now(), range: { from: from, to: to }, filter: { mode: fMode, depth: fDepth }, players: 0, total: { n: 0, w: 0 }, lord: {}, char: {}, lordChar: {}, style: {}, weapon: {}, depth: {}, party: {},
     byDate: {}, charDepth: {}, charWeapon: {}, charStyle: {},
     // 分析用（勝敗つき）：型・武器・深度・人数ごと、敗北した場所、夜の王／夜渡りごとの深度・人数・武器、日ごとの推移
     styleW: {}, weaponW: {}, depthW: {}, partyW: {}, loss: {}, lordLoss: {}, lordDepth: {}, charDepthW: {}, charWeaponW: {}, charParty: {}, lordParty: {}, trend: {}, lordCharM: {}, lossBy: { d1: {}, d2: {} }, foeChar: {}, foeStyle: {} };  // foeChar・foeStyle＝倒された夜の強敵ごとの、負けた夜渡り・型
@@ -281,6 +333,8 @@ function doGet(e) {
     if (perDay[dayKey(v)] > MAX_RUNS_PER_DAY) return;  // 1日に人が遊べる数を超える分は数えない
     const day = v[3] instanceof Date ? Utilities.formatDate(v[3], 'Asia/Tokyo', 'yyyy-MM-dd') : String(v[3]).slice(0, 10);
     if ((from && day < from) || (to && day > to)) return;  // 期間の外
+    if (fMode && v[6] !== fMode) return;  // 夜の種類の外
+    if (fDepth && fMode !== 'normal' && v[6] === 'deep' && Number(v[7]) !== fDepth) return;  // 深度の外（浅き夜は深度で絞らない）
     const win = v[10] === 'win', lord = v[4] + (v[5] === true || v[5] === 'TRUE' ? ':ever' : '');
     players[v[1]] = 1;
     add(out, 'total', win);
@@ -333,6 +387,18 @@ function inbox_(prm) {
   const requests = rows('requests', REQUEST_COLS).filter(v => t(v[0]) > since).slice(-200).map(v => ({ at: iso(v[0]), text: String(v[2]), appVersion: String(v[3] || '') }));
   const reports = rows('reports', REPORT_COLS).filter(v => t(v[0]) > since).slice(-200).map(v => ({ at: iso(v[0]), enemy: String(v[2]), text: String(v[3]), appVersion: String(v[4] || '') }));
   return json_({ ok: true, now: Date.now(), requests: requests, reports: reports });
+}
+
+// 壺渡りのランキングの上位10人（rid と「これまでのマーク」だけ。3分ごとに数え直す）。参加した端末からの送信の返事にだけ付ける
+function kotsuboTop_() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('kotsubo_rank');
+  if (hit) return JSON.parse(hit);
+  const sh = sheet_('kotsubo', KOTSUBO_COLS), bans = kbanned_();
+  const all = sh.getLastRow() > 1 ? sh.getRange(2, 2, sh.getLastRow() - 1, 2).getValues().filter(v => v[0] && !bans[v[0]] && Number(v[1]) > 0) : [];
+  const top = all.map(v => ({ rid: String(v[0]), total: Number(v[1]) })).sort((a, b) => b.total - a.total).slice(0, KOTSUBO_TOP);
+  cache.put('kotsubo_rank', JSON.stringify(top), 180);
+  return top;
 }
 
 // みんなに公開されたビルド（新しい順に最大300件。2分ごとに読み直す）

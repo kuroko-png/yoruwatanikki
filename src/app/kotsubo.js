@@ -4,10 +4,9 @@
 // - 夜の王に挑む：30秒のうちに体力を削り切れば討伐。討伐するたびに、すべての稼ぎが永久に1.25倍
 // - 深き壺に潜る：10体すべて討伐すると、深度を1つ上げて周回できる（強くてニューゲーム）。マークと雇った夜渡りは最初に戻り、
 //   夜の王の討伐ボーナス（bank に貯める）と遺物はすべて残る（頑張った分は消さず、どんどん数字が大きくなる方向）。深度は5まで。
-//   難易度は2つ（夜の王の欄の下で切り替える。効くのは深度1から。戦い中は不可）。深き壺・難易度は、潜れるようになるまで画面にも遊び方にも出さない（たどり着いた人だけが知る）。体力の倍率は試算（使い捨ての計算）で決めた：
+//   難易度は1つだけ（前は「普通」もあったが、ランキングで有利・不利が出るのでやめた。夜の王の体力は前の「高難易度」の数値）。深き壺は、潜れるようになるまで画面にも遊び方にも出さない（たどり着いた人だけが知る）
 //   稼ぎの倍率（DEPTH_GAIN）を深度ごとに大きく上げて、数字がどんどん大きくなるようにしている（深度5のナメレスは澗＝10の36乗の桁）。
-//   普通＝放置が多い人（1秒に2回叩き、アイテムなし）で、各深度が約1日。よく叩く人・アイテムを使う人にはかなり易しい
-//   高難易度＝6本指で叩く人（ふだん1秒に8回、戦いで25回、アイテムも使う）で、各深度が約1日。1本指の人にはとても硬い
+//   6本指で叩く人（ふだん1秒に8回、戦いで25回、アイテムも使う）で、各深度が約1日。1本指の人にはとても硬い
 //   （いずれも小壺を開いて遊び続けた場合の試算。留守の稼ぎ・常夜の王・消えぬ爪痕・時間で弱るしくみは入れていない）
 //   合わない遊び方だとナメレスで止まりやすい。深度3までは下の「詰み防止」で、止まっても時間とともに抜けられる。深度4・5は詰み防止なし（本気の深さ）
 // - 常夜の小壺：ときどき紫の小壺が出る。すぐ叩くとボーナス
@@ -113,18 +112,11 @@ function ownedRelics(k) {
 const BOSSES = [['gladius', 500], ['adel', 6000], ['gnoster', 6e4], ['maris', 5e5], ['libra', 4e6], ['fulghor', 3.5e7], ['caligo', 3e8], ['harmonia', 2.5e9], ['strages', 2e10], ['final', 2e11]];
 // 深き壺：深度0〜5ごとの、夜の王の体力の倍率と稼ぎの倍率
 const DEPTH_GAIN = [1, 100, 1e5, 1e9, 1e14, 1e20], DEPTH_MAX = DEPTH_GAIN.length - 1;
-const DEPTH_HP = { normal: [1, 780, 7.3e6, 6.8e11, 6.3e17, 5.9e24], hard: [1, 2e4, 2.2e8, 2e13, 1.9e19, 1.7e26] };  // 雇う値段を深度に合わせて上げたうえでの試算
-const DIFFS = [['normal', '普通'], ['hard', '高難易度']];
-// 深度4からは高難易度でしか挑めない（普通は選べない。壺を叩く者だけが進める深さ）
-const HARD_ONLY_DEPTH = 4;
-const hardOnly = k => depthOf(k) >= HARD_ONLY_DEPTH;
-const diffOf = k => hardOnly(k) || k.diff === 'hard' ? 'hard' : 'normal';
-const diffNote = k => hardOnly(k) ? `深度${HARD_ONLY_DEPTH}からは高難易度でしか挑めません。壺を叩かぬ者に、この先はない`
-  : `${diffOf(k) === 'hard' ? '高難易度：たくさん叩いて遊ぶ人向け。深き壺の夜の王がずっと硬い' : '普通：放置して遊ぶことが多い人向け'}（いつでも切り替えられます）`;
+const DEPTH_HP = [1, 2e4, 2.2e8, 2e13, 1.9e19, 1.7e26];  // 雇う値段を深度に合わせて上げたうえでの試算（前の「高難易度」の数値。「普通」はなくした）
 const depthOf = k => Math.min(k.depth || 0, DEPTH_MAX);
 // 詰み防止（深度3まで）：同じ夜の王の前で1日（WEAK_AFTER）たっても倒せなければ、そこから時間とともに弱っていく（12時間ごとに体力が半分）。
 // 時刻で数えるので、挑んで逃げられる回数を増やしても早くはならない。アプリを閉じている間も進む。k.lordAt＝今の王に挑めるようになった時刻。
-// 深度4・5は、普通でも高難易度でも「本気で挑む深さ」なので、弱らない
+// 深度4・5は「本気で挑む深さ」なので、弱らない
 const WEAK_AFTER = 24 * 3600e3, WEAK_HALF = 12 * 3600e3, WEAK_MAX_DEPTH = 3;
 const weakOf = k => { if (depthOf(k) > WEAK_MAX_DEPTH) return 1; const over = Date.now() - (k.lordAt || Date.now()) - WEAK_AFTER; return over > 0 ? Math.max(1e-9, Math.pow(.5, over / WEAK_HALF)) : 1; };
 // 深き壺（深度1から）：夜の王の順番は潜るたびにランダム（k.order）。体力は「何体目か」で決まるので、硬さの上がり方は同じ。
@@ -139,7 +131,7 @@ function orderOf(k) { if (!depthOf(k)) return null; if (!Array.isArray(k.order) 
 const foeAt = (k, i) => orderOf(k)?.[i] || { id: BOSSES[i][0], ever: false };
 const foeName = f => `${f.ever ? '常夜の' : ''}${H.LORD[f.id]?.name ?? f.id}`;
 const foeIco = f => H.ico('lord', f.id, f.ever);
-const bossHp = (k, i) => BOSSES[i][1] * DEPTH_HP[diffOf(k)][depthOf(k)] * (i === (k.lords || 0) ? weakOf(k) : 1);
+const bossHp = (k, i) => BOSSES[i][1] * DEPTH_HP[depthOf(k)] * (i === (k.lords || 0) ? weakOf(k) : 1);
 const FIGHT_SEC = 30, FIGHT_TAP = 10;  // 戦いでは、叩く力の10倍のダメージ
 // 夜渡りの加勢：戦いで1回叩くたびに、雇った夜渡りの毎秒マークの2%も上乗せ（×10）。1秒に5回叩くと、毎秒マークと同じくらい削れる。
 // 夜渡りは自分では戦わない（叩かないと勝てない）が、雇うほど1回の叩きが重くなる
@@ -174,6 +166,9 @@ export function fmtM(n) {
   const x = n / u[0];
   return `${x >= 1000 ? Math.floor(x).toLocaleString('ja-JP') : x >= 100 ? x.toFixed(0) : x.toFixed(1)}${u[1]}`;
 }
+// マークの数を全部の桁の数字で出す（切り替えは k.fullDigits。とても大きい数は、下の方の桁が正確でなくなる）
+const markText = k => k.fullDigits ? Math.floor(k.mark).toLocaleString('ja-JP') : fmtM(k.mark);
+const digitsLabel = k => k.fullDigits ? '単位で表示' : 'すべての桁で表示';
 const fmtRate = n => n < 10 ? n.toFixed(1) : fmtM(n);
 const fmtX = n => n < 100 ? String(+n.toFixed(2)) : fmtM(n);  // 倍率（1.25倍・1.56倍…）
 // 遺物（夜渡りの強化を含む）で、今買えるようになっているもの
@@ -207,9 +202,10 @@ function tick() {
   // ミニゲームの画面を開いていないときは、何もしない（端末への保存もしない）。
   // 離れた瞬間に、戦いと常夜の小壺はお知らせなしで終わらせ、離れた時刻を残す（稼ぎは、次に開いたときに「留守の間」としてまとめて入れる）
   if (H.tab() !== 'kotsubo') {
-    if (onTab) { onTab = false; setLock(false); fight = null; rushUntil = itemRushUntil = 0; if (jar) { $('k-jar')?.remove(); jar = null; nextJarAt = 0; } st().lastAt = now; H.save(); }
+    if (onTab) { onTab = false; setLock(false); fight = null; rushUntil = itemRushUntil = 0; if (jar) { $('k-jar')?.remove(); jar = null; nextJarAt = 0; } st().lastAt = now; H.save(); rankSend(true); }
     return;
   }
+  rankSend(false);  // ランキングに参加していれば、5分に1回送る
   onTab = true;
   const k = st(), dt = Math.min(1, (now - (lastTick || now)) / 1000); lastTick = now;
   const p = prodOf(k);
@@ -225,7 +221,7 @@ function tick() {
 // 画面の数字だけを書き換える
 function paint(k) {
   const m = $('k-mark'); if (!m) return;
-  m.textContent = fmtM(k.mark);
+  m.textContent = markText(k); m.classList.toggle('full', !!k.fullDigits);
   $('k-rate').textContent = `毎秒 ${fmtRate(prodOf(k))}・1回 ${fmtRate(tapOf(k))}`;
   document.querySelectorAll('[data-kcost]').forEach(b => b.classList.toggle('cant', k.mark < +b.dataset.kcost));
   const r = $('k-rush'); if (r) r.hidden = !(rushUntil > Date.now());
@@ -300,12 +296,52 @@ if (window.__DEV__) window.__kotsubo = { jarNow: () => { nextJarAt = 1; }, win: 
 // アプリを閉じる・切り替えるとき（ミニゲームを開いていたときだけ）、閉じた時刻を残す
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && H && H.tab() === 'kotsubo') { st().lastAt = Date.now(); H.save(); } });
 
+// ---------- ランキング（これまでのマーク） ----------
+// 参加した人だけ（k.rankJoin）、これまでのマークと、たどり着いた一番深い深度を送る（名前は送らない。端末ごとのランダムな番号は app.js の postOnline が付ける）。
+// 受け取り口が、急に増えすぎた数字・深度にくらべて大きすぎる数字をはじく（tools/online/apps_script.gs）。送るのは5分に1回まで
+const maxDepthOf = k => Math.max(k.maxDepth || 0, depthOf(k));
+const RANK_SEND_GAP = 5 * 60e3, RANK_LIST_TTL = 3 * 60e3;
+let rankSentAt = 0, rankList = null, rankListAt = 0, rankLoading = false, rankFailed = false;
+// 開発用の画面では本物に送らず、見本の順位・一覧を出す
+const DEV_RANK = () => ({ top: [9.1e33, 4.2e30, 7.7e27, 3.3e24, 8e20, 5.5e17, 2.1e15, 6e12, 9e10, 3e9].map((t, i) => ({ rid: i === 2 ? 'dev-me' : `dev-${i}`, total: t })) });
+// 上位の一覧は、送った返事にだけ付いてくる（参加した人だけが見られる。受け取り口に、読み出すだけの口はない）
+function rankSend(force) {
+  const k = st(); if (!k.rankJoin || rankLoading) return;
+  if (!force && Date.now() - rankSentAt < RANK_SEND_GAP) return;
+  rankSentAt = Date.now();
+  if (H.devHost) { k.rankMe = { rank: 3, rid: 'dev-me', accepted: true, at: Date.now() }; rankList = DEV_RANK(); rankListAt = Date.now(); paintRank(); return; }
+  if (!navigator.onLine) { rankFailed = true; paintRank(); return; }
+  rankLoading = true; rankFailed = false;
+  H.postOnline({ type: 'kotsubo', total: Math.floor(k.total), maxDepth: maxDepthOf(k) }).then(r => {
+    if (!r?.ok) { if (r?.error === 'banned') { k.rankJoin = false; k.rankMe = null; rankList = null; H.save(); } else rankFailed = true; return; }
+    k.rankMe = { rank: r.rank, rid: r.rid, accepted: r.accepted !== false, at: Date.now() }; H.save();
+    if (Array.isArray(r.top)) { rankList = { top: r.top.slice(0, 10) }; rankListAt = Date.now(); }
+  }).catch(() => { rankFailed = true; }).finally(() => { rankLoading = false; paintRank(); });
+}
+// ランキングを開いたとき：一覧が古ければ（3分）、送り直して新しい一覧をもらう
+function loadRank(force) { if (force || !rankList || Date.now() - rankListAt >= RANK_LIST_TTL) rankSend(true); }
+function rankBody(k) {
+  if (!k.rankJoin) return `<p class="hint">これまでのマークの多さで、みんなと順位を比べます。名前は出ません（送るのは、これまでのマークの数・進み具合と、端末ごとのランダムな番号だけ）。</p>
+    <button class="ghost small" data-act="kRankJoin">ランキングに参加する</button>`;
+  const me = k.rankMe, ui = S(), admin = !!H.adminKey?.();
+  const meLine = me ? `<p class="k-rank-me">あなたは <b>${me.rank || '-'}位</b>です</p>${me.accepted ? '' : '<p class="hint">急に増えた記録は、ランキングに入れていません。続けて遊ぶと、少しずつ入ります。</p>'}`
+    : '<p class="hint">順位を調べています…（通信できる所で開いてください）</p>';
+  const fmt = n => k.fullDigits ? Math.floor(n).toLocaleString('ja-JP') : fmtM(n);
+  const rows = rankList ? (rankList.top || []).map((x, i) => `<li class="${me && x.rid === me.rid ? 'me' : ''}"><b>${i + 1}位</b><span>${fmt(x.total)} マーク</span>${me && x.rid === me.rid ? '<span class="badge">あなた</span>' : ''}${admin ? ['rank_del', 'rank_ban'].map(op => { const key = `${op}:${x.rid}`; return `<button class="link-btn k-rank-adm" data-act="kRankAdmin" data-v="${key}">${ui.rankConfirm === key ? 'もう一度押す' : op === 'rank_del' ? '消す' : '締め出す'}</button>`; }).join('') : ''}</li>`).join('') : '';
+  const list = rankList ? (rows ? `<ol class="k-rank-list">${rows}</ol>` : '<p class="hint">まだ誰も参加していません。</p>')
+    : `<p class="hint">${rankFailed ? '読み込めませんでした。通信できる所で、もう一度開いてください。' : '読み込んでいます…'}</p>`;
+  return `${meLine}${list}<button class="link-btn dim-link k-rank-leave" data-act="kRankLeave">${ui.rankConfirm === 'leave' ? 'もう一度押すと、ランキングから抜けます' : 'ランキングから抜ける'}</button>`;
+}
+// ランキングの欄だけを書き換える（画面全体は作り直さない）
+function paintRank() { const b = $('k-rank-body'); if (b && !b.hidden) b.innerHTML = rankBody(st()); }
+
 // ミニゲームを開いたとき：離れていた間（アプリを閉じていた間・ほかの画面にいた間。最大8時間）の稼ぎを入れて、動かし始める
 export function startKotsubo() {
   const k = st(), now = Date.now(), away = Math.min(8 * 3600e3, now - (k.lastAt || now));
   if (away > 1000 && prodOf(k) > 0) { const g = prodOf(k) * away / 1000 * (k.ups.off1 ? .9 : .5); gain(k, g); if (away > 60e3) H.toast(`留守の間に ${fmtM(g)} マーク稼いでいました`); }
   k.lastAt = now; lastTick = now; onTab = true;
   if (!loop) loop = setInterval(tick, 100);
+  rankSend(false);
 }
 
 // ---------- 画面 ----------
@@ -323,7 +359,7 @@ export function viewKotsubo() {
       <p class="hint">${FIGHT_SEC}秒のうちに削り切れば討伐。討伐するたびに、すべての稼ぎが永久に1.25倍（今 ${fmtX(globalMult(k))}倍）</p>
       <button class="primary small-primary" data-act="kFight">挑む</button></div>`
     : d < DEPTH_MAX ? `<div class="k-boss done"><b>🌅 ${d ? `深度${d}の` : ''}すべての夜の王を討伐しました</b><p class="hint">稼ぎは今 ${fmtX(globalMult(k))}倍です。</p>
-      <p class="hint">深き壺に潜ると、深度${d + 1}で最初から周回できます。マークと雇った夜渡りは最初に戻りますが、夜の王の討伐ボーナスと遺物はそのまま。深度${d + 1}では稼ぎが${fmtX(DEPTH_GAIN[d + 1])}倍になり、そのぶん夜の王も硬くなります（深度${DEPTH_MAX}まで）。${d + 1 >= HARD_ONLY_DEPTH ? `深度${HARD_ONLY_DEPTH}からは、高難易度でしか挑めません。` : ''}${d + 1 > SCAR_KEEP_DEPTH && (itemsOf(k).scar || itemsOf(k).rush) ? 'アイテムは、この先へは持っていけない。' : ''}</p>
+      <p class="hint">深き壺に潜ると、深度${d + 1}で最初から周回できます。マークと雇った夜渡りは最初に戻りますが、夜の王の討伐ボーナスと遺物はそのまま。深度${d + 1}では稼ぎが${fmtX(DEPTH_GAIN[d + 1])}倍になり、そのぶん夜の王も硬くなります（深度${DEPTH_MAX}まで）。${d + 1 > SCAR_KEEP_DEPTH && (itemsOf(k).scar || itemsOf(k).rush) ? 'アイテムは、この先へは持っていけない。' : ''}</p>
       <button class="primary small-primary ${S().confirmDive ? 'danger' : ''}" data-act="kDive">${S().confirmDive ? 'もう一度押すと潜ります' : `深き壺に潜る（深度${d + 1}へ）`}</button></div>`
     : `<div class="k-boss done"><b>🌌 深度${DEPTH_MAX}のすべての夜の王を討伐しました</b><p class="hint">深き壺の底にたどり着きました。稼ぎは今 ${fmtX(globalMult(k))}倍です。</p>
       <p class="hint">壺の底から、深度1へ戻ることができます。マークと雇った夜渡りは最初に戻り、討伐のボーナスも1周目を終えたときの分に戻ります。遺物とアイテムはそのまま。</p>
@@ -350,8 +386,9 @@ export function viewKotsubo() {
   return `<div class="stack-lg kotsubo">
     <button class="ghost back-btn" data-act="kotsuboBack">‹ もどる</button>
     <section class="card-sec k-top">
-      <div class="k-mark"><span id="k-mark">${fmtM(k.mark)}</span><small>マーク</small></div>
+      <div class="k-mark"><span id="k-mark" class="${k.fullDigits ? 'full' : ''}">${markText(k)}</span><small>マーク</small></div>
       <div class="hint k-rate" id="k-rate"></div>
+      <button class="link-btn k-digits" data-act="kDigits" aria-pressed="${!!k.fullDigits}">${digitsLabel(k)}</button>
       <div class="k-stage" id="k-stage">
         <button class="k-tap" id="k-tap" aria-label="小壺を叩く"><span class="k-art" id="k-art">${jarArt()}</span></button>
         <span class="k-say" id="k-say"></span><span class="k-rush" id="k-rush" hidden>常夜ラッシュ中！×7</span><div class="k-fx" id="k-fx" aria-hidden="true"></div>
@@ -359,12 +396,13 @@ export function viewKotsubo() {
       <p class="hint k-hint">小壺を叩くとマークがたまる。ときどき出る🏺（常夜の小壺）は、すぐ叩くとボーナス</p>
     </section>
     ${spoils.w + spoils.l ? `<div class="k-spoils"><span>⚔️ 戦果ボーナス：記録した勝利${spoils.w}・敗北${spoils.l}<small>→ ${fmtM(spoils.gain)} マーク</small></span><button class="primary small-primary" data-act="kClaim">受け取る</button></div>` : ''}
-    <section class="card-sec">${bossCard}<p class="hint k-scar" id="k-scar" ${scarText(k) ? '' : 'hidden'}>${scarText(k)}</p>${d || (k.lords || 0) >= BOSSES.length ? `<div class="k-diff"><span>難易度</span><div class="seg">${DIFFS.map(([v, l]) => `<button data-act="kDiff" data-v="${v}" aria-pressed="${diffOf(k) === v}" ${fight || (hardOnly(k) && v === 'normal') ? 'disabled' : ''}>${l}</button>`).join('')}</div></div>
-      <p class="hint k-diff-note" id="k-diff-note">${diffNote(k)}</p>` : ''}</section>
+    <section class="card-sec">${bossCard}<p class="hint k-scar" id="k-scar" ${scarText(k) ? '' : 'hidden'}>${scarText(k)}</p></section>
     <section class="card-sec k-items"><div class="sec-head"><h2>アイテム</h2></div><div class="k-item-list">${itemRows}</div></section>
     <section class="card-sec"><div class="sec-head"><h2 id="k-relic-h">${ownOpen ? '所持遺物' : '遺物'}</h2>${ownBtn}</div><div class="k-list" id="k-own" ${ownOpen ? '' : 'hidden'}>${ownRows}</div><div class="k-list" id="k-shop" ${ownOpen ? 'hidden' : ''}>${upRows}</div></section>
     <section class="card-sec"><div class="sec-head"><h2>夜渡りを雇う</h2><div class="chips">${[1, 10].map(x => `<button class="chip mini" data-act="kBuyN" data-v="${x}" aria-pressed="${n === x}">×${x}</button>`).join('')}</div></div>
       <div class="k-list">${hireRows}</div></section>
+    <section class="card-sec k-rank"><div class="sec-head"><h2>ランキング</h2><button class="chip mini" data-act="kRank" aria-pressed="${!!S().rankOpen}">${S().rankOpen ? '閉じる' : '見る'}</button></div>
+      <div id="k-rank-body" ${S().rankOpen ? '' : 'hidden'}>${rankBody(k)}</div></section>
     <p class="hint k-stats">これまで：${fmtM(k.total)} マーク・${fmtM(k.taps)} 回叩いた・常夜の小壺 ${k.jars || 0} 回・討伐 ${k.lords || 0}/${BOSSES.length}${d ? `・深度${d}` : ''}</p>
     <button class="link-btn dim-link k-reset ${S().confirmReset ? 'danger-text' : ''}" data-act="kReset">${S().confirmReset ? 'もう一度押すと、小壺のデータを最初からにします' : '最初からやり直す'}</button>
   </div>`;
@@ -387,6 +425,34 @@ export function kotsuboAct(a, v) {
   if (a !== 'kDive') ui.confirmDive = false;
   if (a !== 'kReturn') ui.confirmReturn = false;
   if (a === 'kLock') { setLock(!locked); H.toast(locked ? '画面をロックしました（もう一度押すと解除）' : '画面のロックを解除しました'); return false; }
+  // マークの数の出し方（単位／すべての桁）：画面は作り直さず、数とボタンだけ書き換える
+  if (a === 'kDigits') { k.fullDigits = !k.fullDigits; H.save(); paint(k); document.querySelectorAll('[data-act="kDigits"]').forEach(b => { b.textContent = digitsLabel(k); b.setAttribute('aria-pressed', String(!!k.fullDigits)); }); return false; }
+  // ランキング：開け閉め・参加・抜ける・管理人の操作（画面全体は作り直さず、ランキングの欄だけ書き換える）
+  if (a !== 'kRankAdmin' && a !== 'kRankLeave') ui.rankConfirm = null;
+  if (a === 'kRank') {
+    ui.rankOpen = !ui.rankOpen; const b = $('k-rank-body'); if (b) b.hidden = !ui.rankOpen;
+    document.querySelectorAll('[data-act="kRank"]').forEach(x => { x.textContent = ui.rankOpen ? '閉じる' : '見る'; x.setAttribute('aria-pressed', String(!!ui.rankOpen)); });
+    if (ui.rankOpen) { paintRank(); loadRank(false); }
+    return false;
+  }
+  if (a === 'kRankJoin') { k.rankJoin = true; H.save(); paintRank(); rankSend(true); return false; }
+  if (a === 'kRankLeave') {
+    if (ui.rankConfirm !== 'leave') { ui.rankConfirm = 'leave'; paintRank(); return false; }
+    ui.rankConfirm = null; k.rankJoin = false; k.rankMe = null; rankList = null; H.save();
+    if (!H.devHost) H.postOnline({ type: 'kotsubo_leave' }).catch(() => {});
+    H.toast('ランキングから抜けました'); paintRank(); return false;
+  }
+  if (a === 'kRankAdmin') {
+    const [op, rid] = String(v).split(':'); if (!rid || !['rank_del', 'rank_ban'].includes(op)) return false;
+    if (ui.rankConfirm !== v) { ui.rankConfirm = v; paintRank(); return false; }  // 消す・締め出すは2回押す
+    ui.rankConfirm = null;
+    if (H.devHost) { if (rankList) rankList.top = rankList.top.filter(x => x.rid !== rid); H.toast('（開発用）一覧から外しました'); paintRank(); return false; }
+    H.postOnline({ type: 'admin', key: H.adminKey(), op, id: rid }).then(r => {
+      if (!r?.ok) { H.toast(r?.error === 'forbidden' ? '合言葉が通りませんでした。管理人モードを入れ直してください' : 'うまくいきませんでした'); return; }
+      H.toast(op === 'rank_ban' ? '消して、締め出しました' : '消しました'); loadRank(true);
+    }).catch(() => H.toast('通信できる所で、もう一度お試しください'));
+    paintRank(); return false;
+  }
   if (a === 'kItemInfo') { ui.itemOpen = ui.itemOpen === v ? null : v; showFlavor('kItemInfo', ui.itemOpen); return false; }
   if (a === 'kItemUse') {
     const it = itemsOf(k); if (!ITEM[v] || !(it[v] > 0)) return false;
@@ -437,29 +503,20 @@ export function kotsuboAct(a, v) {
       items: (k.scarReady ? 1 : 0) + (itemRushUntil > Date.now() ? 1 : 0) }; k.scarReady = false; return true;
   }
   // 深き壺に潜る：討伐した数を bank に移して、マーク・雇った夜渡り・討伐の進み具合を最初に戻し、深度を1つ上げる
-  if (a === 'kDiff') {
-    if (fight || !DIFFS.some(([x]) => x === v) || diffOf(k) === v || (hardOnly(k) && v === 'normal')) return false;
-    // 画面は作り直さず、ボタン・説明・夜の王の体力だけをその場で書き換える（作り直すとカクつくため）
-    k.diff = v; H.save();
-    document.querySelectorAll('[data-act="kDiff"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
-    const note = $('k-diff-note'); if (note) note.textContent = diffNote(k);
-    const mx = $('k-boss-max'); if (mx && BOSSES[k.lords || 0]) mx.textContent = `体力 ${fmtM(bossHp(k, k.lords || 0))}`;
-    return false;
-  }
   // 深度5を抜けた人だけ：深度1へ戻ってやり直す（v59 の公開直後に深度5まで抜けた人が、直したあとの数値で遊び直せるように）。
   // 討伐ボーナスは1周目を終えた分（10体）に戻す（深度5の分まで残すと、深度1の王が弱すぎるため）。遺物・アイテムは残す
   if (a === 'kReturn') {
     if (depthOf(k) < DEPTH_MAX || (k.lords || 0) < BOSSES.length || fight) return false;
     if (!ui.confirmReturn) { ui.confirmReturn = true; return true; }
     ui.confirmReturn = false; rushUntil = itemRushUntil = 0;
-    Object.assign(k, { bank: BOSSES.length, lords: 0, lordAt: Date.now(), scarHp: null, scarReady: false, depth: 1, order: makeOrder(), mark: 0, hires: {} });
+    Object.assign(k, { bank: BOSSES.length, lords: 0, lordAt: Date.now(), scarHp: null, scarReady: false, depth: 1, order: makeOrder(), mark: 0, hires: {}, maxDepth: DEPTH_MAX });
     H.toast('壺の底から、深度1へ戻った'); H.save(); return true;
   }
   if (a === 'kDive') {
     if ((k.lords || 0) < BOSSES.length || depthOf(k) >= DEPTH_MAX || fight) return false;
     if (!ui.confirmDive) { ui.confirmDive = true; return true; }
     ui.confirmDive = false; rushUntil = itemRushUntil = 0;
-    k.bank = (k.bank || 0) + k.lords; k.lords = 0; k.lordAt = Date.now(); k.scarHp = null; k.scarReady = false; k.depth = depthOf(k) + 1; k.order = makeOrder();
+    k.bank = (k.bank || 0) + k.lords; k.lords = 0; k.lordAt = Date.now(); k.scarHp = null; k.scarReady = false; k.depth = depthOf(k) + 1; k.maxDepth = Math.max(k.maxDepth || 0, k.depth); k.order = makeOrder();
     k.mark = 0; k.hires = {};
     if (k.depth > SCAR_KEEP_DEPTH) { itemsOf(k).scar = 0; itemsOf(k).rush = 0; }  // 消えぬ爪痕・常夜の香は深度3までしか持ち越せない（深度4・5へ潜るときに消える）
     H.toast(`深き壺に潜った…深度${k.depth}。稼ぎは${fmtX(globalMult(k))}倍から`); H.save(); return true;
@@ -467,7 +524,9 @@ export function kotsuboAct(a, v) {
   if (a === 'kClaim') { const s = warSpoils(k); gain(k, s.gain); k.claimAt = Date.now(); H.toast(`戦果ボーナス ${fmtM(s.gain)} マーク！`); return true; }
   if (a === 'kReset') {
     if (!ui.confirmReset) { ui.confirmReset = true; return true; }
-    ui.confirmReset = false; fight = null; delete H.prefs().kotsubo; H.toast('小壺のデータを最初からにしました'); return true;
+    ui.confirmReset = false; fight = null;
+    if (k.rankJoin && !H.devHost) H.postOnline({ type: 'kotsubo_leave' }).catch(() => {});  // ランキングからも抜ける（最初からの数字で参加し直せる）
+    delete H.prefs().kotsubo; H.toast('小壺のデータを最初からにしました'); return true;
   }
   return false;
 }
