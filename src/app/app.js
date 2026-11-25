@@ -1330,7 +1330,8 @@ function publicBuilds() {
   const onlyNeta = !!prefs().pubOnlyNeta;
   const all = (PUB.list || []).map(b => ({ ...b, p: parsePublic(b.data) })).filter(b => b.p && (!f || b.p.charId === f));
   const items = all.filter(b => !onlyNeta || b.p.neta), netaN = all.filter(b => b.p.neta).length;
-  const chips = charGrid('pubChar', f, id => (PUB.list || []).filter(b => parsePublic(b.data)?.charId === id).length);
+  // 夜渡りの四角の数：「ネタビルドだけ」がオンのときは、その夜渡りのネタビルドの数にする
+  const chips = charGrid('pubChar', f, id => (PUB.list || []).filter(b => { const p = parsePublic(b.data); return p?.charId === id && (!onlyNeta || p.neta); }).length);
   const body = !PUB.list ? `<div class="empty-state">${PUB.failed && !PUB.loading ? '読み込めませんでした。通信できる所で、もう一度読み込んでください。<br><button class="ghost small" data-act="publicOpen" style="margin-top:8px">もう一度読み込む</button>' : '読み込んでいます…'}</div>`
     : items.length ? items.map((b, i) => `<button class="card" data-act="pubPick" data-v="${(PUB.list || []).indexOf(PUB.list.find(x => x.data === b.data))}">
         <span class="title pub-title"><span>${b.p.charId ? ico('char', b.p.charId) : ''}${esc(presetName(b.p))}${b.p.neta ? '<span class="badge neta">ネタ</span>' : ''}${mine.has(b.presetId) ? '<span class="badge pub">あなた</span>' : ''}</span>${fmtWhen(b.updatedAt) ? `<small class="pub-date">公開 ${fmtWhen(b.updatedAt)}</small>` : ''}</span>
