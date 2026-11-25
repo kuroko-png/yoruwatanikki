@@ -232,7 +232,7 @@ textarea { min-height: 64px; resize: vertical; }
 .stack { display: flex; height: 26px; border-radius: 8px; overflow: hidden; font-size: 12px; font-weight: 700; }
 .stack div { display: flex; align-items: center; justify-content: center; color: #160a06; min-width: 0; overflow: hidden; white-space: nowrap; }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--dim); }
-.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.legend i:not(.ico) { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
 .spark { width: 100%; height: auto; display: block; background: rgba(0,0,0,.18); border: 1px solid var(--line); border-radius: 12px; }
 
 /* builds */
@@ -743,7 +743,7 @@ body { min-height: calc(100vh + 1px); min-height: calc(100lvh + 1px); }
 .bar-track.stacked { display: flex; overflow: hidden; background: none; }
 .dseg { display: inline-block; height: 100%; }
 .depth-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; color: var(--dim); margin-bottom: 6px; }
-.depth-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+.depth-legend i:not(.ico) { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
 .dseg.d0 { background: #4f8be0; } .dseg.d1 { background: #8f7be0; } .dseg.d2 { background: #b26ad6; } .dseg.d3 { background: #d65fa8; } .dseg.d4 { background: #e3835e; } .dseg.d5 { background: #cf5a55; }
 /* ビルド：みんなのビルド・公開 */
 .build-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -916,10 +916,10 @@ html, body { overflow-x: clip; overscroll-behavior-x: none; }
   border-radius: 12px; border: 1px solid var(--line-strong); background: rgba(255,255,255,.04); color: var(--fg); cursor: pointer; font: inherit; min-width: 0; }
 .char-sq .ico { width: 26px; height: 26px; margin: 0; top: 0; }
 .char-sq span { font-size: 10.5px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; letter-spacing: -.03em; }
-.char-sq i { position: absolute; top: 3px; right: 4px; font-style: normal; font-size: 9.5px; font-weight: 800; color: var(--accent); }
+.char-sq i:not(.ico) { position: absolute; top: 3px; right: 4px; font-style: normal; font-size: 9.5px; font-weight: 800; color: var(--accent); }
 .char-sq[aria-pressed="true"] { background: var(--grad-gold); color: var(--accent-ink); border-color: transparent; }
 .char-sq[aria-pressed="true"] .ico { filter: brightness(0); opacity: .8; }
-.char-sq[aria-pressed="true"] i { color: var(--accent-ink); }
+.char-sq[aria-pressed="true"] i:not(.ico) { color: var(--accent-ink); }
 .char-grid-note { display: flex; align-items: center; justify-content: center; gap: 10px; margin: -4px 0 0; }
 
 /* みんなの統計：期間の絞り込み（全期間・30日・7日・今日・指定） */
@@ -1369,3 +1369,6 @@ html.k-locked .kotsubo { touch-action: none; }
 .brand > div { min-width: 0; }
 /* 壺渡りの画面（右上にロックのボタンが出ている間）は、タイトル横の小壺のボタンを隠す（もう壺の中にいるので要らない。ロックのボタンとかぶる） */
 .appbar:has(.lock-btn:not([hidden])) .kotsubo-btn { display: none; }
+
+/* 夜の王・夜渡りのアイコンは <i> の背景の絵（タブを切り替えたときの点滅をなくすため。大きさは .ico の決まりのまま） */
+i.ico { display: inline-block; background-position: center; background-size: contain; background-repeat: no-repeat; }
