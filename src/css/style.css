@@ -1409,3 +1409,27 @@ i.ico { display: inline-block; background-position: center; background-size: con
 .news-flag { border: 0; background: none; padding: 0; margin: 0; font: inherit; font-size: 12px; font-weight: 700; color: var(--accent); cursor: pointer; white-space: nowrap; }
 /* 連打王：いちばん下のひとこと（区切り線の下に、静かに） */
 .k-renda-note { margin: 12px 0 0; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,.15); font-size: 12px; line-height: 1.8; color: var(--dim); text-align: center; letter-spacing: .04em; }
+/* 壺渡り：夜の王に挑む前の確かめる画面（アイテム・画面のロック）と「3・2・1」 */
+.sheet.k-prep { grid-template-rows: auto 1fr; }
+.k-prep-body { display: grid; gap: 10px; overflow-y: auto; padding-bottom: 4px; }
+.k-prep-q { margin: 4px 0 0; font-size: 14px; font-weight: 700; }
+.k-prep-q small { display: block; font-weight: 400; font-size: 12px; color: var(--dim); margin-top: 2px; }
+.k-prep-items { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.k-prep-items button { display: grid; justify-items: center; gap: 2px; padding: 10px 4px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255,255,255,.04); color: var(--fg); font: inherit; font-size: 13px; cursor: pointer; }
+.k-prep-items button small { color: var(--dim); font-size: 11px; }
+.k-prep-items button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); font-weight: 700; background: rgba(255,255,255,.08); }
+.k-prep-items button:disabled { opacity: .4; cursor: default; }
+.k-prep-go { margin-top: 6px; }
+.k-count { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; pointer-events: none; background: rgba(3, 4, 12, .45); }
+.k-count b { font-size: 96px; line-height: 1; color: var(--accent); text-shadow: 0 0 30px rgba(0,0,0,.8); }
+.k-count b.go { font-size: 48px; }
+.k-count b.pop { animation: k-count-pop .8s ease-out; }
+@keyframes k-count-pop { from { transform: scale(1.6); opacity: 0; } 30% { transform: scale(1); opacity: 1; } to { transform: scale(.9); opacity: .85; } }
+/* 戦果ボーナス：マークか爪痕を選んで受け取る */
+.k-spoils { flex-wrap: wrap; }
+.k-spoils > span { flex: 1 1 100%; }
+.k-spoils-btns { display: flex; gap: 6px; flex-wrap: wrap; flex: 1 1 100%; }
+.k-spoils-btns button { flex: 1 1 0; min-width: 0; }
+.k-stats { line-height: 1.7; }
+/* 爪痕を知らない人には、使わない・香の2つだけ */
+.k-prep-items.two { grid-template-columns: repeat(2, 1fr); }

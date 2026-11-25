@@ -6,7 +6,7 @@
 //   夜の王の討伐ボーナス（bank に貯める）と遺物はすべて残る（頑張った分は消さず、どんどん数字が大きくなる方向）。深度は5まで。
 //   難易度は1つだけ（前は「普通」もあったが、ランキングで有利・不利が出るのでやめた。夜の王の体力は下の DEPTH_HARD）。深き壺は、潜れるようになるまで画面にも遊び方にも出さない（たどり着いた人だけが知る）
 //   稼ぎの倍率（DEPTH_GAIN）を深度ごとに大きく上げて、数字がどんどん大きくなるようにしている（深度5のナメレスは澗＝10の36乗の桁）。
-//   夜の王の硬さは「1周目の同じ順番の王の何倍か」（DEPTH_HARD）で決める。深度1は2倍・2は4倍・3は8倍（深度4まではサクッと行ける）、4は15倍・5は20倍（本気の深さ）。
+//   夜の王の硬さは「1周目の同じ順番の王の何倍か」（DEPTH_HARD）で決める。深度1は2倍・2は4倍・3は8倍・4は9倍・5は10倍（雇う値段の上がり方から、終盤の稼ぎは伸びにくいので、これより硬いと9・10体目が壁になる）。
 //   前は全部の深度が約25倍で、ふつうに遊ぶ人には重すぎた
 //   合わない遊び方だとナメレスで止まりやすい。深度3までは下の「詰み防止」で、止まっても時間とともに抜けられる。深度4・5は詰み防止なし（本気の深さ）
 // - 常夜の小壺：ときどき紫の小壺が出る。すぐ叩くとボーナス
@@ -79,8 +79,8 @@ const CHAR_FLAVOR = {
 // 手に入れ方（ITEM_DROP）：夜の王を討伐したとき・常夜の小壺を叩いたときに、それぞれの確率で。買うことはできない。持てるのは種類ごとに99個まで
 // scar（消えぬ爪痕）：使うと、次の夜の王との戦い（戦い中に使えばその戦い）で削った体力が、逃げられても残る。倒すか潜るまで残り、普通の戦いで逃げられても戻らない
 const ITEMS = [
-  ['rush', '🕯️', '常夜の香', 'すぐに常夜ラッシュ（12秒間、叩く力が7倍）', '常夜の小壺の欠片を練り込んだ香。\n火を灯せば、ひととき夜が深くなる。\n\n深い夜ほど、壺はよく鳴く。\nそれを知る者は、香を絶やさない'],
-  ['scar', '🩸', '消えぬ爪痕', '使ってから夜の王に挑むと、逃げられても削った体力がそのまま残る', '夜の王に刻まれた、ひとすじの傷。\n血は乾いても、その痛みは消えない。\n\n王は逃げる。だが傷は残る。\n次に相まみえるとき、王はそれを思い出すだろう'],
+  ['rush', '🕯️', '常夜の香', '夜の王に挑むときに使うと、戦いの始まりから常夜ラッシュ（12秒間、叩く力が7倍）', '常夜の小壺の欠片を練り込んだ香。\n火を灯せば、ひととき夜が深くなる。\n\n深い夜ほど、壺はよく鳴く。\nそれを知る者は、香を絶やさない'],
+  ['scar', '🩸', '消えぬ爪痕', '夜の王に挑むときに使うと、逃げられても削った体力がそのまま残る', '夜の王に刻まれた、ひとすじの傷。\n血は乾いても、その痛みは消えない。\n\n王は逃げる。だが傷は残る。\n次に相まみえるとき、王はそれを思い出すだろう'],
 ];
 const ITEM_DROP = { rush: { lord: 1, jar: .1 }, scar: { lord: 0, jar: 0 } };  // 討伐したとき・常夜の小壺のときに手に入る確率（消えぬ爪痕は、深き壺の常夜の王を倒したときだけ。必ず手に入る）
 const ITEM = Object.fromEntries(ITEMS.map(x => [x[0], x])), ITEM_MAX = 8;
@@ -113,7 +113,7 @@ const BOSSES = [['gladius', 500], ['adel', 6000], ['gnoster', 6e4], ['maris', 5e
 // 深き壺：深度0〜5ごとの、夜の王の体力の倍率と稼ぎの倍率
 const DEPTH_GAIN = [1, 100, 1e5, 1e9, 1e14, 1e20], DEPTH_MAX = DEPTH_GAIN.length - 1;
 // 潜った直後の稼ぎ・雇う値段の倍率は「1.25の（それまでに倒した数＝10×深度）乗 × DEPTH_GAIN」。体力はそれに DEPTH_HARD を掛けた分だけ上げる
-const DEPTH_HARD = [1, 2, 4, 8, 15, 20];
+const DEPTH_HARD = [1, 2, 4, 8, 9, 10];
 const DEPTH_HP = DEPTH_GAIN.map((g, d) => DEPTH_HARD[d] * g * Math.pow(1.25, 10 * d));
 const depthOf = k => Math.min(k.depth || 0, DEPTH_MAX);
 // 詰み防止（深度3まで）：同じ夜の王の前で1日（WEAK_AFTER）たっても倒せなければ、そこから時間とともに弱っていく（12時間ごとに体力が半分）。
@@ -186,16 +186,23 @@ function upgradesShown(k) {
 // 戦果ボーナス：記録タブで、前に受け取ったあとに記録された勝ち負け（サンプルは数えない）。
 // 「最初に記録した時刻」で数えるので、昔の戦績を直したり消して戻したりしても、もう一度は数えない
 const madeAt = r => r.createdAt || r.updatedAt || 0;
+// 戦果ボーナスは、マークの代わりに🩸消えぬ爪痕でも受け取れる（記録 SCAR_PER_RUNS 戦ごとに1つ。古い記録から使い、余った記録は次に残る）
+const SCAR_PER_RUNS = 3;
+// 消えぬ爪痕は、深き壺にたどり着いた人（または持っている人）にだけ見せる（たどり着いた人だけが知る、の決めごと）
+const seesScar = k => maxDepthOf(k) > 0 || (itemsOf(k).scar || 0) > 0 || !!k.scarReady;
 function warSpoils(k) {
   // はじめて受け取るときは、これまでの記録の新しい50戦まで（記録が多い人が、最初から一気に進みすぎないように）
   const runs = H.liveRuns().filter(r => !r.sample && madeAt(r) > (k.claimAt || 0)).sort((a, b) => madeAt(b) - madeAt(a)).slice(0, k.claimAt ? Infinity : 50);
   const w = runs.filter(r => r.result === 'win').length, l = runs.length - w;
-  return { w, l, gain: w * Math.max(100, prodOf(k) * 300) + l * Math.max(20, prodOf(k) * 60) };
+  const room = ITEM_MAX - (itemsOf(k).scar || 0), scars = Math.max(0, Math.min(Math.floor(runs.length / SCAR_PER_RUNS), room));
+  return { w, l, runs, scars, room, gain: w * Math.max(100, prodOf(k) * 300) + l * Math.max(20, prodOf(k) * 60) };
 }
 
 // ---------- 動き（叩く・時間がたつ・常夜の小壺・戦い） ----------
 let tuckTimer = null;
 let loop = null, lastTick = 0, lastSave = 0, rushUntil = 0, itemRushUntil = 0, jar = null, nextJarAt = 0, fight = null, combo = 0, onTab = false;
+// 夜の王に挑むとき：先に確かめる画面（prep：使うアイテム・画面のロック）→「3・2・1」（countdown）→ 戦いが始まる。アイテムは戦いが始まった瞬間に使う
+let prep = null, countdown = null;
 const $ = id => document.getElementById(id);
 function gain(k, n) { k.mark += n; k.total += n; }
 function scheduleJar(k) { nextJarAt = Date.now() + (50 + Math.random() * 100) * 1000 / (k.ups.jar1 ? 2 : 1); }
@@ -204,7 +211,7 @@ function tick() {
   // ミニゲームの画面を開いていないときは、何もしない（端末への保存もしない）。
   // 離れた瞬間に、戦いと常夜の小壺はお知らせなしで終わらせ、離れた時刻を残す（稼ぎは、次に開いたときに「留守の間」としてまとめて入れる）
   if (H.tab() !== 'kotsubo') {
-    if (onTab) { onTab = false; setLock(false); fight = null; rushUntil = itemRushUntil = 0; if (jar) { $('k-jar')?.remove(); jar = null; nextJarAt = 0; } st().lastAt = now; H.save(); rankSend(true); }
+    if (onTab) { onTab = false; closePrep(); stopCountdown(); setLock(false); fight = null; rushUntil = itemRushUntil = 0; if (jar) { $('k-jar')?.remove(); jar = null; nextJarAt = 0; } st().lastAt = now; H.save(); rankSend(true); }
     return;
   }
   rankSend(false);  // ランキングに参加していれば、5分に1回送る
@@ -240,6 +247,7 @@ function floatText(x, y, text, cls = '') {
   fx.appendChild(el); setTimeout(() => el.remove(), 900);
 }
 function tapMerchant(e) {
+  if (countdown) return;  // 挑む前のカウントダウン中は叩けない
   const k = st(), v = tapOf(k);
   k.taps++; combo++;
   if (rendaOn()) { if (!k.renda || k.renda.id !== RENDA.id) k.renda = { id: RENDA.id, n: 0 }; k.renda.n++; const r = $('k-renda-n'); if (r) r.textContent = k.renda.n.toLocaleString('ja-JP'); }
@@ -419,10 +427,9 @@ export function viewKotsubo() {
       <div class="k-flavor" data-flv="${esc(u.id)}" ${open ? '' : 'hidden'}>${esc(u.flavor || '').replace(/\n/g, '<br>')}</div>`; }).join('')
     : '<p class="hint">まだ遺物を持っていません。</p>';
   const ownBtn = `<button class="chip mini" data-act="kOwned" aria-pressed="${ownOpen}">${ownOpen ? '売り場へ' : `所持遺物 ${owned.length}`}</button>`;
-  // アイテム：絵・名前・数と「使う」だけ。名前を押すと、効果とフレーバーテキストが開く（説明は開いたときだけ）
-  const items = itemsOf(k), itemRows = ITEMS.map(([id, icon, name, desc, flavor]) => { const n = items[id] || 0, open = S().itemOpen === id;
-    return `<div class="k-item ${open ? 'open' : ''} ${n ? '' : 'none'}"><button class="k-item-main" data-act="kItemInfo" data-v="${id}" aria-expanded="${open}"><span class="k-ico">${icon}</span><b>${esc(name)}</b><i id="k-item-${id}">${n}</i></button>
-      <button class="ghost small k-use" data-act="kItemUse" data-v="${id}" ${n && !itemOff(k, id) ? '' : 'disabled'}>使う</button></div>
+  // アイテム：絵・名前・数だけ（使うのは、夜の王に挑むときの確かめる画面から）。名前を押すと、効果とフレーバーテキストが開く（説明は開いたときだけ）
+  const items = itemsOf(k), itemRows = ITEMS.filter(([id]) => id !== 'scar' || seesScar(k)).map(([id, icon, name, desc, flavor]) => { const n = items[id] || 0, open = S().itemOpen === id;
+    return `<div class="k-item ${open ? 'open' : ''} ${n ? '' : 'none'}"><button class="k-item-main" data-act="kItemInfo" data-v="${id}" aria-expanded="${open}"><span class="k-ico">${icon}</span><b>${esc(name)}</b><i id="k-item-${id}">${n}</i></button></div>
       <div class="k-flavor" data-flv="${id}" ${open ? '' : 'hidden'}><span class="k-eff">${esc(desc)}</span>${esc(flavor).replace(/\n/g, '<br>')}</div>`; }).join('');
   return `<div class="stack-lg kotsubo">
     <button class="ghost back-btn" data-act="kotsuboBack">‹ もどる</button>
@@ -436,7 +443,8 @@ export function viewKotsubo() {
       </div>
       <p class="hint k-hint">小壺を叩くとマークがたまる。ときどき出る🏺（常夜の小壺）は、すぐ叩くとボーナス</p>
     </section>
-    ${spoils.w + spoils.l ? `<div class="k-spoils"><span>⚔️ 戦果ボーナス：記録した勝利${spoils.w}・敗北${spoils.l}<small>→ ${fmtM(spoils.gain)} マーク</small></span><button class="primary small-primary" data-act="kClaim">受け取る</button></div>` : ''}
+    ${spoils.w + spoils.l ? `<div class="k-spoils"><span>⚔️ 戦果ボーナス：記録した勝利${spoils.w}・敗北${spoils.l}<small>${seesScar(k) ? `どちらかで受け取れます（爪痕は記録${SCAR_PER_RUNS}戦ごとに1つ。余った記録は次に残ります）` : ''}</small></span>
+      <div class="k-spoils-btns"><button class="primary small-primary" data-act="kClaim">${fmtM(spoils.gain)} マーク</button>${seesScar(k) ? `<button class="ghost small-primary" data-act="kClaimScar" ${spoils.scars ? '' : 'disabled'}>${spoils.scars ? `🩸消えぬ爪痕 ×${spoils.scars}` : spoils.room ? `🩸爪痕（あと${SCAR_PER_RUNS - spoils.runs.length % SCAR_PER_RUNS}戦）` : '🩸爪痕（持ちきれない）'}</button>` : ''}</div></div>` : ''}
     <section class="card-sec">${bossCard}<p class="hint k-scar" id="k-scar" ${scarText(k) ? '' : 'hidden'}>${scarText(k)}</p></section>
     <section class="card-sec k-items"><div class="sec-head"><h2>アイテム</h2></div><div class="k-item-list">${itemRows}</div></section>
     <section class="card-sec"><div class="sec-head"><h2 id="k-relic-h">${ownOpen ? '所持遺物' : '遺物'}</h2>${ownBtn}</div><div class="k-list" id="k-own" ${ownOpen ? '' : 'hidden'}>${ownRows}</div><div class="k-list" id="k-shop" ${ownOpen ? 'hidden' : ''}>${upRows}</div></section>
@@ -445,7 +453,7 @@ export function viewKotsubo() {
     <section class="card-sec k-rank"><div class="sec-head"><h2>ランキング</h2><button class="chip mini" data-act="kRank" aria-pressed="${!!S().rankOpen}">${S().rankOpen ? '閉じる' : '見る'}</button></div>
       <div id="k-rank-body" ${S().rankOpen ? '' : 'hidden'}>${rankBody(k)}</div></section>
     ${Date.now() < RENDA_SHOW ? `<section class="card-sec k-rank k-renda"><div class="sec-head"><h2>🥊 連打王</h2></div><div id="k-renda-body">${rendaBody(k)}</div></section>` : ''}
-    <p class="hint k-stats">これまで：${fmtM(k.total)} マーク・${fmtM(k.taps)} 回叩いた・常夜の小壺 ${k.jars || 0} 回・討伐 ${k.lords || 0}/${BOSSES.length}${d ? `・深度${d}` : ''}</p>
+    <p class="hint k-stats">これまで<br>${[`${fmtM(k.total)} マーク`, `${fmtM(k.taps)} 回叩いた`, `常夜の小壺 ${k.jars || 0} 回`, `討伐 ${k.lords || 0}/${BOSSES.length}`, d ? `深度${d}` : ''].filter(Boolean).join('<br>')}</p>
     <button class="link-btn dim-link k-reset ${S().confirmReset ? 'danger-text' : ''}" data-act="kReset">${S().confirmReset ? 'もう一度押すと、小壺のデータを最初からにします' : '最初からやり直す'}</button>
   </div>`;
 }
@@ -459,6 +467,56 @@ function showFlavor(act, openId) {
   });
 }
 const S = () => H.ui();  // 画面だけの一時的な状態（まとめ買いの数・やり直しの確認）
+
+// 挑む前に確かめる画面（画面の作り直しで消えないよう、body の直下に置く）
+function paintPrep(k) {
+  let box = $('k-prep');
+  if (!prep) { box?.remove(); return; }
+  if (!box) { box = document.createElement('div'); box.id = 'k-prep'; document.body.appendChild(box); }
+  const esc = H.esc, it = itemsOf(k), foe = foeAt(k, k.lords || 0);
+  const opt = (v, label, n, ok) => `<button data-act="kPrepItem" data-v="${v}" aria-pressed="${prep.item === v}" ${ok ? '' : 'disabled'}>${label}${n == null ? '' : `<small>×${n}</small>`}</button>`;
+  const scarN = (it.scar || 0) + (k.scarReady ? 1 : 0);
+  box.innerHTML = `<div class="scrim" data-act="kPrepClose"></div><div class="sheet k-prep" role="dialog" aria-label="夜の王に挑む">
+    <div class="sheet-head"><h2>${esc(foeName(foe))}に挑む</h2><button class="ghost" data-act="kPrepClose">やめる</button></div>
+    <div class="k-prep-body">
+      <p class="k-prep-q">アイテムを使用しますか？<small>（1回の戦いで1つまで）</small></p>
+      <div class="k-prep-items ${seesScar(k) ? '' : 'two'}">${opt('none', '使わない', null, true)}${opt('rush', '🕯️ 常夜の香', it.rush || 0, (it.rush || 0) > 0)}${seesScar(k) ? opt('scar', '🩸 消えぬ爪痕', scarN, scarN > 0) : ''}</div>
+      ${prep.item !== 'none' ? `<p class="hint">${esc(ITEM[prep.item][3])}</p>` : ''}
+      ${locked ? '' : `<p class="k-prep-q">画面をロックしますか？<small>（本気で叩いても、画面が動かなくなります）</small></p>
+      <div class="seg">${[['on', 'ロックする'], ['off', 'しない']].map(([v, l]) => `<button data-act="kPrepLock" data-v="${v}" aria-pressed="${prep.lock === (v === 'on')}">${l}</button>`).join('')}</div>`}
+      <button class="primary k-prep-go" data-act="kPrepGo">挑む</button>
+    </div></div>`;
+}
+function closePrep() { prep = null; $('k-prep')?.remove(); }
+// 「3・2・1」：数字を大きく出してから、戦いを始める。カウントダウン中は叩けない
+function startCountdown(item) {
+  stopCountdown();
+  const el = document.createElement('div'); el.id = 'k-count'; el.className = 'k-count'; el.setAttribute('aria-live', 'assertive'); document.body.appendChild(el);
+  let n = 3;
+  const step = () => {
+    if (!countdown) return;
+    if (n > 0) { el.innerHTML = `<b>${n}</b>`; el.firstChild.classList.add('pop'); n--; countdown.timer = setTimeout(step, 800); return; }
+    el.innerHTML = '<b class="go">挑め！</b>'; countdown.timer = setTimeout(() => { el.remove(); }, 600);
+    countdown = null; beginFight(item);
+  };
+  countdown = { timer: 0 }; step();
+}
+function stopCountdown() { if (countdown) clearTimeout(countdown.timer); countdown = null; $('k-count')?.remove(); }
+// 戦いを始める。アイテムはここで使う（数が減る）
+function beginFight(item) {
+  const k = st(), i = k.lords || 0; if (!BOSSES[i] || fight || H.tab() !== 'kotsubo') return;
+  // 消えぬ爪痕の傷が残っていれば、その分だけ削れた体力から始める。爪痕を使えば、この戦いで削った分も残る
+  const full = bossHp(k, i), frac = k.scarHp && k.scarHp.i === i ? k.scarHp.frac : 1, it = itemsOf(k), now = Date.now();
+  let used = '';
+  if (item === 'scar' && (k.scarReady || it.scar > 0)) { if (!k.scarReady) it.scar--; used = 'scar'; }
+  else if (item === 'rush' && it.rush > 0) { it.rush--; rushUntil = itemRushUntil = now + 12000; used = 'rush'; }
+  if (k.scarReady && used !== 'scar') giveItem(k, 'scar');  // 前の版で刻んでいた爪痕を使わなかったときは、持ち物に戻す
+  k.scarReady = false;
+  fight = { i, hp: full * frac, max: full, end: now + FIGHT_SEC * 1000, scar: used === 'scar', items: used ? 1 : 0 };
+  if (used === 'rush') H.toast('🕯️常夜の香を焚いた…常夜ラッシュ！12秒間、叩く力が7倍');
+  if (used === 'scar') H.toast('🩸爪痕を刻んだ…この戦いで削った体力は、逃げられても残る');
+  H.save(); H.render();
+}
 
 // ボタンを押したとき（app.js の click から呼ばれる）。true を返すと画面を作り直す
 export function kotsuboAct(a, v) {
@@ -496,25 +554,6 @@ export function kotsuboAct(a, v) {
     paintRank(); return false;
   }
   if (a === 'kItemInfo') { ui.itemOpen = ui.itemOpen === v ? null : v; showFlavor('kItemInfo', ui.itemOpen); return false; }
-  if (a === 'kItemUse') {
-    const it = itemsOf(k); if (!ITEM[v] || !(it[v] > 0)) return false;
-    if (fight && (fight.items || 0) >= ITEM_PER_FIGHT) { H.toast('この戦いでは、もうアイテムを使った'); return false; }
-    if (v === 'rush') {
-      // 香は重ねて焚けない（燃えている間は使えない。続けて焚いて長いラッシュを作れないように）
-      if (rushUntil > Date.now()) { H.toast('🕯️常夜の香は、まだ燃えている'); return false; }
-      it.rush--; rushUntil = itemRushUntil = Date.now() + 12000; if (fight) fight.items = (fight.items || 0) + 1;
-      H.toast('🕯️常夜の香を焚いた…常夜ラッシュ！12秒間、叩く力が7倍');
-    }
-    if (v === 'scar') {
-      if (fight ? fight.scar : k.scarReady) { H.toast('🩸爪痕は、もう刻まれている'); return false; }
-      if (!fight && !BOSSES[k.lords || 0]) { H.toast('挑む夜の王がいません'); return false; }
-      it.scar--; if (fight) { fight.scar = true; fight.items = (fight.items || 0) + 1; } else k.scarReady = true;
-      H.toast(fight ? '🩸爪痕を刻んだ…この戦いで削った体力は、逃げられても残る' : '🩸爪痕を刻んだ…次の戦いで削った体力は、逃げられても残る');
-    }
-    // 画面は作り直さず、持っている数・「使う」ボタン・効果中の印だけをその場で書き換える（作り直すとカクつくため）
-    ITEMS.forEach(([id]) => paintItem(k, id)); paintScar(k);
-    H.save(); paint(k); return false;
-  }
   if (a === 'kOwned') {
     // 売り場と所持遺物は両方とも画面に入れておき、出し入れだけする（作り直すとカクつくため）
     ui.ownView = !ui.ownView; ui.relicOpen = null; showFlavor('kRelic', null);
@@ -537,12 +576,21 @@ export function kotsuboAct(a, v) {
     if (k.mark < u.cost) { H.toast('マークが足りません'); return false; }
     k.mark -= u.cost; k.ups[v] = 1; H.toast(`「${u.name}」を手に入れた`); return true;
   }
+  // 挑む：すぐには始めず、使うアイテムと画面のロックを確かめる画面を出す
   if (a === 'kFight') {
-    const i = k.lords || 0; if (!BOSSES[i] || fight) return false;
-    // 消えぬ爪痕の傷が残っていれば、その分だけ削れた体力から始める。爪痕を刻んでいれば、この戦いで削った分も残る
-    const full = bossHp(k, i), frac = k.scarHp && k.scarHp.i === i ? k.scarHp.frac : 1;
-    fight = { i, hp: full * frac, max: full, end: Date.now() + FIGHT_SEC * 1000, scar: !!k.scarReady,
-      items: (k.scarReady ? 1 : 0) + (itemRushUntil > Date.now() ? 1 : 0) }; k.scarReady = false; return true;
+    if (!BOSSES[k.lords || 0] || fight || countdown) return false;
+    // 前の版で、挑む前に爪痕を刻んでいた人は、爪痕を使う形で始める（もう1つは減らない）
+    prep = { item: k.scarReady ? 'scar' : 'none', lock: !locked };
+    paintPrep(k); return false;
+  }
+  if (a === 'kPrepItem') { if (!prep || (v !== 'none' && !ITEM[v])) return false; if (v !== 'none' && !(itemsOf(k)[v] > 0) && !(v === 'scar' && k.scarReady)) return false; prep.item = v; paintPrep(k); return false; }
+  if (a === 'kPrepLock') { if (!prep) return false; prep.lock = v === 'on'; paintPrep(k); return false; }
+  if (a === 'kPrepClose') { closePrep(); return false; }
+  if (a === 'kPrepGo') {
+    if (!prep || fight || countdown) return false;
+    const p = prep; closePrep();
+    if (p.lock && !locked) setLock(true);
+    startCountdown(p.item); return false;
   }
   // 深き壺に潜る：討伐した数を bank に移して、マーク・雇った夜渡り・討伐の進み具合を最初に戻し、深度を1つ上げる
   // 深度5を抜けた人だけ：深度1へ戻ってやり直す（v59 の公開直後に深度5まで抜けた人が、直したあとの数値で遊び直せるように）。
@@ -564,6 +612,13 @@ export function kotsuboAct(a, v) {
     H.toast(`深き壺に潜った…深度${k.depth}。稼ぎは${fmtX(globalMult(k))}倍から`); H.save(); return true;
   }
   if (a === 'kClaim') { const s = warSpoils(k); gain(k, s.gain); k.claimAt = Date.now(); H.toast(`戦果ボーナス ${fmtM(s.gain)} マーク！`); return true; }
+  // 爪痕で受け取る：古い記録から（爪痕の数×SCAR_PER_RUNS）戦ぶんを使い、使った最後の記録の時刻までを受け取り済みにする
+  if (a === 'kClaimScar') {
+    const s = warSpoils(k); if (!s.scars || !seesScar(k)) return false;
+    const used = s.runs.slice().reverse().slice(0, s.scars * SCAR_PER_RUNS);
+    const got = giveItem(k, 'scar', s.scars); k.claimAt = madeAt(used[used.length - 1]);
+    H.toast(`戦果ボーナス：🩸消えぬ爪痕を${got}つ手に入れた`); H.save(); return true;
+  }
   if (a === 'kReset') {
     if (!ui.confirmReset) { ui.confirmReset = true; return true; }
     ui.confirmReset = false; fight = null;
