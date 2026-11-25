@@ -227,7 +227,6 @@ function paint(k) {
   const m = $('k-mark'); if (!m) return;
   m.textContent = fmtM(k.mark);
   $('k-rate').textContent = `毎秒 ${fmtRate(prodOf(k))}・1回 ${fmtRate(tapOf(k))}`;
-  const sub = $('appsub'); if (sub) sub.textContent = kotsuboSub();
   document.querySelectorAll('[data-kcost]').forEach(b => b.classList.toggle('cant', k.mark < +b.dataset.kcost));
   const r = $('k-rush'); if (r) r.hidden = !(rushUntil > Date.now());
   if (fight) {
@@ -473,5 +472,5 @@ export function kotsuboAct(a, v) {
   return false;
 }
 // 上の小さな文字（タブを開いているとき）
-// 左上の小見出し：深度は夜の王の欄に出ているので入れない（入れると長くなって右上のロックのボタンとかぶる）
-export const kotsuboSub = () => { const k = st(); return `${fmtM(k.mark)} マーク・毎秒 ${fmtRate(prodOf(k))}`; };
+// 左上の小見出しは空にする（マーク・毎秒は叩く壺の上に出ているので要らない。長いと右上のボタンとかぶる）
+export const kotsuboSub = () => '';

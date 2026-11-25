@@ -1367,3 +1367,5 @@ html.k-locked .kotsubo { touch-action: none; }
 
 /* 左上の小見出しが長くても（壺渡りの大きな数字など）、右上のボタンの手前で「…」にする */
 .brand > div { min-width: 0; }
+/* 壺渡りの画面（右上にロックのボタンが出ている間）は、タイトル横の小壺のボタンを隠す（もう壺の中にいるので要らない。ロックのボタンとかぶる） */
+.appbar:has(.lock-btn:not([hidden])) .kotsubo-btn { display: none; }
