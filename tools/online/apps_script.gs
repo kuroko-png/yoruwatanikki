@@ -28,6 +28,9 @@
  *    一覧は、参加して数字を送ってきた端末への返事にだけ付ける（参加していない人は見られない。読み出すだけの口は作らない）
  *    不正対策：① 前回から急に増えすぎた数字（1時間あたり100倍＋余裕10倍を超える）は受け付けない ② たどり着いた深度でありえない大きさの数字は受け付けない
  *    ③ 管理人の操作（rank_del＝消す／rank_ban＝消して、その端末はもう載せない。kotsubo_bans に rid が入る）。受け付けなかった回数は flags に数える
+ *    depth＝今いる深度（0＝1周目）。maxDepth＝たどり着いた一番深い深度
+ *  - 期間ごとのランキング（kotsubo_＋開催の日付：season が SEASON_ID のときは、その期間に稼いだマークをこの表で比べる。期間が終わったら数字を止める）
+ *  - 連打王（renda_＋開催の日付：期間中に小壺を叩いた回数。ランキングの送信に一緒に付いてくる）。1秒に30回＋余裕300回を超える増え方は受け付けない
  * 不正対策：1つの端末が同じ日に30戦を超えて送ってきた日の戦績は、集計に入れない（人が遊べる数を超えるため）
  * 受信箱（type=inbox）：機能リクエストと誤りの報告を、合言葉つきで読み出す（持ち主の毎朝の確認用）。
  *   合言葉は「プロジェクトの設定（歯車）→ スクリプト プロパティ」に INBOX_KEY という名前で入れる。合言葉が未設定なら誰にも返さない
@@ -50,12 +53,18 @@ const adminNeta_ = () => { const sh = sheet_('build_admin', ADMIN_COLS); const n
 const banned_ = () => { const sh = sheet_('build_bans', BAN_COLS); const n = sh.getLastRow() - 1; const set = {}; (n > 0 ? sh.getRange(2, 1, n, 1).getDisplayValues() : []).forEach(v => { if (v[0]) set[String(v[0]).trim()] = 1; }); return set; };
 const MAX_RUNS_PER_DAY = 30, MAX_VOTES_PER_DAY = 20, HIDE_REPORTS = 3;
 // 壺渡りのランキング
-const KOTSUBO_COLS = ['clientId', 'rid', 'total', 'maxDepth', 'updatedAt', 'firstAt', 'flags'];
+const KOTSUBO_COLS = ['clientId', 'rid', 'total', 'maxDepth', 'updatedAt', 'firstAt', 'flags', 'depth'];
 const KSHEET = 'kotsubo2';  // Ver.1.2.4 から数え直した表（前の kotsubo は使わない）
 const KBAN_COLS = ['rid', 'memo', 'at'];
 // たどり着いた深度（0〜5）ごとの「これまでのマーク」の上限（10の何乗か）。高難易度の最後の夜の王の体力のおよそ1億倍（遊び続けても届かない大きさ）
 const KOTSUBO_CAP_LOG10 = [20, 24, 28, 33, 39, 46];
 const KOTSUBO_FLOOR = 1e9, KOTSUBO_SLACK_LOG10 = 1, KOTSUBO_RATE_LOG10_PER_H = 2;  // この数までは自由。それより上は「前回×10×（1時間ごとに100倍）」まで
+// 連打王（期間限定）：開催ごとに RENDA_ID と期間を変える（表も別になる）
+const RENDA_ID = '2026-11-26', RENDA_START = new Date('2026-11-26T12:00:00+09:00').getTime(), RENDA_END = new Date('2026-12-03T11:59:00+09:00').getTime();
+const RENDA_SHEET = 'renda_' + RENDA_ID.replace(/-/g, ''), RENDA_COLS = ['clientId', 'rid', 'taps', 'updatedAt', 'flags'];
+const RENDA_MAX_PER_SEC = 30, RENDA_SLACK = 300, RENDA_SHOW_MS = 7 * 86400e3;
+// マークのランキングも同じ期間で比べる（開催ごとに表が別になる）
+const SEASON_ID = RENDA_ID, SEASON_END = RENDA_END, SEASON_SHEET = 'kotsubo_' + SEASON_ID.replace(/-/g, '');
 const KOTSUBO_TOP = 10;  // 上位10人だけ返す。参加している人数は返さない（分母は見せない）
 const ridOf_ = clientId => Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, 'kotsubo:' + clientId).slice(0, 6).map(b => ((b + 256) % 256).toString(16).padStart(2, '0')).join('');
 const kbanned_ = () => { const sh = sheet_('kotsubo_bans', KBAN_COLS); const n = sh.getLastRow() - 1; const set = {}; (n > 0 ? sh.getRange(2, 1, n, 1).getDisplayValues() : []).forEach(v => { if (v[0]) set[String(v[0]).trim()] = 1; }); return set; };
@@ -157,6 +166,10 @@ function doPost(e) {
       } else if (body.op === 'rank_del' || body.op === 'rank_ban') {
         // 壺渡りのランキング：id は rid。消す（rank_ban は、その端末をもう載せない）
         const sh = sheet_(KSHEET, KOTSUBO_COLS); let hit; while ((hit = findRow(sh, 'B'))) sh.deleteRow(hit.getRow());
+        const ss2 = sheet_(SEASON_SHEET, KOTSUBO_COLS); while ((hit = findRow(ss2, 'B'))) ss2.deleteRow(hit.getRow());
+        CacheService.getScriptCache().remove('kotsubo_rank_' + SEASON_ID);
+        const rs = sheet_(RENDA_SHEET, RENDA_COLS); while ((hit = findRow(rs, 'B'))) rs.deleteRow(hit.getRow());
+        CacheService.getScriptCache().remove('renda_rank_' + RENDA_ID);
         if (body.op === 'rank_ban') { const bs = sheet_('kotsubo_bans', KBAN_COLS); if (!findRow(bs, 'A')) bs.appendRow([id, 'アプリの管理人モードから', now.toISOString()]); }
         CacheService.getScriptCache().remove('kotsubo_rank2');
         return json_({ ok: true });
@@ -168,11 +181,16 @@ function doPost(e) {
     // 前の版のアプリ（これまでのマーク全部を送ってくる）は受け付けない
     if (body.type === 'kotsubo' || body.type === 'kotsubo_leave') return json_({ ok: false, error: 'old' });
     if (body.type === 'kotsubo2' || body.type === 'kotsubo2_leave') {
-      const sh = sheet_(KSHEET, KOTSUBO_COLS), rid = ridOf_(clientId);
+      const season = body.season === SEASON_ID, sheetName = season ? SEASON_SHEET : KSHEET;
+      const sh = sheet_(sheetName, KOTSUBO_COLS), rid = ridOf_(clientId);
       const hit = sh.getRange('A:A').createTextFinder(clientId).matchEntireCell(true).findNext();
-      if (body.type === 'kotsubo2_leave') { if (hit) sh.deleteRow(hit.getRow()); CacheService.getScriptCache().remove('kotsubo_rank2'); return json_({ ok: true }); }
+      if (body.type === 'kotsubo2_leave') {
+        [KSHEET, SEASON_SHEET].forEach(n => { const s2 = sheet_(n, KOTSUBO_COLS), h2 = s2.getRange('A:A').createTextFinder(clientId).matchEntireCell(true).findNext(); if (h2) s2.deleteRow(h2.getRow()); });
+        const rs = sheet_(RENDA_SHEET, RENDA_COLS), rh = rs.getRange('A:A').createTextFinder(clientId).matchEntireCell(true).findNext(); if (rh) rs.deleteRow(rh.getRow());
+        CacheService.getScriptCache().removeAll(['kotsubo_rank2', 'kotsubo_rank_' + SEASON_ID, 'renda_rank_' + RENDA_ID]); return json_({ ok: true });
+      }
       if (kbanned_()[rid]) { if (hit) sh.deleteRow(hit.getRow()); return json_({ ok: false, error: 'banned' }); }
-      const total = Math.floor(Number(body.total)), maxDepth = Math.floor(Number(body.maxDepth));
+      const total = Math.floor(Number(body.total)), maxDepth = Math.floor(Number(body.maxDepth)), depth = Math.min(5, Math.max(0, Math.floor(Number(body.depth)) || 0));
       if (!isFinite(total) || total < 0 || !(maxDepth >= 0 && maxDepth <= 5)) return json_({ ok: false, error: 'bad data' });
       const prev = hit ? sh.getRange(hit.getRow(), 1, 1, KOTSUBO_COLS.length).getValues()[0] : null;
       const prevTotal = prev ? Number(prev[2]) || 0 : 0, prevAt = prev ? Date.parse(prev[4]) || now.getTime() : now.getTime();
@@ -182,20 +200,24 @@ function doPost(e) {
       const tooFast = prev && total > Math.max(prevTotal, KOTSUBO_FLOOR) && lg(total) > lg(Math.max(prevTotal, KOTSUBO_FLOOR)) + KOTSUBO_SLACK_LOG10 + KOTSUBO_RATE_LOG10_PER_H * hours;
       const tooBig = lg(total) > KOTSUBO_CAP_LOG10[maxDepth];
       let accepted = true;
-      if (tooFast || tooBig) {
+      const frozen = season && now.getTime() >= SEASON_END;  // 期間が終わったら、数字はそのまま（順位と一覧だけ返す）
+      if (frozen) { /* 書き込まない */ }
+      else if (tooFast || tooBig) {
         accepted = false;
         if (hit) sh.getRange(hit.getRow(), 7).setValue((Number(prev[6]) || 0) + 1);
-        else sh.getRange(sh.getLastRow() + 1, 1, 1, KOTSUBO_COLS.length).setNumberFormat('@').setValues([[clientId, rid, '0', String(maxDepth), now.toISOString(), now.toISOString(), '1']]);
+        else sh.getRange(sh.getLastRow() + 1, 1, 1, KOTSUBO_COLS.length).setNumberFormat('@').setValues([[clientId, rid, '0', String(maxDepth), now.toISOString(), now.toISOString(), '1', String(depth)]]);
       } else {
-        const row = [clientId, rid, String(total), String(maxDepth), now.toISOString(), prev ? String(prev[5]) : now.toISOString(), prev ? String(prev[6] || 0) : '0'];
+        const row = [clientId, rid, String(total), String(maxDepth), now.toISOString(), prev ? String(prev[5]) : now.toISOString(), prev ? String(prev[6] || 0) : '0', String(depth)];
         sh.getRange(hit ? hit.getRow() : sh.getLastRow() + 1, 1, 1, row.length).setNumberFormat('@').setValues([row]);
       }
       // 自分の順位（受け付けなかったときは、前の記録で数える）。人数は返さない
-      const mine = accepted ? total : prevTotal, bans = kbanned_();
+      const mine = accepted && !frozen ? total : prevTotal, bans = kbanned_();
       const all = sh.getLastRow() > 1 ? sh.getRange(2, 2, sh.getLastRow() - 1, 2).getValues().filter(v => v[0] && !bans[v[0]] && Number(v[1]) > 0) : [];
       const rank = mine > 0 ? all.filter(v => Number(v[1]) > mine).length + 1 : 0;
       // 上位の一覧は、ここ（参加して数字を送ってきた端末への返事）でだけ返す。参加していない人は見られない
-      return json_({ ok: true, accepted: accepted, rank: rank, rid: rid, top: kotsuboTop_() });
+      // 連打王：期間の始まりから、終わって1週間までは、叩いた回数も受け取って順位と上位を返す
+      const renda = body.rendaId === RENDA_ID && now.getTime() >= RENDA_START && now.getTime() < RENDA_END + RENDA_SHOW_MS ? renda_(clientId, rid, body.renda, now, bans) : undefined;
+      return json_({ ok: true, accepted: accepted, rank: rank, rid: rid, top: kotsuboTop_(sheetName, season ? 'kotsubo_rank_' + SEASON_ID : 'kotsubo_rank2'), renda: renda });
     }
     if (body.type === 'build_put' || body.type === 'build_del') {
       const presetId = str_(body.id, 60);
@@ -393,14 +415,47 @@ function inbox_(prm) {
 }
 
 // 壺渡りのランキングの上位10人（rid と「これまでのマーク」だけ。3分ごとに数え直す）。参加した端末からの送信の返事にだけ付ける
-function kotsuboTop_() {
+function kotsuboTop_(sheetName, key) {
   const cache = CacheService.getScriptCache();
-  const hit = cache.get('kotsubo_rank2');
+  const hit = cache.get(key);
   if (hit) return JSON.parse(hit);
-  const sh = sheet_(KSHEET, KOTSUBO_COLS), bans = kbanned_();
+  const sh = sheet_(sheetName, KOTSUBO_COLS), bans = kbanned_();
   const all = sh.getLastRow() > 1 ? sh.getRange(2, 2, sh.getLastRow() - 1, 2).getValues().filter(v => v[0] && !bans[v[0]] && Number(v[1]) > 0) : [];
   const top = all.map(v => ({ rid: String(v[0]), total: Number(v[1]) })).sort((a, b) => b.total - a.total).slice(0, KOTSUBO_TOP);
-  cache.put('kotsubo_rank2', JSON.stringify(top), 180);
+  cache.put(key, JSON.stringify(top), 180);
+  return top;
+}
+
+// 連打王：叩いた回数を受け取る。前回からの増え方が、その間の時間（期間の中だけ）×1秒30回＋余裕300回を超えたら受け付けない。減ったときは前の回数のまま
+function renda_(clientId, rid, v, now, bans) {
+  const sh = sheet_(RENDA_SHEET, RENDA_COLS), taps = Math.floor(Number(v));
+  const hit = sh.getRange('A:A').createTextFinder(clientId).matchEntireCell(true).findNext();
+  const prev = hit ? sh.getRange(hit.getRow(), 1, 1, RENDA_COLS.length).getValues()[0] : null;
+  const prevTaps = prev ? Number(prev[2]) || 0 : 0;
+  let accepted = true, mine = prevTaps;
+  if (isFinite(taps) && taps > prevTaps) {
+    const to = Math.min(now.getTime(), RENDA_END), from = prev ? Math.max(RENDA_START, Date.parse(prev[3]) || RENDA_START) : RENDA_START;
+    if (taps > prevTaps + RENDA_SLACK + RENDA_MAX_PER_SEC * Math.max(0, (to - from) / 1000)) {
+      accepted = false;
+      if (hit) sh.getRange(hit.getRow(), 5).setValue((Number(prev[4]) || 0) + 1);
+    } else {
+      mine = taps;
+      const row = [clientId, rid, String(taps), now.toISOString(), prev ? String(prev[4] || 0) : '0'];
+      sh.getRange(hit ? hit.getRow() : sh.getLastRow() + 1, 1, 1, row.length).setNumberFormat('@').setValues([row]);
+    }
+  }
+  const all = sh.getLastRow() > 1 ? sh.getRange(2, 2, sh.getLastRow() - 1, 2).getValues().filter(x => x[0] && !bans[x[0]] && Number(x[1]) > 0) : [];
+  const rank = mine > 0 ? all.filter(x => Number(x[1]) > mine).length + 1 : 0;
+  return { accepted: accepted, rank: rank, top: rendaTop_(bans) };
+}
+// 連打王の上位10人（1分ごとに数え直す）
+function rendaTop_(bans) {
+  const cache = CacheService.getScriptCache(), key = 'renda_rank_' + RENDA_ID, hit = cache.get(key);
+  if (hit) return JSON.parse(hit);
+  const sh = sheet_(RENDA_SHEET, RENDA_COLS);
+  const all = sh.getLastRow() > 1 ? sh.getRange(2, 2, sh.getLastRow() - 1, 2).getValues().filter(x => x[0] && !bans[x[0]] && Number(x[1]) > 0) : [];
+  const top = all.map(x => ({ rid: String(x[0]), taps: Number(x[1]) })).sort((a, b) => b.taps - a.taps).slice(0, KOTSUBO_TOP);
+  cache.put(key, JSON.stringify(top), 60);
   return top;
 }
 

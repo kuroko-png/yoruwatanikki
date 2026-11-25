@@ -240,6 +240,7 @@ function floatText(x, y, text, cls = '') {
 function tapMerchant(e) {
   const k = st(), v = tapOf(k);
   k.taps++; combo++;
+  if (rendaOn()) { if (!k.renda || k.renda.id !== RENDA.id) k.renda = { id: RENDA.id, n: 0 }; k.renda.n++; const r = $('k-renda-n'); if (r) r.textContent = k.renda.n.toLocaleString('ja-JP'); }
   if (fight) { const h = hitOf(k); fight.hp -= h; floatText(e.clientX, e.clientY, `-${fmtM(h)}`, 'hit'); if (fight.hp <= 0) endFight(true); }
   else { gain(k, v); floatText(e.clientX, e.clientY, `+${fmtM(v)}`); }
   // 叩かれると、ぴょこっと縮んで腕をしまう。叩くのをやめると、また腕を伸ばす
@@ -305,47 +306,81 @@ const maxDepthOf = k => Math.max(k.maxDepth || 0, depthOf(k));
 const rankValue = k => Math.max(0, Math.floor((k.total || 0) - (k.rankBase || 0)));
 const RANK_SEND_GAP = 5 * 60e3, RANK_LIST_TTL = 3 * 60e3;
 let rankSentAt = 0, rankList = null, rankListAt = 0, rankLoading = false, rankFailed = false;
+// 連打王（期間限定のおまけのランキング）：期間中に小壺を叩いた回数（戦いの中も数える。常夜の小壺は数えない）。参加はランキングと同じ。
+// 期間の前から知らせて、終わったあとも1週間は結果を出す。数えるのは期間中だけ（送るのは期間のあとでもよい。受け取り口も同じ期間で数える）
+const RENDA = { id: '2026-11-26', label: '11/26（木）12:00〜12/3（木）11:59', start: Date.parse('2026-11-26T12:00:00+09:00'), end: Date.parse('2026-12-03T11:59:00+09:00') };
+const RENDA_SHOW = RENDA.end + 7 * 86400e3;
+const rendaOn = (t = Date.now()) => t >= RENDA.start && t < RENDA.end;
+const rendaOf = k => k.renda && k.renda.id === RENDA.id ? k.renda.n : 0;
+let rendaList = null;
+// マークのランキングも、連打王と同じ期間で比べる（期間中に稼いだマーク）。期間が始まってから最初に数えたときの「これまでのマーク」を起点にする。
+// 期間が終わったら、受け取り口がそのときの数字で止める（結果は連打王と同じく1週間出す）
+const SEASON = RENDA;
+function seasonBase(k) { if (Date.now() >= SEASON.start && k.rankSeason !== SEASON.id) { k.rankSeason = SEASON.id; k.rankBase = k.total || 0; } }
 // 開発用の画面では本物に送らず、見本の順位・一覧を出す
 const DEV_RANK = () => ({ top: [9.1e33, 4.2e30, 7.7e27, 3.3e24, 8e20, 5.5e17, 2.1e15, 6e12, 9e10, 3e9].map((t, i) => ({ rid: i === 2 ? 'dev-me' : `dev-${i}`, total: t })) });
+const DEV_RENDA = () => ({ rank: 4, accepted: true, top: [98765, 54321, 32100, 20480, 12000, 8800, 5000, 3210, 1500, 900].map((n, i) => ({ rid: i === 3 ? 'dev-me' : `dev-${i}`, taps: n })) });
 // 上位の一覧は、送った返事にだけ付いてくる（参加した人だけが見られる。受け取り口に、読み出すだけの口はない）
 function rankSend(force) {
-  const k = st(); if (!k.rankJoin || rankLoading) return;
+  const k = st(); seasonBase(k); if (!k.rankJoin || rankLoading) return;
   if (!force && Date.now() - rankSentAt < RANK_SEND_GAP) return;
   rankSentAt = Date.now();
-  if (H.devHost) { k.rankMe = { rank: 3, rid: 'dev-me', accepted: true, at: Date.now() }; rankList = DEV_RANK(); rankListAt = Date.now(); paintRank(); return; }
+  if (H.devHost) { k.rankMe = { rank: 3, rid: 'dev-me', accepted: true, at: Date.now() }; rankList = DEV_RANK(); rankListAt = Date.now();
+    if (Date.now() >= RENDA.start) { const d = DEV_RENDA(); k.rendaMe = { rank: d.rank, accepted: true }; rendaList = { top: d.top }; } paintRank(); return; }
   if (!navigator.onLine) { rankFailed = true; paintRank(); return; }
   rankLoading = true; rankFailed = false;
-  H.postOnline({ type: 'kotsubo2', total: rankValue(k), maxDepth: maxDepthOf(k) }).then(r => {
+  const now = Date.now(), renda = now >= RENDA.start && now < RENDA_SHOW ? { rendaId: RENDA.id, renda: rendaOf(k) } : {};
+  const season = k.rankSeason === SEASON.id ? { season: SEASON.id } : {};
+  H.postOnline({ type: 'kotsubo2', total: rankValue(k), maxDepth: maxDepthOf(k), depth: depthOf(k), ...season, ...renda }).then(r => {
     if (!r?.ok) { if (r?.error === 'banned') { k.rankJoin = false; k.rankMe = null; rankList = null; H.save(); } else rankFailed = true; return; }
     k.rankMe = { rank: r.rank, rid: r.rid, accepted: r.accepted !== false, at: Date.now() }; H.save();
     if (Array.isArray(r.top)) { rankList = { top: r.top.slice(0, 10) }; rankListAt = Date.now(); }
+    if (r.renda && Array.isArray(r.renda.top)) { k.rendaMe = { rank: r.renda.rank, accepted: r.renda.accepted !== false }; rendaList = { top: r.renda.top.slice(0, 10) }; H.save(); }
   }).catch(() => { rankFailed = true; }).finally(() => { rankLoading = false; paintRank(); });
 }
 // ランキングを開いたとき：一覧が古ければ（3分）、送り直して新しい一覧をもらう
 function loadRank(force) { if (force || !rankList || Date.now() - rankListAt >= RANK_LIST_TTL) rankSend(true); }
 function rankBody(k) {
-  if (!k.rankJoin) return `<p class="hint">Ver.1.2.4 から後に稼いだマークの多さで、みんなと順位を比べます。名前は出ません（送るのは、そのマークの数・進み具合と、端末ごとのランダムな番号だけ）。</p>
+  const now = Date.now(), inSeason = now >= SEASON.start;
+  const what = inSeason ? `${SEASON.label} の間に稼いだマーク` : 'Ver.1.2.4 から後に稼いだマーク';
+  if (!k.rankJoin) return `<p class="hint">${what}の多さで、みんなと順位を比べます。名前は出ません（送るのは、そのマークの数・進み具合と、端末ごとのランダムな番号だけ）。</p>
     <button class="ghost small" data-act="kRankJoin">ランキングに参加する</button>`;
   const me = k.rankMe, ui = S(), admin = !!H.adminKey?.();
+  const head = `<p class="hint">${what}のランキング${!inSeason ? `（${SEASON.label} は、その間に稼いだマークで数え直します）` : now >= SEASON.end ? '。終わりました。おつかれさまでした！' : ''}</p>`;
   const meLine = me ? `<p class="k-rank-me">あなたは <b>${me.rank || '-'}位</b>です</p>${me.accepted ? '' : '<p class="hint">急に増えた記録は、ランキングに入れていません。続けて遊ぶと、少しずつ入ります。</p>'}`
     : '<p class="hint">順位を調べています…（通信できる所で開いてください）</p>';
   const fmt = n => k.fullDigits ? Math.floor(n).toLocaleString('ja-JP') : fmtM(n);
   const rows = rankList ? (rankList.top || []).map((x, i) => `<li class="${me && x.rid === me.rid ? 'me' : ''}"><b>${i + 1}位</b><span>${fmt(x.total)} マーク</span>${me && x.rid === me.rid ? '<span class="badge">あなた</span>' : ''}${admin ? ['rank_del', 'rank_ban'].map(op => { const key = `${op}:${x.rid}`; return `<button class="link-btn k-rank-adm" data-act="kRankAdmin" data-v="${key}">${ui.rankConfirm === key ? 'もう一度押す' : op === 'rank_del' ? '消す' : '締め出す'}</button>`; }).join('') : ''}</li>`).join('') : '';
   const list = rankList ? (rows ? `<ol class="k-rank-list">${rows}</ol>` : '<p class="hint">まだ誰も参加していません。</p>')
     : `<p class="hint">${rankFailed ? '読み込めませんでした。通信できる所で、もう一度開いてください。' : '読み込んでいます…'}</p>`;
-  return `${meLine}${list}<button class="link-btn dim-link k-rank-leave" data-act="kRankLeave">${ui.rankConfirm === 'leave' ? 'もう一度押すと、ランキングから抜けます' : 'ランキングから抜ける'}</button>`;
+  return `${head}${meLine}${list}<button class="link-btn dim-link k-rank-leave" data-act="kRankLeave">${ui.rankConfirm === 'leave' ? 'もう一度押すと、ランキングから抜けます' : 'ランキングから抜ける'}</button>`;
+}
+// 連打王の欄（期間の前は予告、期間中と終わってから1週間は、自分の回数・順位と上位10人）
+function rendaBody(k) {
+  const now = Date.now(), me = k.rendaMe, ui = S(), admin = !!H.adminKey?.();
+  const head = `<p class="hint">${RENDA.label} の期間限定。<br>小壺を叩いた回数のランキング（夜の王との戦いの中も数えます）</p>`;
+  const note = '<p class="k-renda-note">連打ツールに縋るなかれ。<br>絡繰の指で玉座に就こうとも、誰も汝を王とは認めぬ。<br>鍛え上げし己が指で、壺を叩け。</p>';
+  if (now < RENDA.start) return `${head}<p class="k-rank-me">もうすぐ始まります</p>${k.rankJoin ? '' : '<p class="hint">ランキングに参加すると、連打王にも参加できます。</p><button class="ghost small" data-act="kRankJoin">ランキングに参加する</button>'}${note}`;
+  if (!k.rankJoin) return `${head}<p class="hint">ランキングに参加すると、連打王にも参加できます。</p><button class="ghost small" data-act="kRankJoin">ランキングに参加する</button>${note}`;
+  const mine = `<p class="k-rank-me">${now < RENDA.end ? 'あなたの連打' : '結果：あなたの連打'}　<b id="k-renda-n">${rendaOf(k).toLocaleString('ja-JP')}</b> 回${me && me.rank ? `・<b>${me.rank}位</b>` : ''}</p>${me && !me.accepted ? '<p class="hint">急に増えた回数は、入れていません。</p>' : ''}`;
+  const rows = rendaList ? (rendaList.top || []).map((x, i) => { const self = k.rankMe && x.rid === k.rankMe.rid;
+    return `<li class="${self ? 'me' : ''}"><b>${i + 1}位</b><span>${Number(x.taps).toLocaleString('ja-JP')} 回</span>${self ? '<span class="badge">あなた</span>' : ''}${admin ? ['rank_del', 'rank_ban'].map(op => { const key = `${op}:${x.rid}`; return `<button class="link-btn k-rank-adm" data-act="kRankAdmin" data-v="${key}">${ui.rankConfirm === key ? 'もう一度押す' : op === 'rank_del' ? '消す' : '締め出す'}</button>`; }).join('') : ''}</li>`; }).join('') : '';
+  const list = rendaList ? (rows ? `<ol class="k-rank-list">${rows}</ol>` : '<p class="hint">まだ誰も叩いていません。</p>')
+    : `<p class="hint">${rankFailed ? '読み込めませんでした。通信できる所で、もう一度開いてください。' : '読み込んでいます…（順位は5分ごとに新しくなります）'}</p>`;
+  return `${head}${now >= RENDA.end ? '<p class="hint">連打王は終わりました。おつかれさまでした！</p>' : ''}${mine}${list}${note}`;
 }
 // ランキングの欄だけを書き換える（画面全体は作り直さない）
-function paintRank() { const b = $('k-rank-body'); if (b && !b.hidden) b.innerHTML = rankBody(st()); }
+function paintRank() { const k = st(), b = $('k-rank-body'); if (b && !b.hidden) b.innerHTML = rankBody(k); const r = $('k-renda-body'); if (r) r.innerHTML = rendaBody(k); }
 
 // ミニゲームを開いたとき：離れていた間（アプリを閉じていた間・ほかの画面にいた間。最大8時間）の稼ぎを入れて、動かし始める
 export function startKotsubo() {
   const k = st(), now = Date.now(), away = Math.min(8 * 3600e3, now - (k.lastAt || now));
   if (k.rankBase == null) k.rankBase = k.total || 0;  // ランキングの起点（この版で初めて開いたとき。留守の稼ぎより前）
   if (away > 1000 && prodOf(k) > 0) { const g = prodOf(k) * away / 1000 * (k.ups.off1 ? .9 : .5); gain(k, g); if (away > 60e3) H.toast(`留守の間に ${fmtM(g)} マーク稼いでいました`); }
+  seasonBase(k);  // 期間が始まって初めて開いたときは、留守の稼ぎを入れたあとを起点にする（期間の前の留守の分を入れないため）
   k.lastAt = now; lastTick = now; onTab = true;
   if (!loop) loop = setInterval(tick, 100);
-  rankSend(false);
+  rankSend(!rankList && Date.now() >= RENDA.start && Date.now() < RENDA_SHOW);
 }
 
 // ---------- 画面 ----------
@@ -407,6 +442,7 @@ export function viewKotsubo() {
       <div class="k-list">${hireRows}</div></section>
     <section class="card-sec k-rank"><div class="sec-head"><h2>ランキング</h2><button class="chip mini" data-act="kRank" aria-pressed="${!!S().rankOpen}">${S().rankOpen ? '閉じる' : '見る'}</button></div>
       <div id="k-rank-body" ${S().rankOpen ? '' : 'hidden'}>${rankBody(k)}</div></section>
+    ${Date.now() < RENDA_SHOW ? `<section class="card-sec k-rank k-renda"><div class="sec-head"><h2>🥊 連打王</h2></div><div id="k-renda-body">${rendaBody(k)}</div></section>` : ''}
     <p class="hint k-stats">これまで：${fmtM(k.total)} マーク・${fmtM(k.taps)} 回叩いた・常夜の小壺 ${k.jars || 0} 回・討伐 ${k.lords || 0}/${BOSSES.length}${d ? `・深度${d}` : ''}</p>
     <button class="link-btn dim-link k-reset ${S().confirmReset ? 'danger-text' : ''}" data-act="kReset">${S().confirmReset ? 'もう一度押すと、小壺のデータを最初からにします' : '最初からやり直す'}</button>
   </div>`;

@@ -1407,3 +1407,5 @@ i.ico { display: inline-block; background-position: center; background-size: con
 
 /* 記録の「日付」の右：まだ見ていないアップデートがあるときだけ、黄色い文字で知らせる（押すとアップデート情報が開き、消える） */
 .news-flag { border: 0; background: none; padding: 0; margin: 0; font: inherit; font-size: 12px; font-weight: 700; color: var(--accent); cursor: pointer; white-space: nowrap; }
+/* 連打王：いちばん下のひとこと（区切り線の下に、静かに） */
+.k-renda-note { margin: 12px 0 0; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,.15); font-size: 12px; line-height: 1.8; color: var(--dim); text-align: center; letter-spacing: .04em; }
