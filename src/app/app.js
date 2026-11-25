@@ -137,6 +137,7 @@ const pct = p => Math.round(p * 100) + '%';
 // 夜の王・夜渡りのアイコン（名前の左に置く）。画像は icons/lords, icons/chars（tools/make_unit_icons.py で作る）。
 // <img> ではなく背景の絵にしている（<img> は画面を作り直すたびに読み込み直しになり、タブを切り替えるとアイコンが一瞬消えて点滅したため）
 const ICON_DIR = { lord: 'lords', char: 'chars' };
+const ICON_URL = {}, ICON_KEEP = [];  // 手元に置いたアイコン（下の「アイコンを手元に置く」）。まだなら普通に icons/ から読む
 // ever：常夜の王のときは紫にする
 const ico = (kind, id, ever) => id && ICON_DIR[kind] ? `<i class="ico${ever && kind === 'lord' ? ' ever' : ''}" style="background-image:url(${ICON_URL[`${kind}/${id}`] || `icons/${ICON_DIR[kind]}/${id}.png`})" aria-hidden="true"></i>` : '';
 const lordName = (id, ever) => `${ico('lord', id, ever)}${LORD[id]?.name ?? id}`;
@@ -162,7 +163,6 @@ function seed() {
     { id: 'p3', name: '追跡者・耐久型', charId: 'wylder', vesselId: '追跡者の盃', style: 'm_halhal', weaponType: '直剣', weaponName: '',
       normal: [R(3, 'yellow', 'normal', ['スキルクールタイム軽減+1', 'アーツゲージ自然蓄積+2', '致命の一撃強化+1']), R(3, 'green', 'normal', ['物理カット率上昇', 'HP持続回復', '生命力+3']), null],
       deep: [null, null, null] },
-const ICON_URL = {}, ICON_KEEP = [];  // 手元に置いたアイコン（下の「アイコンを手元に置く」）。まだなら普通に icons/ から読む
   ];
   const rnd = mulberry32(20261122);
   const pick = a => a[Math.floor(rnd() * a.length)];
@@ -2630,6 +2630,16 @@ initKotsubo({ prefs, save: () => save(db), toast, render: () => render(), liveRu
 // 知識タブ（敵の情報・ボス判別など）に、使う道具を渡す
 initKnowledge({ ico, esc, pressed, wheel, viewEnemies, ui: () => (S.know ||= {}) });
 render();
+// アイコンを手元に置く：夜の王・夜渡りのアイコン（全部で約20枚・合わせて約0.3MB）を、起動の後に1回だけ読み込んで、
+// アプリの中に置いておく（blob の URL）。ふつうの URL の画像は、画面を作り直すたびに読み込み直されるため、
+// タブを切り替えるとアイコンが一瞬消えて点滅していた。手元に置いた画像は、作り直してもすぐに出る
+(window.requestIdleCallback || (f => setTimeout(f, 300)))(() => [['lord', LORD], ['char', CHAR]].forEach(([kind, map]) => Object.keys(map).forEach(async id => {
+  try {
+    const res = await fetch(`icons/${ICON_DIR[kind]}/${id}.png`); if (!res.ok) return;
+    const url = URL.createObjectURL(await res.blob()), im = new Image(); im.src = url; await im.decode();
+    ICON_URL[`${kind}/${id}`] = url; ICON_KEEP.push(im);  // 絵にしたものも持っておく（手放すと、また読み込み直しになる）
+  } catch { /* 読めなければ、今までどおり icons/ から読む */ }
+})));
 
 document.addEventListener('change', e => {
   // 日付をカレンダー（一覧）から選んだとき。未来の日は選べない
@@ -2661,16 +2671,6 @@ document.addEventListener('pointermove', e => {
   swDrag.sw.querySelectorAll('button').forEach(x => x.classList.toggle('sw-hover', x === swDrag.cur));
 });
 document.addEventListener('pointerup', e => {
-// アイコンを手元に置く：夜の王・夜渡りのアイコン（全部で約20枚・合わせて約0.3MB）を、起動の後に1回だけ読み込んで、
-// アプリの中に置いておく（blob の URL）。ふつうの URL の画像は、画面を作り直すたびに読み込み直されるため、
-// タブを切り替えるとアイコンが一瞬消えて点滅していた。手元に置いた画像は、作り直してもすぐに出る
-(window.requestIdleCallback || (f => setTimeout(f, 300)))(() => [['lord', LORD], ['char', CHAR]].forEach(([kind, map]) => Object.keys(map).forEach(async id => {
-  try {
-    const res = await fetch(`icons/${ICON_DIR[kind]}/${id}.png`); if (!res.ok) return;
-    const url = URL.createObjectURL(await res.blob()), im = new Image(); im.src = url; await im.decode();
-    ICON_URL[`${kind}/${id}`] = url; ICON_KEEP.push(im);  // 絵にしたものも持っておく（手放すと、また読み込み直しになる）
-  } catch { /* 読めなければ、今までどおり icons/ から読む */ }
-})));
   const d = swDrag; swDrag = null;
   if (!d || !d.moved) return;
   d.sw.querySelectorAll('.sw-hover').forEach(x => x.classList.remove('sw-hover'));
