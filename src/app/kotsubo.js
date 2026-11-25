@@ -41,7 +41,8 @@ const HIRE = [
   ['scholar', 7e9, 3.5e5, 'マークの増やし方を研究する'],
   ['undertaker', 1.1e11, 2.2e6, '眠ったマークまで掘り起こす'],
 ];
-const PRICE_UP = 1.16;
+// 1人雇うごとに、次の値段が何倍になるか。深度1〜3だけゆるくする（潜った人が早く追いつけるように。終盤も稼ぎが伸びて、9・10体目が壁になりにくい）。深度1はいちばんかんたん
+const PRICE_UP = 1.16, PRICE_UP_DEPTH = { 1: 1.10, 2: 1.12, 3: 1.12 }, priceUpOf = k => PRICE_UP_DEPTH[depthOf(k)] || PRICE_UP;
 // 叩く力などの遺物：[id, 名前, 説明, 値段, 出てくる条件（これまでの合計マーク）]
 const RELICS = [
   ['tap1', '砥がれた指先', '叩いて入るマークが2倍', 100, 0],
@@ -157,7 +158,7 @@ const tapOf = k => { const p = prodOf(k); return ((k.ups.tap1 ? 2 : 1) * (k.ups.
 // 値段が1周目のままだと、潜った直後から葬儀屋まで一瞬で雇えて、稼ぎが一気に跳ね上がってしまうため（v59 の公開直後に深度5まで1時間で抜けられた）。
 // こうすると、深度ごとの「稼ぎ・値段・夜の王の硬さ」の釣り合いが1周目と同じになり、潜るたびに一から積み上げ直す形になる
 const priceMult = k => depthOf(k) ? Math.pow(1.25, k.bank || 0) * DEPTH_GAIN[depthOf(k)] : 1;
-const priceOf = (i, owned, n = 1, m = 1) => { let s = 0; for (let j = 0; j < n; j++) s += Math.ceil(HIRE[i][1] * m * Math.pow(PRICE_UP, owned + j)); return s; };
+const priceOf = (i, owned, n = 1, m = 1, up = PRICE_UP) => { let s = 0; for (let j = 0; j < n; j++) s += Math.ceil(HIRE[i][1] * m * Math.pow(up, owned + j)); return s; };
 // 大きな数は「1.2万」「3.4億」のように
 export function fmtM(n) {
   n = Math.floor(n);
@@ -414,7 +415,7 @@ export function viewKotsubo() {
       <p class="hint">壺の底から、深度1へ戻ることができます。マークと雇った夜渡りは最初に戻り、討伐のボーナスも1周目を終えたときの分に戻ります。遺物とアイテムはそのまま。</p>
       <button class="ghost small-primary ${S().confirmReturn ? 'danger' : ''}" data-act="kReturn">${S().confirmReturn ? 'もう一度押すと深度1へ戻ります' : '深度1に戻す'}</button></div>`;
   const hireRows = HIRE.map(([id, , base, say], i) => {
-    const own = k.hires[id] || 0, cost = priceOf(i, own, n, priceMult(k)), visible = i === 0 || (k.hires[HIRE[i - 1][0]] || 0) > 0 || k.total >= HIRE[i][1] / 2;
+    const own = k.hires[id] || 0, cost = priceOf(i, own, n, priceMult(k), priceUpOf(k)), visible = i === 0 || (k.hires[HIRE[i - 1][0]] || 0) > 0 || k.total >= HIRE[i][1] / 2;
     if (!visible) return `<div class="k-row locked"><span class="k-ico">？</span><span class="k-main"><b>？？？</b><small>もっと稼ぐと現れる</small></span></div>`;
     return `<button class="k-row" data-act="kHire" data-v="${id}" data-kcost="${cost}">${H.ico('char', id)}<span class="k-main"><b>${esc(H.CHAR[id]?.name)}<i>${own}人</i></b><small>${esc(say)}・1人 毎秒${fmtRate(base * hireMult(k, id) * globalMult(k))}</small></span><span class="k-cost">${fmtM(cost)}</span></button>`;
   }).join('');
@@ -567,7 +568,7 @@ export function kotsuboAct(a, v) {
   if (a === 'kBuyN') { ui.buyN = +v; return true; }
   if (a === 'kHire') {
     const i = HIRE.findIndex(([id]) => id === v); if (i < 0) return false;
-    const n = ui.buyN || 1, cost = priceOf(i, k.hires[v] || 0, n, priceMult(k));
+    const n = ui.buyN || 1, cost = priceOf(i, k.hires[v] || 0, n, priceMult(k), priceUpOf(k));
     if (k.mark < cost) { H.toast('マークが足りません'); return false; }
     k.mark -= cost; k.hires[v] = (k.hires[v] || 0) + n; return true;
   }
