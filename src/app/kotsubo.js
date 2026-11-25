@@ -84,8 +84,9 @@ const ITEMS = [
   ['scar', '🩸', '消えぬ爪痕', '使ってから夜の王に挑むと、逃げられても削った体力がそのまま残る', '夜の王に刻まれた、ひとすじの傷。\n血は乾いても、その痛みは消えない。\n\n王は逃げる。だが傷は残る。\n次に相まみえるとき、王はそれを思い出すだろう'],
 ];
 const ITEM_DROP = { rush: { lord: 1, jar: .1 }, scar: { lord: 0, jar: 0 } };  // 討伐したとき・常夜の小壺のときに手に入る確率（消えぬ爪痕は、深き壺の常夜の王を倒したときだけ。必ず手に入る）
-const ITEM = Object.fromEntries(ITEMS.map(x => [x[0], x])), ITEM_MAX = 99;
-const itemsOf = k => (k.items ||= {});
+const ITEM = Object.fromEntries(ITEMS.map(x => [x[0], x])), ITEM_MAX = 8;
+// アイテムは1種類につき8個まで（上限を決める前に多く持っていた人も、8個に揃える）
+const itemsOf = k => { const it = (k.items ||= {}); for (const id in it) if (it[id] > ITEM_MAX) it[id] = ITEM_MAX; return it; };
 // アイテムの行（持っている数・使えるか）だけを書き換える
 function paintItem(k, id) {
   const c = $(`k-item-${id}`); if (!c) return;
@@ -264,14 +265,17 @@ function tapJar(e) {
   if (Math.random() < .3) { rushUntil = Date.now() + 12000; floatText(e.clientX, e.clientY, '常夜ラッシュ！', 'gold'); H.toast('常夜ラッシュ！12秒間、叩く力が7倍'); }
   else { const g = Math.max(prodOf(k) * 90, tapOf(k) * 30, 50); gain(k, g); floatText(e.clientX, e.clientY, `+${fmtM(g)}`, 'gold'); H.toast(`常夜の小壺から ${fmtM(g)} マーク！`); }
   // ときどき、アイテムを落としていく（画面は作り直さず、持っている数だけ書き換える）
-  ITEMS.forEach(([id, icon, name]) => { if (Math.random() < ITEM_DROP[id].jar && giveItem(k, id)) { setTimeout(() => H.toast(`常夜の小壺が${icon}${name}を落としていった`), 1600); paintItem(k, id); } });
+  ITEMS.forEach(([id, icon, name]) => { if (Math.random() < ITEM_DROP[id].jar) { const ok = giveItem(k, id);
+    setTimeout(() => H.toast(ok ? `常夜の小壺が${icon}${name}を落としていった` : `${icon}${name}は、もう持ちきれない`), 1600); if (ok) paintItem(k, id); } });
   hideJar(false); paint(k);
 }
 function endFight(win) {
   const k = st(), f = fight; fight = null;
   if (win) { k.lords = Math.max(k.lords || 0, f.i + 1); k.lordAt = Date.now(); k.scarHp = null;
-    const got = ITEMS.filter(([id]) => (Math.random() < ITEM_DROP[id].lord || (id === 'scar' && foeAt(k, f.i).ever)) && giveItem(k, id)).map(x => x[1] + x[2]);
-    H.toast(`${foeName(foeAt(k, f.i))}を討伐！すべての稼ぎが1.25倍に${got.length ? `（${got.join('・')}を手に入れた）` : ''}`); }
+    // 落ちたアイテム：持ちきれない（8個）ものは、手に入らなかったことだけを添える
+    const drop = ITEMS.filter(([id]) => Math.random() < ITEM_DROP[id].lord || (id === 'scar' && foeAt(k, f.i).ever)), got = [], full = [];
+    drop.forEach(x => (giveItem(k, x[0]) ? got : full).push(x[1] + x[2]));
+    H.toast(`${foeName(foeAt(k, f.i))}を討伐！すべての稼ぎが1.25倍に${got.length ? `（${got.join('・')}を手に入れた）` : ''}${full.length ? `（${full.join('・')}は持ちきれない）` : ''}`); }
   else if (f.scar) { k.scarHp = { i: f.i, frac: Math.max(0, f.hp / f.max) }; H.toast(`${foeName(foeAt(k, f.i))}に逃げられた…だが爪痕は残った（残り体力 ${Math.ceil(f.hp / f.max * 100)}%）`); }
   else H.toast(`${foeName(foeAt(k, f.i))}に逃げられた…稼いでから、また挑もう`);
   H.save(); if (H.tab() === 'kotsubo') H.render();
