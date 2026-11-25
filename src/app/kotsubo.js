@@ -93,7 +93,7 @@ function paintItem(k, id) {
   const n = itemsOf(k)[id] || 0, row = c.closest('.k-item'); c.textContent = n; row?.classList.toggle('none', !n);
   const b = row?.querySelector('.k-use'); if (b) b.disabled = !n || itemOff(k, id);
 }
-// 1回の夜の王との戦いで使えるアイテムは1つまで（挑む前に刻んだ爪痕・挑む時に燃えている香も1つと数える）
+// 1回の夜の王との戦いで使えるアイテムは、種類ごとに1つまで（香と爪痕は一緒に使える）
 const ITEM_PER_FIGHT = 1;
 const itemOff = (k, id) => fight ? (fight.items || 0) >= ITEM_PER_FIGHT : id === 'scar' && !!k.scarReady;
 // 消えぬ爪痕の印（使ったあと・戦い中）と、残っている傷（削った体力）の表示
@@ -478,14 +478,15 @@ function paintPrep(k) {
   if (!prep) { box?.remove(); return; }
   if (!box) { box = document.createElement('div'); box.id = 'k-prep'; document.body.appendChild(box); }
   const esc = H.esc, it = itemsOf(k), foe = foeAt(k, k.lords || 0);
-  const opt = (v, label, n, ok) => `<button data-act="kPrepItem" data-v="${v}" aria-pressed="${prep.item === v}" ${ok ? '' : 'disabled'}>${label}${n == null ? '' : `<small>×${n}</small>`}</button>`;
+  const on = v => v === 'none' ? !prep.items.size : prep.items.has(v);
+  const opt = (v, label, n, ok) => `<button data-act="kPrepItem" data-v="${v}" aria-pressed="${on(v)}" ${ok ? '' : 'disabled'}>${label}${n == null ? '' : `<small>×${n}</small>`}</button>`;
   const scarN = (it.scar || 0) + (k.scarReady ? 1 : 0);
   box.innerHTML = `<div class="scrim" data-act="kPrepClose"></div><div class="sheet k-prep" role="dialog" aria-label="夜の王に挑む">
     <div class="sheet-head"><h2>${esc(foeName(foe))}に挑む</h2><button class="ghost" data-act="kPrepClose">やめる</button></div>
     <div class="k-prep-body">
-      <p class="k-prep-q">アイテムを使用しますか？<small>（1回の戦いで1つまで）</small></p>
+      <p class="k-prep-q">アイテムを使用しますか？<small>${seesScar(k) ? '（香と爪痕は一緒に使えます。1回の戦いで、それぞれ1つまで）' : '（1回の戦いで1つまで）'}</small></p>
       <div class="k-prep-items ${seesScar(k) ? '' : 'two'}">${opt('none', '使わない', null, true)}${opt('rush', '🕯️ 常夜の香', it.rush || 0, (it.rush || 0) > 0)}${seesScar(k) ? opt('scar', '🩸 消えぬ爪痕', scarN, scarN > 0) : ''}</div>
-      ${prep.item !== 'none' ? `<p class="hint">${esc(ITEM[prep.item][3])}</p>` : ''}
+      ${[...prep.items].map(id => `<p class="hint">${ITEM[id][1]} ${esc(ITEM[id][3])}</p>`).join('')}
       ${locked ? '' : `<p class="k-prep-q">画面をロックしますか？<small>（本気で叩いても、画面が動かなくなります）</small></p>
       <div class="seg">${[['on', 'ロックする'], ['off', 'しない']].map(([v, l]) => `<button data-act="kPrepLock" data-v="${v}" aria-pressed="${prep.lock === (v === 'on')}">${l}</button>`).join('')}</div>`}
       <button class="primary k-prep-go" data-act="kPrepGo">挑む</button>
@@ -510,18 +511,18 @@ function stopCountdown() { if (countdown) clearTimeout(countdown.timer); countdo
 function paintRushBtn() { const b = $('k-rush-go'); if (b) b.hidden = !rushHeld || !!countdown; }
 function goRush() { rushHeld = false; rushUntil = Date.now() + 12000; H.toast('常夜ラッシュ！12秒間、叩く力が7倍'); paintRushBtn(); paint(st()); }
 // 戦いを始める。アイテムはここで使う（数が減る）
-function beginFight(item) {
+function beginFight(items) {
   const k = st(), i = k.lords || 0; if (!BOSSES[i] || fight || H.tab() !== 'kotsubo') return;
   // 消えぬ爪痕の傷が残っていれば、その分だけ削れた体力から始める。爪痕を使えば、この戦いで削った分も残る
   const full = bossHp(k, i), frac = k.scarHp && k.scarHp.i === i ? k.scarHp.frac : 1, it = itemsOf(k), now = Date.now();
-  let used = '';
-  if (item === 'scar' && (k.scarReady || it.scar > 0)) { if (!k.scarReady) it.scar--; used = 'scar'; }
-  else if (item === 'rush' && it.rush > 0) { it.rush--; rushUntil = itemRushUntil = now + 12000; used = 'rush'; }
-  if (k.scarReady && used !== 'scar') giveItem(k, 'scar');  // 前の版で刻んでいた爪痕を使わなかったときは、持ち物に戻す
+  let scar = false, rush = false;
+  if (items.has('scar') && (k.scarReady || it.scar > 0)) { if (!k.scarReady) it.scar--; scar = true; }
+  if (items.has('rush') && it.rush > 0) { it.rush--; rushUntil = itemRushUntil = now + 12000; rush = true; }
+  if (k.scarReady && !scar) giveItem(k, 'scar');  // 前の版で刻んでいた爪痕を使わなかったときは、持ち物に戻す
   k.scarReady = false;
-  fight = { i, hp: full * frac, max: full, end: now + FIGHT_SEC * 1000, scar: used === 'scar', items: used ? 1 : 0 };
-  if (used === 'rush') H.toast('🕯️常夜の香を焚いた…常夜ラッシュ！12秒間、叩く力が7倍');
-  if (used === 'scar') H.toast('🩸爪痕を刻んだ…この戦いで削った体力は、逃げられても残る');
+  fight = { i, hp: full * frac, max: full, end: now + FIGHT_SEC * 1000, scar, items: (scar ? 1 : 0) + (rush ? 1 : 0) };
+  const msg = [rush ? '🕯️常夜の香を焚いた…12秒間、叩く力が7倍' : '', scar ? '🩸爪痕を刻んだ…削った体力は、逃げられても残る' : ''].filter(Boolean).join('／');
+  if (msg) H.toast(msg);
   H.save(); H.render();
 }
 
@@ -587,10 +588,16 @@ export function kotsuboAct(a, v) {
   if (a === 'kFight') {
     if (!BOSSES[k.lords || 0] || fight || countdown) return false;
     // 前の版で、挑む前に爪痕を刻んでいた人は、爪痕を使う形で始める（もう1つは減らない）
-    prep = { item: k.scarReady ? 'scar' : 'none', lock: !locked };
+    prep = { items: new Set(k.scarReady ? ['scar'] : []), lock: !locked };
     paintPrep(k); return false;
   }
-  if (a === 'kPrepItem') { if (!prep || (v !== 'none' && !ITEM[v])) return false; if (v !== 'none' && !(itemsOf(k)[v] > 0) && !(v === 'scar' && k.scarReady)) return false; prep.item = v; paintPrep(k); return false; }
+  // 使うアイテム：香・爪痕は押すたびに付け外し（一緒に選べる）。「使わない」で全部外す
+  if (a === 'kPrepItem') {
+    if (!prep) return false;
+    if (v === 'none') prep.items.clear();
+    else { if (!ITEM[v] || (!(itemsOf(k)[v] > 0) && !(v === 'scar' && k.scarReady))) return false; prep.items.has(v) ? prep.items.delete(v) : prep.items.add(v); }
+    paintPrep(k); return false;
+  }
   if (a === 'kPrepLock') { if (!prep) return false; prep.lock = v === 'on'; paintPrep(k); return false; }
   if (a === 'kPrepClose') { closePrep(); return false; }
   if (a === 'kRushGo') {
@@ -602,7 +609,7 @@ export function kotsuboAct(a, v) {
     if (!prep || fight || countdown) return false;
     const p = prep; closePrep();
     if (p.lock && !locked) setLock(true);
-    paintRushBtn(); startCountdown(() => { beginFight(p.item); paintRushBtn(); }); return false;
+    paintRushBtn(); startCountdown(() => { beginFight(p.items); paintRushBtn(); }); return false;
   }
   // 深き壺に潜る：討伐した数を bank に移して、マーク・雇った夜渡り・討伐の進み具合を最初に戻し、深度を1つ上げる
   // 深度5を抜けた人だけ：深度1へ戻ってやり直す（v59 の公開直後に深度5まで抜けた人が、直したあとの数値で遊び直せるように）。
