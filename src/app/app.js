@@ -289,7 +289,7 @@ function viewRecord() {
       <div class="rec-btns ${missing.length ? 'not-yet' : ''}"><button class="result-btn win" data-act="recWin">勝利</button><button class="result-btn loss" data-act="recLoss">敗北</button></div></div>`;
   return `<div class="stack-lg">
     ${S.editRun ? `<div class="edit-banner"><b>戦績を編集中</b><span>直したら「更新する」を押してください</span></div>` : ''}
-    ${card('日付', dateStrip(f), `<span class="date-now">${dateLabel(recDate(f))}${recDate(f) !== today() ? '<button class="link-btn" data-act="pickDate" data-v="today">今日に戻す</button>' : ''}</span>`)}
+    ${card(`日付${newsUnseen() ? `<button class="news-flag" data-act="newsOpen">${verLabel(CHANGELOG[0])}に更新しました ›</button>` : ''}`, dateStrip(f), `<span class="date-now">${dateLabel(recDate(f))}${recDate(f) !== today() ? '<button class="link-btn" data-act="pickDate" data-v="today">今日に戻す</button>' : ''}</span>`)}
     <section class="card-sec pick-card">
       <div class="wheels">
         <div class="wheel-col ${f.everdark === true ? 'ever' : ''}"><div class="wheel-label">夜の王</div>${wheel('lord', lords, f.lordId, lordName)}</div>

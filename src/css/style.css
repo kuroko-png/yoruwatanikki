@@ -1404,3 +1404,6 @@ i.ico { display: inline-block; background-position: center; background-size: con
 /* 浅きのときは深度のプルダウンを出さないので、切り替えはタイトルの右に左寄せで置く（出し入れしてもボタンが動かないように） */
 .rk-card .rk-tools { margin-left: 4px; }
 .rk-card .sec-head { justify-content: flex-start; }
+
+/* 記録の「日付」の右：まだ見ていないアップデートがあるときだけ、黄色い文字で知らせる（押すとアップデート情報が開き、消える） */
+.news-flag { border: 0; background: none; padding: 0; margin: 0; font: inherit; font-size: 12px; font-weight: 700; color: var(--accent); cursor: pointer; white-space: nowrap; }
