@@ -300,6 +300,9 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 // 参加した人だけ（k.rankJoin）、これまでのマークと、たどり着いた一番深い深度を送る（名前は送らない。端末ごとのランダムな番号は app.js の postOnline が付ける）。
 // 受け取り口が、急に増えすぎた数字・深度にくらべて大きすぎる数字をはじく（tools/online/apps_script.gs）。送るのは5分に1回まで
 const maxDepthOf = k => Math.max(k.maxDepth || 0, depthOf(k));
+// ランキングで比べるのは「Ver.1.2.4 から後に稼いだマーク」：この版で初めて壺渡りを開いたときの「これまでのマーク」を起点（k.rankBase）にして、そこから増えた分だけを送る
+// （v59 の公開直後の不具合で一気に稼いだ分を入れないため。最初からやり直すと、起点も0に戻る）
+const rankValue = k => Math.max(0, Math.floor((k.total || 0) - (k.rankBase || 0)));
 const RANK_SEND_GAP = 5 * 60e3, RANK_LIST_TTL = 3 * 60e3;
 let rankSentAt = 0, rankList = null, rankListAt = 0, rankLoading = false, rankFailed = false;
 // 開発用の画面では本物に送らず、見本の順位・一覧を出す
@@ -312,7 +315,7 @@ function rankSend(force) {
   if (H.devHost) { k.rankMe = { rank: 3, rid: 'dev-me', accepted: true, at: Date.now() }; rankList = DEV_RANK(); rankListAt = Date.now(); paintRank(); return; }
   if (!navigator.onLine) { rankFailed = true; paintRank(); return; }
   rankLoading = true; rankFailed = false;
-  H.postOnline({ type: 'kotsubo', total: Math.floor(k.total), maxDepth: maxDepthOf(k) }).then(r => {
+  H.postOnline({ type: 'kotsubo2', total: rankValue(k), maxDepth: maxDepthOf(k) }).then(r => {
     if (!r?.ok) { if (r?.error === 'banned') { k.rankJoin = false; k.rankMe = null; rankList = null; H.save(); } else rankFailed = true; return; }
     k.rankMe = { rank: r.rank, rid: r.rid, accepted: r.accepted !== false, at: Date.now() }; H.save();
     if (Array.isArray(r.top)) { rankList = { top: r.top.slice(0, 10) }; rankListAt = Date.now(); }
@@ -321,7 +324,7 @@ function rankSend(force) {
 // ランキングを開いたとき：一覧が古ければ（3分）、送り直して新しい一覧をもらう
 function loadRank(force) { if (force || !rankList || Date.now() - rankListAt >= RANK_LIST_TTL) rankSend(true); }
 function rankBody(k) {
-  if (!k.rankJoin) return `<p class="hint">これまでのマークの多さで、みんなと順位を比べます。名前は出ません（送るのは、これまでのマークの数・進み具合と、端末ごとのランダムな番号だけ）。</p>
+  if (!k.rankJoin) return `<p class="hint">Ver.1.2.4 から後に稼いだマークの多さで、みんなと順位を比べます。名前は出ません（送るのは、そのマークの数・進み具合と、端末ごとのランダムな番号だけ）。</p>
     <button class="ghost small" data-act="kRankJoin">ランキングに参加する</button>`;
   const me = k.rankMe, ui = S(), admin = !!H.adminKey?.();
   const meLine = me ? `<p class="k-rank-me">あなたは <b>${me.rank || '-'}位</b>です</p>${me.accepted ? '' : '<p class="hint">急に増えた記録は、ランキングに入れていません。続けて遊ぶと、少しずつ入ります。</p>'}`
@@ -338,6 +341,7 @@ function paintRank() { const b = $('k-rank-body'); if (b && !b.hidden) b.innerHT
 // ミニゲームを開いたとき：離れていた間（アプリを閉じていた間・ほかの画面にいた間。最大8時間）の稼ぎを入れて、動かし始める
 export function startKotsubo() {
   const k = st(), now = Date.now(), away = Math.min(8 * 3600e3, now - (k.lastAt || now));
+  if (k.rankBase == null) k.rankBase = k.total || 0;  // ランキングの起点（この版で初めて開いたとき。留守の稼ぎより前）
   if (away > 1000 && prodOf(k) > 0) { const g = prodOf(k) * away / 1000 * (k.ups.off1 ? .9 : .5); gain(k, g); if (away > 60e3) H.toast(`留守の間に ${fmtM(g)} マーク稼いでいました`); }
   k.lastAt = now; lastTick = now; onTab = true;
   if (!loop) loop = setInterval(tick, 100);
@@ -439,7 +443,7 @@ export function kotsuboAct(a, v) {
   if (a === 'kRankLeave') {
     if (ui.rankConfirm !== 'leave') { ui.rankConfirm = 'leave'; paintRank(); return false; }
     ui.rankConfirm = null; k.rankJoin = false; k.rankMe = null; rankList = null; H.save();
-    if (!H.devHost) H.postOnline({ type: 'kotsubo_leave' }).catch(() => {});
+    if (!H.devHost) H.postOnline({ type: 'kotsubo2_leave' }).catch(() => {});
     H.toast('ランキングから抜けました'); paintRank(); return false;
   }
   if (a === 'kRankAdmin') {
@@ -525,7 +529,7 @@ export function kotsuboAct(a, v) {
   if (a === 'kReset') {
     if (!ui.confirmReset) { ui.confirmReset = true; return true; }
     ui.confirmReset = false; fight = null;
-    if (k.rankJoin && !H.devHost) H.postOnline({ type: 'kotsubo_leave' }).catch(() => {});  // ランキングからも抜ける（最初からの数字で参加し直せる）
+    if (k.rankJoin && !H.devHost) H.postOnline({ type: 'kotsubo2_leave' }).catch(() => {});  // ランキングからも抜ける（最初からの数字で参加し直せる）
     delete H.prefs().kotsubo; H.toast('小壺のデータを最初からにしました'); return true;
   }
   return false;

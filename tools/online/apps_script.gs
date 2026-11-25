@@ -24,7 +24,7 @@
  *  - 管理人の操作（type=admin）：アプリの管理人モードから、ネタ指定・非公開・削除をする。
  *    合言葉は「スクリプト プロパティ」に ADMIN_KEY という名前で入れる（INBOX_KEY とは別にする）。未設定なら誰も操作できない
  *  - みんなのビルドの通報（build_reports：3つ以上の端末から通報されたビルドは、自動で一覧から外す。行を消せば戻る）
- *  - 壺渡りのランキング（kotsubo：参加した端末の「これまでのマーク」だけ。名前は受け取らない。一覧には端末の番号から作った別の番号 rid だけを出す）
+ *  - 壺渡りのランキング（kotsubo2：参加した端末の「Ver.1.2.4 から後に稼いだマーク」だけ。前の kotsubo シートは v59 の不具合の分が入っているので使わない。名前は受け取らない。一覧には端末の番号から作った別の番号 rid だけを出す）
  *    一覧は、参加して数字を送ってきた端末への返事にだけ付ける（参加していない人は見られない。読み出すだけの口は作らない）
  *    不正対策：① 前回から急に増えすぎた数字（1時間あたり100倍＋余裕10倍を超える）は受け付けない ② たどり着いた深度でありえない大きさの数字は受け付けない
  *    ③ 管理人の操作（rank_del＝消す／rank_ban＝消して、その端末はもう載せない。kotsubo_bans に rid が入る）。受け付けなかった回数は flags に数える
@@ -51,6 +51,7 @@ const banned_ = () => { const sh = sheet_('build_bans', BAN_COLS); const n = sh.
 const MAX_RUNS_PER_DAY = 30, MAX_VOTES_PER_DAY = 20, HIDE_REPORTS = 3;
 // 壺渡りのランキング
 const KOTSUBO_COLS = ['clientId', 'rid', 'total', 'maxDepth', 'updatedAt', 'firstAt', 'flags'];
+const KSHEET = 'kotsubo2';  // Ver.1.2.4 から数え直した表（前の kotsubo は使わない）
 const KBAN_COLS = ['rid', 'memo', 'at'];
 // たどり着いた深度（0〜5）ごとの「これまでのマーク」の上限（10の何乗か）。高難易度の最後の夜の王の体力のおよそ1億倍（遊び続けても届かない大きさ）
 const KOTSUBO_CAP_LOG10 = [20, 24, 28, 33, 39, 46];
@@ -155,19 +156,21 @@ function doPost(e) {
         const sh = sheet_('builds', BUILD_COLS); let hit; while ((hit = findRow(sh, 'B'))) sh.deleteRow(hit.getRow());
       } else if (body.op === 'rank_del' || body.op === 'rank_ban') {
         // 壺渡りのランキング：id は rid。消す（rank_ban は、その端末をもう載せない）
-        const sh = sheet_('kotsubo', KOTSUBO_COLS); let hit; while ((hit = findRow(sh, 'B'))) sh.deleteRow(hit.getRow());
+        const sh = sheet_(KSHEET, KOTSUBO_COLS); let hit; while ((hit = findRow(sh, 'B'))) sh.deleteRow(hit.getRow());
         if (body.op === 'rank_ban') { const bs = sheet_('kotsubo_bans', KBAN_COLS); if (!findRow(bs, 'A')) bs.appendRow([id, 'アプリの管理人モードから', now.toISOString()]); }
-        CacheService.getScriptCache().remove('kotsubo_rank');
+        CacheService.getScriptCache().remove('kotsubo_rank2');
         return json_({ ok: true });
       } else return json_({ ok: false, error: 'bad op' });
       CacheService.getScriptCache().remove('builds');
       return json_({ ok: true });
     }
     // 壺渡りのランキング：これまでのマーク（total）と、たどり着いた深度（maxDepth）を受け取る。返すのは順位と人数と自分の rid
-    if (body.type === 'kotsubo' || body.type === 'kotsubo_leave') {
-      const sh = sheet_('kotsubo', KOTSUBO_COLS), rid = ridOf_(clientId);
+    // 前の版のアプリ（これまでのマーク全部を送ってくる）は受け付けない
+    if (body.type === 'kotsubo' || body.type === 'kotsubo_leave') return json_({ ok: false, error: 'old' });
+    if (body.type === 'kotsubo2' || body.type === 'kotsubo2_leave') {
+      const sh = sheet_(KSHEET, KOTSUBO_COLS), rid = ridOf_(clientId);
       const hit = sh.getRange('A:A').createTextFinder(clientId).matchEntireCell(true).findNext();
-      if (body.type === 'kotsubo_leave') { if (hit) sh.deleteRow(hit.getRow()); CacheService.getScriptCache().remove('kotsubo_rank'); return json_({ ok: true }); }
+      if (body.type === 'kotsubo2_leave') { if (hit) sh.deleteRow(hit.getRow()); CacheService.getScriptCache().remove('kotsubo_rank2'); return json_({ ok: true }); }
       if (kbanned_()[rid]) { if (hit) sh.deleteRow(hit.getRow()); return json_({ ok: false, error: 'banned' }); }
       const total = Math.floor(Number(body.total)), maxDepth = Math.floor(Number(body.maxDepth));
       if (!isFinite(total) || total < 0 || !(maxDepth >= 0 && maxDepth <= 5)) return json_({ ok: false, error: 'bad data' });
@@ -392,12 +395,12 @@ function inbox_(prm) {
 // 壺渡りのランキングの上位10人（rid と「これまでのマーク」だけ。3分ごとに数え直す）。参加した端末からの送信の返事にだけ付ける
 function kotsuboTop_() {
   const cache = CacheService.getScriptCache();
-  const hit = cache.get('kotsubo_rank');
+  const hit = cache.get('kotsubo_rank2');
   if (hit) return JSON.parse(hit);
-  const sh = sheet_('kotsubo', KOTSUBO_COLS), bans = kbanned_();
+  const sh = sheet_(KSHEET, KOTSUBO_COLS), bans = kbanned_();
   const all = sh.getLastRow() > 1 ? sh.getRange(2, 2, sh.getLastRow() - 1, 2).getValues().filter(v => v[0] && !bans[v[0]] && Number(v[1]) > 0) : [];
   const top = all.map(v => ({ rid: String(v[0]), total: Number(v[1]) })).sort((a, b) => b.total - a.total).slice(0, KOTSUBO_TOP);
-  cache.put('kotsubo_rank', JSON.stringify(top), 180);
+  cache.put('kotsubo_rank2', JSON.stringify(top), 180);
   return top;
 }
 
