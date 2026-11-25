@@ -1364,3 +1364,6 @@ html.k-locked .kotsubo { touch-action: none; }
 .k-list[hidden] { display: none; }
 .k-scar { margin: 10px 0 0; color: #e58a8a; font-size: 12px; line-height: 1.6; }
 .k-scar[hidden] { display: none; }
+
+/* 左上の小見出しが長くても（壺渡りの大きな数字など）、右上のボタンの手前で「…」にする */
+.brand > div { min-width: 0; }

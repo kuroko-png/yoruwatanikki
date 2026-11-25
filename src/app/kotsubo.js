@@ -473,4 +473,5 @@ export function kotsuboAct(a, v) {
   return false;
 }
 // 上の小さな文字（タブを開いているとき）
-export const kotsuboSub = () => { const k = st(); return `${depthOf(k) ? `深度${depthOf(k)}・` : ''}${fmtM(k.mark)} マーク・毎秒 ${fmtRate(prodOf(k))}`; };
+// 左上の小見出し：深度は夜の王の欄に出ているので入れない（入れると長くなって右上のロックのボタンとかぶる）
+export const kotsuboSub = () => { const k = st(); return `${fmtM(k.mark)} マーク・毎秒 ${fmtRate(prodOf(k))}`; };
