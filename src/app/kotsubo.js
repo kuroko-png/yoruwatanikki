@@ -109,7 +109,7 @@ function ownedRelics(k) {
 const BOSSES = [['gladius', 500], ['adel', 6000], ['gnoster', 6e4], ['maris', 5e5], ['libra', 4e6], ['fulghor', 3.5e7], ['caligo', 3e8], ['harmonia', 2.5e9], ['strages', 2e10], ['final', 2e11]];
 // 深き壺：深度0〜5ごとの、夜の王の体力の倍率と稼ぎの倍率
 const DEPTH_GAIN = [1, 100, 1e5, 1e9, 1e14, 1e20], DEPTH_MAX = DEPTH_GAIN.length - 1;
-const DEPTH_HP = { normal: [1, 3200, 4.9e7, 6.9e12, 8.9e18, 1.1e26], hard: [1, 9.2e4, 1.4e9, 2e14, 2.6e20, 3.2e27] };
+const DEPTH_HP = { normal: [1, 780, 7.3e6, 6.8e11, 6.3e17, 5.9e24], hard: [1, 2e4, 2.2e8, 2e13, 1.9e19, 1.7e26] };  // 雇う値段を深度に合わせて上げたうえでの試算
 const DIFFS = [['normal', '普通'], ['hard', '高難易度']];
 // 深度4からは高難易度でしか挑めない（普通は選べない。壺を叩く者だけが進める深さ）
 const HARD_ONLY_DEPTH = 4;
@@ -155,7 +155,11 @@ const hireMult = (k, id) => (k.ups[`h10:${id}`] ? 2 : 1) * (k.ups[`h25:${id}`] ?
 const globalMult = k => Math.pow(1.25, (k.bank || 0) + (k.lords || 0)) * DEPTH_GAIN[depthOf(k)];
 const prodOf = k => HIRE.reduce((a, [id, , base]) => a + (k.hires[id] || 0) * base * hireMult(k, id), 0) * globalMult(k);
 const tapOf = k => { const p = prodOf(k); return ((k.ups.tap1 ? 2 : 1) * (k.ups.tap2 ? 2 : 1) * (k.ups.tap5 ? 3 : 1) * globalMult(k) + p * ((k.ups.tap3 ? .01 : 0) + (k.ups.tap4 ? .03 : 0))) * (rushUntil > Date.now() ? 7 : 1); };
-const priceOf = (i, owned, n = 1) => { let s = 0; for (let j = 0; j < n; j++) s += Math.ceil(HIRE[i][1] * Math.pow(PRICE_UP, owned + j)); return s; };
+// 深き壺では、雇う値段（心得・極意も）を、その深度の稼ぎの倍率（潜る前の討伐ボーナス×深度の倍率）と同じだけ高くする。
+// 値段が1周目のままだと、潜った直後から葬儀屋まで一瞬で雇えて、稼ぎが一気に跳ね上がってしまうため（v59 の公開直後に深度5まで1時間で抜けられた）。
+// こうすると、深度ごとの「稼ぎ・値段・夜の王の硬さ」の釣り合いが1周目と同じになり、潜るたびに一から積み上げ直す形になる
+const priceMult = k => depthOf(k) ? Math.pow(1.25, k.bank || 0) * DEPTH_GAIN[depthOf(k)] : 1;
+const priceOf = (i, owned, n = 1, m = 1) => { let s = 0; for (let j = 0; j < n; j++) s += Math.ceil(HIRE[i][1] * m * Math.pow(PRICE_UP, owned + j)); return s; };
 // 大きな数は「1.2万」「3.4億」のように
 export function fmtM(n) {
   n = Math.floor(n);
@@ -173,8 +177,8 @@ function upgradesShown(k) {
   const list = RELICS.filter(([id, , , , need]) => !k.ups[id] && k.total >= need).map(([id, name, desc, cost]) => ({ id, name, desc, cost }));
   HIRE.forEach(([id, base], i) => {
     const n = k.hires[id] || 0, nm = H.CHAR[id]?.name || id;
-    if (n >= 10 && !k.ups[`h10:${id}`]) list.push({ id: `h10:${id}`, name: `${nm}の心得`, desc: `${nm}の稼ぎが2倍`, cost: base * 60, char: id });
-    if (n >= 25 && !k.ups[`h25:${id}`]) list.push({ id: `h25:${id}`, name: `${nm}の極意`, desc: `${nm}の稼ぎがさらに2倍`, cost: base * 1500, char: id });
+    if (n >= 10 && !k.ups[`h10:${id}`]) list.push({ id: `h10:${id}`, name: `${nm}の心得`, desc: `${nm}の稼ぎが2倍`, cost: base * 60 * priceMult(k), char: id });
+    if (n >= 25 && !k.ups[`h25:${id}`]) list.push({ id: `h25:${id}`, name: `${nm}の極意`, desc: `${nm}の稼ぎがさらに2倍`, cost: base * 1500 * priceMult(k), char: id });
   });
   return list.sort((a, b) => a.cost - b.cost);
 }
@@ -315,9 +319,11 @@ export function viewKotsubo() {
     : d < DEPTH_MAX ? `<div class="k-boss done"><b>🌅 ${d ? `深度${d}の` : ''}すべての夜の王を討伐しました</b><p class="hint">稼ぎは今 ${fmtX(globalMult(k))}倍です。</p>
       <p class="hint">深き壺に潜ると、深度${d + 1}で最初から周回できます。マークと雇った夜渡りは最初に戻りますが、夜の王の討伐ボーナスと遺物はそのまま。深度${d + 1}では稼ぎが${fmtX(DEPTH_GAIN[d + 1])}倍になり、そのぶん夜の王も硬くなります（深度${DEPTH_MAX}まで）。${d + 1 >= HARD_ONLY_DEPTH ? `深度${HARD_ONLY_DEPTH}からは、高難易度でしか挑めません。` : ''}${d + 1 > SCAR_KEEP_DEPTH && itemsOf(k).scar ? '🩸消えぬ爪痕は、この先へは持っていけない。' : ''}</p>
       <button class="primary small-primary ${S().confirmDive ? 'danger' : ''}" data-act="kDive">${S().confirmDive ? 'もう一度押すと潜ります' : `深き壺に潜る（深度${d + 1}へ）`}</button></div>`
-    : `<div class="k-boss done"><b>🌌 深度${DEPTH_MAX}のすべての夜の王を討伐しました</b><p class="hint">深き壺の底にたどり着きました。稼ぎは今 ${fmtX(globalMult(k))}倍です。</p></div>`;
+    : `<div class="k-boss done"><b>🌌 深度${DEPTH_MAX}のすべての夜の王を討伐しました</b><p class="hint">深き壺の底にたどり着きました。稼ぎは今 ${fmtX(globalMult(k))}倍です。</p>
+      <p class="hint">壺の底から、深度1へ戻ることができます。マークと雇った夜渡りは最初に戻り、討伐のボーナスも1周目を終えたときの分に戻ります。遺物とアイテムはそのまま。</p>
+      <button class="ghost small-primary ${S().confirmReturn ? 'danger' : ''}" data-act="kReturn">${S().confirmReturn ? 'もう一度押すと深度1へ戻ります' : '深度1に戻す'}</button></div>`;
   const hireRows = HIRE.map(([id, , base, say], i) => {
-    const own = k.hires[id] || 0, cost = priceOf(i, own, n), visible = i === 0 || (k.hires[HIRE[i - 1][0]] || 0) > 0 || k.total >= HIRE[i][1] / 2;
+    const own = k.hires[id] || 0, cost = priceOf(i, own, n, priceMult(k)), visible = i === 0 || (k.hires[HIRE[i - 1][0]] || 0) > 0 || k.total >= HIRE[i][1] / 2;
     if (!visible) return `<div class="k-row locked"><span class="k-ico">？</span><span class="k-main"><b>？？？</b><small>もっと稼ぐと現れる</small></span></div>`;
     return `<button class="k-row" data-act="kHire" data-v="${id}" data-kcost="${cost}">${H.ico('char', id)}<span class="k-main"><b>${esc(H.CHAR[id]?.name)}<i>${own}人</i></b><small>${esc(say)}・1人 毎秒${fmtRate(base * hireMult(k, id) * globalMult(k))}</small></span><span class="k-cost">${fmtM(cost)}</span></button>`;
   }).join('');
@@ -373,6 +379,7 @@ export function kotsuboAct(a, v) {
   const k = st(), ui = S();
   if (a !== 'kReset') ui.confirmReset = false;
   if (a !== 'kDive') ui.confirmDive = false;
+  if (a !== 'kReturn') ui.confirmReturn = false;
   if (a === 'kLock') { setLock(!locked); H.toast(locked ? '画面をロックしました（もう一度押すと解除）' : '画面のロックを解除しました'); return false; }
   if (a === 'kItemInfo') { ui.itemOpen = ui.itemOpen === v ? null : v; showFlavor('kItemInfo', ui.itemOpen); return false; }
   if (a === 'kItemUse') {
@@ -401,7 +408,7 @@ export function kotsuboAct(a, v) {
   if (a === 'kBuyN') { ui.buyN = +v; return true; }
   if (a === 'kHire') {
     const i = HIRE.findIndex(([id]) => id === v); if (i < 0) return false;
-    const n = ui.buyN || 1, cost = priceOf(i, k.hires[v] || 0, n);
+    const n = ui.buyN || 1, cost = priceOf(i, k.hires[v] || 0, n, priceMult(k));
     if (k.mark < cost) { H.toast('マークが足りません'); return false; }
     k.mark -= cost; k.hires[v] = (k.hires[v] || 0) + n; return true;
   }
@@ -425,6 +432,15 @@ export function kotsuboAct(a, v) {
     const note = $('k-diff-note'); if (note) note.textContent = diffNote(k);
     const mx = $('k-boss-max'); if (mx && BOSSES[k.lords || 0]) mx.textContent = `体力 ${fmtM(bossHp(k, k.lords || 0))}`;
     return false;
+  }
+  // 深度5を抜けた人だけ：深度1へ戻ってやり直す（v59 の公開直後に深度5まで抜けた人が、直したあとの数値で遊び直せるように）。
+  // 討伐ボーナスは1周目を終えた分（10体）に戻す（深度5の分まで残すと、深度1の王が弱すぎるため）。遺物・アイテムは残す
+  if (a === 'kReturn') {
+    if (depthOf(k) < DEPTH_MAX || (k.lords || 0) < BOSSES.length || fight) return false;
+    if (!ui.confirmReturn) { ui.confirmReturn = true; return true; }
+    ui.confirmReturn = false; rushUntil = 0;
+    Object.assign(k, { bank: BOSSES.length, lords: 0, lordAt: Date.now(), scarHp: null, scarReady: false, depth: 1, order: makeOrder(), mark: 0, hires: {} });
+    H.toast('壺の底から、深度1へ戻った'); H.save(); return true;
   }
   if (a === 'kDive') {
     if ((k.lords || 0) < BOSSES.length || depthOf(k) >= DEPTH_MAX || fight) return false;
