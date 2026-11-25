@@ -204,6 +204,8 @@ let tuckTimer = null;
 let loop = null, lastTick = 0, lastSave = 0, rushUntil = 0, itemRushUntil = 0, jar = null, nextJarAt = 0, fight = null, combo = 0, onTab = false;
 // 夜の王に挑むとき：先に確かめる画面（prep：使うアイテム・画面のロック）→「3・2・1」（countdown）→ 戦いが始まる。アイテムは戦いが始まった瞬間に使う
 let prep = null, countdown = null;
+// 常夜の小壺から出た常夜ラッシュは、すぐには始めず、ためておく（1つまで）。「始める」を押すと「3・2・1」のあとに始まる（戦い中はすぐ）。壺渡りの画面を離れると消える
+let rushHeld = false;
 const $ = id => document.getElementById(id);
 function gain(k, n) { k.mark += n; k.total += n; }
 function scheduleJar(k) { nextJarAt = Date.now() + (50 + Math.random() * 100) * 1000 / (k.ups.jar1 ? 2 : 1); }
@@ -212,7 +214,7 @@ function tick() {
   // ミニゲームの画面を開いていないときは、何もしない（端末への保存もしない）。
   // 離れた瞬間に、戦いと常夜の小壺はお知らせなしで終わらせ、離れた時刻を残す（稼ぎは、次に開いたときに「留守の間」としてまとめて入れる）
   if (H.tab() !== 'kotsubo') {
-    if (onTab) { onTab = false; closePrep(); stopCountdown(); setLock(false); fight = null; rushUntil = itemRushUntil = 0; if (jar) { $('k-jar')?.remove(); jar = null; nextJarAt = 0; } st().lastAt = now; H.save(); rankSend(true); }
+    if (onTab) { onTab = false; closePrep(); stopCountdown(); rushHeld = false; setLock(false); fight = null; rushUntil = itemRushUntil = 0; if (jar) { $('k-jar')?.remove(); jar = null; nextJarAt = 0; } st().lastAt = now; H.save(); rankSend(true); }
     return;
   }
   rankSend(false);  // ランキングに参加していれば、5分に1回送る
@@ -269,7 +271,7 @@ function showJar() {
 function hideJar(missed) { $('k-jar')?.remove(); jar = null; scheduleJar(st()); if (missed) H.toast('常夜の小壺は逃げていった…'); }
 function tapJar(e) {
   const k = st(); k.jars = (k.jars || 0) + 1;
-  if (Math.random() < .3) { rushUntil = Date.now() + 12000; floatText(e.clientX, e.clientY, '常夜ラッシュ！', 'gold'); H.toast('常夜ラッシュ！12秒間、叩く力が7倍'); }
+  if (Math.random() < .3 && !rushHeld) { rushHeld = true; floatText(e.clientX, e.clientY, '常夜ラッシュ！', 'gold'); H.toast('常夜ラッシュを手に入れた！好きなときに始められる（この画面を離れると消える）'); paintRushBtn(); }
   else { const g = Math.max(prodOf(k) * 90, tapOf(k) * 30, 50); gain(k, g); floatText(e.clientX, e.clientY, `+${fmtM(g)}`, 'gold'); H.toast(`常夜の小壺から ${fmtM(g)} マーク！`); }
   // ときどき、アイテムを落としていく（画面は作り直さず、持っている数だけ書き換える）
   ITEMS.forEach(([id, icon, name]) => { if (Math.random() < ITEM_DROP[id].jar) { const ok = giveItem(k, id);
@@ -442,6 +444,7 @@ export function viewKotsubo() {
         <button class="k-tap" id="k-tap" aria-label="小壺を叩く"><span class="k-art" id="k-art">${jarArt()}</span></button>
         <span class="k-say" id="k-say"></span><span class="k-rush" id="k-rush" hidden>常夜ラッシュ中！×7</span><div class="k-fx" id="k-fx" aria-hidden="true"></div>
       </div>
+      <button class="primary small-primary k-rush-go" id="k-rush-go" data-act="kRushGo" ${rushHeld && !countdown ? '' : 'hidden'}>🔥 常夜ラッシュを始める</button>
       <p class="hint k-hint">小壺を叩くとマークがたまる。ときどき出る🏺（常夜の小壺）は、すぐ叩くとボーナス</p>
     </section>
     ${spoils.w + spoils.l ? `<div class="k-spoils"><span>⚔️ 戦果ボーナス：記録した勝利${spoils.w}・敗北${spoils.l}<small>${seesScar(k) ? `どちらかで受け取れます（爪痕は記録${SCAR_PER_RUNS}戦ごとに1つ。余った記録は次に残ります）` : ''}</small></span>
@@ -490,19 +493,22 @@ function paintPrep(k) {
 }
 function closePrep() { prep = null; $('k-prep')?.remove(); }
 // 「3・2・1」：数字を大きく出してから、戦いを始める。カウントダウン中は叩けない
-function startCountdown(item) {
+function startCountdown(onGo, goText = '挑め！') {
   stopCountdown();
   const el = document.createElement('div'); el.id = 'k-count'; el.className = 'k-count'; el.setAttribute('aria-live', 'assertive'); document.body.appendChild(el);
   let n = 3;
   const step = () => {
     if (!countdown) return;
     if (n > 0) { el.innerHTML = `<b>${n}</b>`; el.firstChild.classList.add('pop'); n--; countdown.timer = setTimeout(step, 800); return; }
-    el.innerHTML = '<b class="go">挑め！</b>'; countdown.timer = setTimeout(() => { el.remove(); }, 600);
-    countdown = null; beginFight(item);
+    el.innerHTML = `<b class="go">${goText}</b>`; countdown.timer = setTimeout(() => { el.remove(); }, 600);
+    countdown = null; onGo();
   };
-  countdown = { timer: 0 }; step();
+  countdown = { timer: 0 }; paintRushBtn(); step();
 }
 function stopCountdown() { if (countdown) clearTimeout(countdown.timer); countdown = null; $('k-count')?.remove(); }
+// ためている常夜ラッシュの「始める」ボタンの出し入れ（カウントダウン中は隠す）
+function paintRushBtn() { const b = $('k-rush-go'); if (b) b.hidden = !rushHeld || !!countdown; }
+function goRush() { rushHeld = false; rushUntil = Date.now() + 12000; H.toast('常夜ラッシュ！12秒間、叩く力が7倍'); paintRushBtn(); paint(st()); }
 // 戦いを始める。アイテムはここで使う（数が減る）
 function beginFight(item) {
   const k = st(), i = k.lords || 0; if (!BOSSES[i] || fight || H.tab() !== 'kotsubo') return;
@@ -587,11 +593,16 @@ export function kotsuboAct(a, v) {
   if (a === 'kPrepItem') { if (!prep || (v !== 'none' && !ITEM[v])) return false; if (v !== 'none' && !(itemsOf(k)[v] > 0) && !(v === 'scar' && k.scarReady)) return false; prep.item = v; paintPrep(k); return false; }
   if (a === 'kPrepLock') { if (!prep) return false; prep.lock = v === 'on'; paintPrep(k); return false; }
   if (a === 'kPrepClose') { closePrep(); return false; }
+  if (a === 'kRushGo') {
+    if (!rushHeld || countdown) return false;
+    if (fight) { goRush(); return false; }  // 戦い中は、時間が減らないよう、すぐ始める
+    paintRushBtn(); startCountdown(goRush, 'ラッシュ！'); paintRushBtn(); return false;
+  }
   if (a === 'kPrepGo') {
     if (!prep || fight || countdown) return false;
     const p = prep; closePrep();
     if (p.lock && !locked) setLock(true);
-    startCountdown(p.item); return false;
+    paintRushBtn(); startCountdown(() => { beginFight(p.item); paintRushBtn(); }); return false;
   }
   // 深き壺に潜る：討伐した数を bank に移して、マーク・雇った夜渡り・討伐の進み具合を最初に戻し、深度を1つ上げる
   // 深度5を抜けた人だけ：深度1へ戻ってやり直す（v59 の公開直後に深度5まで抜けた人が、直したあとの数値で遊び直せるように）。

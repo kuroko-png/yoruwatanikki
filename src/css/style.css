@@ -1433,3 +1433,6 @@ i.ico { display: inline-block; background-position: center; background-size: con
 .k-stats { line-height: 1.7; }
 /* 爪痕を知らない人には、使わない・香の2つだけ */
 .k-prep-items.two { grid-template-columns: repeat(2, 1fr); }
+/* 常夜の小壺から出たラッシュを始めるボタン */
+.k-rush-go { display: block; margin: 8px auto 0; }
+.k-rush-go[hidden] { display: none; }
