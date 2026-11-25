@@ -1041,7 +1041,7 @@ html, body { overflow-x: clip; overscroll-behavior-x: none; }
 .cmt-compose .chips { flex-wrap: wrap; overflow: visible; }
 .cmt-groups { flex-wrap: wrap; overflow: visible; }
 
-/* ミニゲーム「遺物を求める者」（タイトルの右の小壺から入る） */
+/* ミニゲーム「壺渡り」（タイトルの右の小壺から入る） */
 .kotsubo .k-top { text-align: center; display: grid; gap: 2px; padding-bottom: 10px; }
 .k-mark { display: flex; align-items: baseline; justify-content: center; gap: 6px; }
 .k-mark span { font-size: 34px; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
@@ -1304,3 +1304,63 @@ input[type="password"] { width: 100%; background: rgba(5, 8, 24, .55); border: 1
 .day { gap: 5px; }
 .day + .day { margin-top: -4px; }
 .day .run { min-height: 48px; padding-top: 5px; padding-bottom: 5px; }
+
+/* ビルド一覧：長いビルド名は2行まで折り返す（それより長ければ「…」） */
+.preset-card .pc-main .title > span { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; line-height: 1.35; }
+/* ランキングの内訳：アイコンつきの行・小見出し */
+.rk-subrow > span { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.rk-subrow .ico { width: 18px; height: 18px; margin: 0; top: 0; flex: none; }
+.rk-subhead { font-size: 11px; color: var(--dim); margin-top: 2px; }
+.rk-subhead:first-child { margin-top: 0; }
+/* 記録：終わったときのレベル（任意） */
+.lv-sel { min-width: 0; appearance: none; -webkit-appearance: none; background: rgba(5, 8, 24, .55) url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2710%27 height=%276%27%3E%3Cpath d=%27M1 1l4 4 4-4%27 fill=%27none%27 stroke=%27%239ea2c8%27 stroke-width=%271.5%27/%3E%3C/svg%3E") no-repeat right 10px center;
+  border: 1px solid var(--line-strong); color: var(--fg); border-radius: 999px; padding: 5px 28px 5px 12px; font: inherit; font-size: 13px; }
+.lv-sel.on { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+/* 小壺：深き壺の深度の札 */
+.k-depth { flex: none; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; color: #e6d8ff; background: color-mix(in srgb, #8b5cf6 45%, transparent); border: 1px solid color-mix(in srgb, #a78bfa 60%, transparent); }
+/* 小壺：所持遺物のフレーバーテキスト */
+.k-row.own .go { flex: none; color: var(--dim); font-weight: 700; width: 16px; text-align: center; }
+.k-row.own.open { border-color: var(--line-strong); }
+.k-flavor { margin: -2px 4px 4px 44px; padding: 10px 12px; border-left: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); font-family: "Noto Serif JP", "Hiragino Mincho ProN", "Yu Mincho", serif; font-size: 13px; line-height: 1.8; color: color-mix(in srgb, var(--fg) 82%, transparent); letter-spacing: .02em; }
+/* 小壺：アイテム（名前を押すと説明、右に使う・買う） */
+.k-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 0; border-radius: 12px; border: 1px solid var(--line); background: rgba(255,255,255,.04); min-width: 0; }
+.k-item-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; background: none; border: 0; color: var(--fg); font: inherit; text-align: left; padding: 2px 0 2px 10px; cursor: pointer; }
+.k-item-main .k-ico { width: 30px; height: 30px; flex: none; display: grid; place-items: center; font-size: 20px; }
+.k-item-main .k-main { flex: 1; min-width: 0; display: grid; }
+.k-item-main .k-main b { font-size: 14px; }
+.k-item-main .k-main b i { font-style: normal; color: var(--accent); font-size: 12px; margin-left: 6px; }
+.k-item-main .k-main small { color: var(--dim); font-size: 11.5px; line-height: 1.35; }
+.k-item-btns { flex: none; display: grid; gap: 4px; justify-items: stretch; }
+.k-item-btns button { padding: 5px 10px; font-size: 12px; min-height: 0; white-space: nowrap; }
+.k-item-btns .k-buy.cant { opacity: .45; }
+/* 小壺：アイテムは1行ずつ小さく（絵・名前・数・使う）。説明は名前を押したときだけ */
+.k-items .sec-head { margin-bottom: 6px; }
+.k-item-list { display: grid; gap: 6px; }
+.k-item { padding: 3px 6px 3px 0; gap: 6px; }
+.k-item.none { opacity: .5; }
+.k-item-main { gap: 8px; padding: 2px 0 2px 8px; }
+.k-item-main .k-ico { width: 24px; height: 24px; font-size: 17px; }
+.k-item-main b { font-size: 13.5px; font-weight: 700; }
+.k-item-main i { font-style: normal; color: var(--accent); font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; margin-left: auto; padding-right: 4px; }
+.k-item .k-use { flex: none; padding: 4px 12px; font-size: 12px; min-height: 0; }
+.k-item-list .k-flavor { margin: -2px 4px 2px 38px; }
+.k-flavor .k-eff { display: block; font-family: inherit; font-size: 12px; color: var(--accent); margin-bottom: 6px; letter-spacing: 0; }
+/* 小壺：画面ロック（右上の鍵）。オンの間は画面を動かさない */
+.icon-btn.lock-btn[hidden] { display: none; }
+.icon-btn.lock-btn { padding-left: 10px; padding-right: 10px; }
+.icon-btn.lock-btn.on { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+html.k-locked, html.k-locked body { overscroll-behavior: none; }  /* overflow: hidden にすると上の見出しの固定が外れるので、指の動きを止めるだけにする */
+html.k-locked .kotsubo { touch-action: none; }
+/* フレーバーテキストの字は、ほかと同じにする */
+.k-flavor { font-family: inherit; letter-spacing: 0; }
+.k-flavor[hidden] { display: none; }
+/* 小壺：難易度の切り替え */
+.k-diff { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.k-diff > span { font-size: 12.5px; color: var(--dim); flex: none; }
+.k-diff .seg { flex: 1; }
+.k-diff-note { margin-top: 4px; font-size: 11.5px; }
+.k-diff .seg button { padding: 5px 8px; font-size: 12.5px; }
+.k-weak { margin-top: 4px; color: #c9a7ff; font-size: 12px; }
+.k-list[hidden] { display: none; }
+.k-scar { margin: 10px 0 0; color: #e58a8a; font-size: 12px; line-height: 1.6; }
+.k-scar[hidden] { display: none; }

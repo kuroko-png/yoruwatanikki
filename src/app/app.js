@@ -69,12 +69,43 @@ const vesselsFor = charId => VESSELS.filter(v => v.charId === charId || v.charId
 function fitVessel(d, override) {
   if (!d.charId) return null;
   const at = (k, j) => override && override.k === k && override.i === j ? override.r : d[k][j];
-  return vesselsFor(d.charId).find(v => ['normal', 'deep'].every(k => [0, 1, 2].every(j => { const r = at(k, j); return !r || fits(v[k][j], r); }))) || null;
+  return vesselsFor(d.charId).find(v => ['normal', 'deep'].every(k => arrangeSlots(v[k], [0, 1, 2].map(j => at(k, j))))) || null;
+}
+// 遺物を入れた順番は問わない：3つの遺物を、献器の3つの枠のどれかの並びに収まるかを調べる（白い枠＝any はどの色でも入る）。
+// 収まれば「遺物 j → 枠 out[j]」の並びを返す（空きの遺物は null）。収まらなければ null
+function arrangeSlots(slots, relics) {
+  const out = [null, null, null], used = [false, false, false];
+  const go = j => {
+    if (j === 3) return true;
+    if (!relics[j]) return go(j + 1);
+    for (let s = 0; s < 3; s++) if (!used[s] && fits(slots[s], relics[j])) { used[s] = true; out[j] = s; if (go(j + 1)) return true; used[s] = false; out[j] = null; }
+    return false;
+  };
+  return go(0) ? out : null;
 }
 // 今編集中の枠に、その色の遺物を置いても、どれかの献器に収まるか
 const canColor = color => { const { k, i } = S.edit.slot; return !!fitVessel(S.edit.data, { k, i, r: { color } }); };
 const specialOk = x => !x.color || canColor(x.color);
 const fits = (slotColor, relic) => slotColor === 'any' || !relic.color || slotColor === relic.color;
+// 外から来た遺物（共有リンク・みんなのビルド・前に取り込んだもの）を、実在の色・効果・特別な遺物だけの形に作り直す。
+// 知らない値は捨てる（細工された文字が画面に入ってプログラムとして動くのを防ぐ。壊れたデータで画面が止まるのも防ぐ）
+const own = (o, id) => typeof id === 'string' && Object.hasOwn(o, id);
+function cleanRelic(r, k) {
+  if (!r || typeof r !== 'object') return null;
+  const blank = [null, null, null];
+  if (r.special != null) {
+    if (!own(SPECIAL, r.special)) return null;
+    const sp = SPECIAL[r.special];
+    return { special: sp.id, color: sp.color || (own(COLOR, r.color) ? r.color : 'red'), kind: 'normal', effects: [...blank], demerits: [...blank], size: sp.effects.length };
+  }
+  if (!own(COLOR, r.color)) return null;
+  // 効果の id の頭の文字：表 n・深層 p・デメリット m
+  const ids = (a, pre) => [0, 1, 2].map(j => { const id = Array.isArray(a) ? a[j] : null; return own(ALL_EFF, id) && ALL_EFF[id].fid[0] === pre ? id : null; });
+  return { size: [1, 2, 3].includes(r.size) ? r.size : 3, color: r.color, kind: k === 'deep' ? 'deep' : 'normal',
+    effects: ids(r.effects, k === 'deep' ? 'p' : 'n'), demerits: k === 'deep' ? ids(r.demerits, 'm') : [...blank] };
+}
+// ビルドの表・深層の3枠をまとめて作り直す
+const cleanSlots = (a, k) => [0, 1, 2].map(j => cleanRelic(Array.isArray(a) ? a[j] : null, k));
 
 // 夜の王（常夜含む）の遺物・夜渡りの固有遺物（出典: 神攻略wiki 遺物ページ）
 const SPECIALS = SPECIAL_ROWS.map(([type, who, name, color, effects], i) => ({ id: 'sp' + i, type, who, name, color, effects }));
@@ -159,7 +190,10 @@ const prefs = () => db.prefs;
 // 夜の王は「未選択」にせず、最初はグラディウス。夜渡りは毎回選んでもらうので、最初は「未選択」
 const DEFAULT_LORD = 'gladius';
 const blankForm = () => ({ dateMode: 'today', date: today(), lordId: DEFAULT_LORD, everdark: null, flags: [], shift: null, mode: prefs().mode || 'normal', depth: prefs().depth || null,
-  party: prefs().party || 'trio', charId: null, result: null, lossAt: null, lossBy: null, presetId: null, note: '' });
+  party: prefs().party || 'trio', charId: null, result: null, lossAt: null, lossBy: null, presetId: null, note: '', level: '' });
+// 試合を終えたときのレベル（任意。入れなくても記録できる）
+const LEVEL_MAX = 15;
+const levelOf = r => { const n = Math.round(+r.level); return n >= 1 && n <= LEVEL_MAX ? n : null; };
 const lastPresetFor = charId => { const id = (prefs().presetByChar || {})[charId]; return id && db.presets.some(p => p.id === id && !p.deleted) ? id : null; };
 const S = {
   tab: 'record', form: blankForm(), openRun: null, confirmDel: null,
@@ -173,6 +207,9 @@ const liveRuns = () => db.runs.filter(r => !r.deleted);
 // 記録した時刻（createdAt）がない前の戦績には、更新時刻を入れておく（ミニゲームの戦果ボーナスを、直した戦績で二重に数えないため）
 db.runs.forEach(r => { if (!r.createdAt) r.createdAt = r.updatedAt || 0; });
 // プリセットの作成日時（createdAt）がない前のものは、取り込んだ時刻か、そのプリセットで最初に記録した戦績の時刻を入れる（どちらもなければ空のまま）
+// 手元のプリセット（前の版・作りかけも）の遺物も、開くたびに実在のものだけの形に作り直す（前に取り込んだ細工されたビルドへの備え）
+{ const fix = o => { if (!o) return; ['normal', 'deep'].forEach(k => { if (o[k] != null) o[k] = cleanSlots(o[k], k); }); };
+  db.presets.forEach(p => { fix(p); (p.history || []).forEach(fix); }); fix(db.prefs.draft?.data); }
 db.presets.forEach(p => { if (!p.createdAt) { const t = p.importedAt || Math.min(...db.runs.filter(r => r.presetId === p.id).map(r => r.createdAt || Infinity)); if (isFinite(t) && t) p.createdAt = t; } });
 // 日時を「2026/11/24 14:05」の形に（今年なら年を省く）
 const fmtWhen = t => { if (!t) return ''; const d = new Date(typeof t === 'number' ? t : String(t)); if (isNaN(d)) return ''; const p2 = n => String(n).padStart(2, '0');
@@ -241,6 +278,7 @@ function viewRecord() {
       ${condRow('モード', MODES.map(m => chip('mode', m.id, m.name, f.mode === m.id, 'chip small')).join(''))}
       ${f.mode === 'deep' ? condRow('深度', DEPTHS.map(d => chip('depth', d, d, f.depth === d, 'chip small dchip')).join(''), !depthOk) : ''}
       ${condRow('人数', PARTY.map(m => chip('party', m.id, m.name, f.party === m.id, 'chip small')).join(''))}
+      ${condRow('レベル', `<select class="lv-sel ${levelOf(f) ? 'on' : ''}" data-field="level" aria-label="終わったときのレベル（任意）"><option value="">任意</option>${Array.from({ length: LEVEL_MAX }, (_, i) => i + 1).map(n => `<option value="${n}" ${levelOf(f) === n ? 'selected' : ''}>Lv ${n}</option>`).join('')}</select>`)}
       ${condRow('あれば', [RUN_FLAG.mapLoss, RUN_FLAG.bossUnknown, RUN_FLAG.shift].map(x => chip('flag', x.id, x.name, f.flags.includes(x.id), 'chip small')).join(''))}
       ${f.flags.includes('shift') ? condRow('地変', SHIFTS.map(x => chip('shift', x.id, x.name, f.shift === x.id, 'chip small')).join(''), false, 'sub') : ''}
       ${S.noteOpen || f.note ? `<div class="cond-note"><textarea id="f-note" data-field="note" placeholder="メモ（任意）例：最終戦で回復が足りなかった">${esc(f.note)}</textarea></div>`
@@ -267,7 +305,7 @@ function saveRecord() {
   const date = recDate(f);
   const p = f.presetId && presetById(f.presetId);
   const fields = { date, lordId: f.lordId, everdark: f.everdark, flags: f.flags, shift: f.flags.includes('shift') ? f.shift : null, mode: f.mode, depth: f.mode === 'deep' ? f.depth : null, party: f.party,
-    charId: f.charId, result: f.result, lossAt: f.result === 'loss' ? f.lossAt : null, lossBy: needFoe(f) ? f.lossBy : null, presetId: f.presetId, note: f.note.trim() };
+    charId: f.charId, result: f.result, lossAt: f.result === 'loss' ? f.lossAt : null, lossBy: needFoe(f) ? f.lossBy : null, presetId: f.presetId, note: f.note.trim(), level: levelOf(f) };
   if (S.editRun) {
     const r = db.runs.find(x => x.id === S.editRun);
     const keepRev = r.presetId === f.presetId ? r.presetRev : (p ? presetRev(p) : null);
@@ -283,7 +321,7 @@ function saveRecord() {
   // 日付は、過去の日を選んでいたら、続けて記録しやすいようにそのまま残す（「今日」のままなら次も今日）
   // 夜の王はグラディウス、夜渡りは「未選択」に戻す（前回のまま記録してしまわないように）。ビルドは夜渡りを選ぶと、その夜渡りで前回使ったものが入る
   S.noteOpen = false;
-  Object.assign(f, { lordId: DEFAULT_LORD, everdark: null, flags: [], shift: null, charId: null, presetId: null, result: null, lossAt: null, lossBy: null, note: '' });
+  Object.assign(f, { lordId: DEFAULT_LORD, everdark: null, flags: [], shift: null, charId: null, presetId: null, result: null, lossAt: null, lossBy: null, note: '', level: '' });
 }
 // 記録の「条件」カードの1行（左に項目名、右にボタン）。need＝まだ選んでいない（項目名を目立たせる）
 const condRow = (k, body, need = false, cls = '') => `<div class="cond-row ${cls} ${need ? 'need' : ''}"><span class="k">${k}</span><div class="chips">${body}</div></div>`;
@@ -333,7 +371,7 @@ function wheel(kind, items, cur, label, none = false) {
 }
 // 画面を作り直したあと、選んでいるものが真ん中に来るように位置を戻す
 // まだ動いている途中だった欄は、作り直す前の位置のまま続ける（止まったときに、そこで選ばれる）
-function initWheels(moving = {}) { document.querySelectorAll('.wheel').forEach(w => { const top = moving[w.dataset.wheel] ?? +w.dataset.idx * WHEEL_H; if (w.dataset.wheel in moving) { w._moving = true; w._t = setTimeout(() => commitWheel(w), 150); } else if (top) w._init = true; w.scrollTop = top; }); }
+function initWheels(moving = {}) { document.querySelectorAll('.wheel').forEach(w => { const top = moving[w.dataset.wheel] ?? +w.dataset.idx * WHEEL_H; if (w.dataset.wheel in moving) { w._moving = true; w._t = setTimeout(() => commitWheel(w), 150); } else if (top && Math.round(w.scrollTop) !== Math.round(top)) w._init = true; w.scrollTop = top; }); }  // 位置が変わらないときはスクロールの知らせが来ないので、_init は付けない（画面を書き換えても同じ欄が残るため）
 let wheelTouch = false;  // 止まったかどうかを待つタイマーは、欄ごとに別に持つ（w._t）
 // 止まったら（指を離して、動きが落ち着いたら）、真ん中のものを選ぶ
 function commitWheel(w) {
@@ -423,11 +461,11 @@ function runRow(r) {
     <span class="main"><span class="who">${(() => { const sh = (r.flags || []).includes('shift') && r.shift ? SHIFT[r.shift]?.name : '';  // 深度の札の下に地変の名前
       return r.mode === 'deep' || sh ? `<span class="run-tags">${r.mode === 'deep' ? `<span class="deep-tag">深${r.depth || ''}</span>` : ''}${sh ? `<span class="shift-tag">${esc(sh)}</span>` : ''}</span>` : ''; })()}<span class="nm-ico" title="${esc(LORD[r.lordId]?.name ?? r.lordId)}">${ico('lord', r.lordId, r.everdark)}</span><span class="x">×</span><span class="nm-ico">${ico('char', r.charId)}<span class="${pname ? 'bn' : 'bn dim'}">${pname ? esc(pname) : 'ビルドなし'}</span></span></span>
 </span>
-    <span class="res">${r.result === 'win' ? '勝利' : '敗北'}${r.lossAt ? `<small>${LOSS[r.lossAt].name}${r.lossBy ? `・${esc(r.lossBy)}` : ''}</small>` : ''}</span>
+    <span class="res">${r.result === 'win' ? '勝利' : '敗北'}${(() => { const t = [r.lossAt && LOSS[r.lossAt].name + (r.lossBy ? `・${esc(r.lossBy)}` : ''), levelOf(r) && `Lv${levelOf(r)}`].filter(Boolean).join('・'); return t ? `<small>${t}</small>` : ''; })()}</span>
     <span class="more-dots" aria-hidden="true">${open ? '×' : '⋯'}</span>
   </button>
   ${open ? `<div class="run-detail">
-    <div class="run-info">${[CHAR[r.charId]?.name, r.everdark ? '常夜' : '通常', r.mode === 'deep' ? `深き夜${r.depth ? ' 深度' + r.depth : ''}` : '浅き夜', PARTYM[r.party]?.name, ...(r.flags || []).map(x => flagName(x, r))].filter(Boolean).join('・')}</div>
+    <div class="run-info">${[CHAR[r.charId]?.name, r.everdark ? '常夜' : '通常', r.mode === 'deep' ? `深き夜${r.depth ? ' 深度' + r.depth : ''}` : '浅き夜', PARTYM[r.party]?.name, levelOf(r) && `レベル${levelOf(r)}`, ...(r.flags || []).map(x => flagName(x, r))].filter(Boolean).join('・')}</div>
     ${r.note ? `<div>${esc(r.note)}</div>` : `<div style="color:var(--dim)">メモなし</div>`}
     <div class="row-actions">
       <button class="ghost" data-act="editRun" data-v="${r.id}">編集</button>
@@ -719,14 +757,16 @@ function matrixCard(g, K) {
 }
 // 相性の表の下の「多いものランキング」：見たいもの（夜渡り・夜の王・武器・型・深度・敗北した敵）を選ぶと、多い順に並ぶ
 // （前のタブ式の分析 analysisCard は、いったん使わずに残している）
-const RANK_KINDS = [['char', '夜渡り'], ['lord', '夜の王'], ['weapon', '武器'], ['style', '型'], ['depth', '深度'], ['foe', '敗北した敵']];
+// レベルは自分の統計だけ（みんなの統計には送っていない）
+const RANK_KINDS = [['char', '夜渡り'], ['lord', '夜の王'], ['weapon', '武器'], ['style', '型'], ['depth', '深度'], ['foe', '敗北した敵'], ['level', 'レベル']];
 function rankCard(g, K) {
-  const kind = RANK_KINDS.some(([v]) => v === S.stats[K + 'Rank']) ? S.stats[K + 'Rank'] : 'char';
+  const kinds = RANK_KINDS.filter(([v]) => v !== 'level' || K === 'm');
+  const kind = kinds.some(([v]) => v === S.stats[K + 'Rank']) ? S.stats[K + 'Rank'] : 'char';
   const sumBy = (obj, keyOf) => { const out = {}; Object.entries(obj || {}).forEach(([k, x]) => { const id = keyOf(k); if (id == null) return; const o = out[id] || (out[id] = { n: 0, w: 0 }); o.n += typeof x === 'number' ? x : x.n; o.w += typeof x === 'number' ? 0 : x.w; }); return out; };
   const DEPTH = { normal: '浅き夜（通常）', deep: '深き夜（深度なし）', deep1: '深度1', deep2: '深度2', deep3: '深度3', deep4: '深度4', deep5: '深度5' };
   let items = [], unit = '回', note = '';
   if (kind === 'char') items = Object.entries(g.char || {}).filter(([id]) => CHAR[id]).map(([id, x]) => ({ id, icon: ico('char', id), name: CHAR[id].name, x }));
-  if (kind === 'lord') items = Object.entries(sumBy(g.lord, k => k.split(':')[0])).filter(([id]) => LORD[id]).map(([id, x]) => ({ icon: ico('lord', id), name: LORD[id].name, x }));  // 通常と常夜はまとめて数える
+  if (kind === 'lord') items = Object.entries(sumBy(g.lord, k => k.split(':')[0])).filter(([id]) => LORD[id]).map(([id, x]) => ({ id, icon: ico('lord', id), name: LORD[id].name, x }));  // 通常と常夜はまとめて数え、押すと内訳が開く
   // 武器：得意武器が複数の夜渡り（無頼漢）は「大斧・大槌・特大武器」でひとまとめに数える
   if (kind === 'weapon') { items = Object.entries(g.weaponW || {}).filter(([k]) => k.split('・').every(w => WEAPON_TYPES.includes(w))).map(([k, x]) => ({ name: k, x })); note = 'ビルドを選んで記録した試合が対象です'; }
   if (kind === 'style') { items = Object.entries(g.styleW || {}).map(([k, x]) => ({ name: STYLES.find(st => st.id === k)?.name || k, x })); note = 'ビルドを選んで記録した試合が対象です'; }
@@ -734,25 +774,46 @@ function rankCard(g, K) {
   if (kind === 'foe') { unit = '敗';
     if (!g.lossBy) note = 'みんなの統計では、まだ数えていません（準備中）';
     else { const c = {}; ['d1', 'd2'].forEach(d => Object.entries(g.lossBy[d] || {}).forEach(([name, n]) => { if (name) c[name] = (c[name] || 0) + n; }));
-      items = Object.entries(c).map(([name, n]) => ({ name, x: { n, w: 0 } })); note = '1日目・2日目に倒された夜の強敵。相手を選ぶ前の敗北は数えていません'; } }
+      items = Object.entries(c).map(([name, n]) => ({ id: name, name, x: { n, w: 0 } })); note = '1日目・2日目に倒された夜の強敵。相手を選ぶ前の敗北は数えていません'; } }
+  if (kind === 'level') { items = Object.entries(g.levelW || {}).map(([lv, x]) => ({ id: lv, name: `Lv${lv}`, x })); note = 'レベルを入れて記録した試合が対象です（記録の「条件」で選べます）'; }
   items = items.filter(it => it.x.n).sort((a, b) => b.x.n - a.x.n);
   const sum = items.reduce((a, it) => a + it.x.n, 0), top = items[0]?.x.n || 1;
   // 右の黄色の％の名前（一番上に同じ色で出す）
-  const shareName = { lord: '出現率', foe: '割合' }[kind] || '使用率';
-  // 夜渡りは、行を押すとその夜渡りの型ごとの出撃回数が開く（型はビルドを選んで記録した試合だけ。残りは「型なし」）
-  const openId = kind === 'char' ? S.stats[K + 'RankOpen'] : null;
-  const styleOf = it => { const cs = (g.charStyle || {})[it.id] || {}, list = Object.entries(cs).map(([k, n]) => [STYLES.find(st => st.id === k)?.name || k, n]).sort((a, b) => b[1] - a[1]);
-    const rest = it.x.n - list.reduce((a, [, n]) => a + n, 0); if (rest > 0) list.push(['型なし（ビルドを選ばずに記録）', rest]);
-    return `<div class="rk-sub">${list.map(([name, n]) => `<div class="rk-subrow ${name.startsWith('型なし') ? 'dim' : ''}"><span>${esc(name)}</span><b>${n}回</b></div>`).join('')}</div>`; };
-  const rows = items.map((it, i) => { const inner = `<span class="rk-no">${i + 1}</span><span class="rk-name">${it.icon || ''}${esc(it.name)}</span>
-      <span class="rk-num"><b>${it.x.n}</b>${unit}<small>${pct(it.x.n / sum)}</small>${kind === 'char' ? `<span class="go" aria-hidden="true">${openId === it.id ? '−' : '+'}</span>` : ''}</span><span class="rk-bar"><i style="width:${it.x.n / top * 100}%"></i></span>`;
-    return kind === 'char' ? `<button class="rk-row tap ${i < 3 ? 'top' : ''} ${openId === it.id ? 'open' : ''}" data-act="rankOpen" data-v="${it.id}" aria-expanded="${openId === it.id}">${inner}</button>${openId === it.id ? styleOf(it) : ''}`
+  const shareName = { lord: '出現率', foe: '割合', level: '割合' }[kind] || '使用率';
+  // 行を押すと内訳が開く：夜渡り＝型ごとの出撃回数／夜の王＝深き・浅き×通常・常夜／敗北した敵＝負けた夜渡り・型
+  const canOpen = ['char', 'lord', 'foe', 'level'].includes(kind), openId = canOpen ? S.stats[K + 'RankOpen'] : null;
+  const styleName = k => STYLES.find(st => st.id === k)?.name || k;
+  // 内訳の行の並び。list は [名前, 数, 薄くするか, アイコン]
+  const subRows = (list, u) => list.map(([name, n, dim, icon]) => `<div class="rk-subrow ${dim ? 'dim' : ''}"><span>${icon || ''}${esc(name)}</span><b>${n}${u}</b></div>`).join('');
+  const subOf = it => {
+    if (kind === 'char') { const cs = (g.charStyle || {})[it.id] || {}, list = Object.entries(cs).map(([k, n]) => [styleName(k), n]).sort((a, b) => b[1] - a[1]);
+      const rest = it.x.n - list.reduce((a, [, n]) => a + n, 0); if (rest > 0) list.push(['型なし（ビルドを選ばずに記録）', rest, true]);
+      return subRows(list, '回'); }
+    if (kind === 'lord') {
+      // 相性の表と同じ集計（lordCharM）から、深き・浅きごとに数える。古い受け取り口では通常・常夜だけ
+      const M = g.lordCharM, cnt = (s, dn) => Object.entries(M || {}).reduce((a, [k, x]) => { const [l, , m] = k.split('/'); return l === it.id + s && m === dn ? a + x.n : a; }, 0);
+      const list = M ? [['深き夜・通常', cnt('', 'deep')], ['深き夜・常夜', cnt(':ever', 'deep'), false, true], ['浅き夜・通常', cnt('', 'normal')], ['浅き夜・常夜', cnt(':ever', 'normal'), false, true]]
+        : [['通常', (g.lord[it.id] || {}).n || 0], ['常夜', (g.lord[it.id + ':ever'] || {}).n || 0, false, true]];
+      return subRows(list.filter(x => x[1]).map(([name, n, dim, ever]) => [name, n, dim, ever ? ico('lord', it.id, true) : ico('lord', it.id)]), '回'); }
+    if (kind === 'level') return subRows([['勝利', it.x.w], ['敗北', it.x.n - it.x.w]].filter(x => x[1]), '回');
+    // 敗北した敵：負けたときの夜渡りと型（型はビルドを選んで記録した試合だけ）
+    const fc = (g.foeChar || {})[it.id], fs = (g.foeStyle || {})[it.id];
+    if (!fc) return '<p class="hint">内訳は、スプレッドシート側の更新後に見られます。</p>';
+    const chars = Object.entries(fc).filter(([id]) => CHAR[id]).sort((a, b) => b[1] - a[1]).map(([id, n]) => [CHAR[id].name, n, false, ico('char', id)]);
+    const styles = Object.entries(fs || {}).sort((a, b) => b[1] - a[1]).map(([k, n]) => [styleName(k), n]);
+    const rest = it.x.n - styles.reduce((a, [, n]) => a + n, 0); if (rest > 0) styles.push(['型なし（ビルドを選ばずに記録）', rest, true]);
+    return `<div class="rk-subhead">夜渡り</div>${subRows(chars, '敗')}<div class="rk-subhead">型</div>${subRows(styles, '敗')}`;
+  };
+  const rows = items.map((it, i) => { const open = canOpen && openId === it.id;
+    const inner = `<span class="rk-no">${i + 1}</span><span class="rk-name">${it.icon || ''}${esc(it.name)}</span>
+      <span class="rk-num"><b>${it.x.n}</b>${unit}<small>${pct(it.x.n / sum)}</small>${canOpen ? `<span class="go" aria-hidden="true">${open ? '−' : '+'}</span>` : ''}</span><span class="rk-bar"><i style="width:${it.x.n / top * 100}%"></i></span>`;
+    return canOpen ? `<button class="rk-row tap ${i < 3 ? 'top' : ''} ${open ? 'open' : ''}" data-act="rankOpen" data-v="${esc(it.id)}" aria-expanded="${open}">${inner}</button>${open ? `<div class="rk-sub">${subOf(it)}</div>` : ''}`
       : `<div class="rk-row ${i < 3 ? 'top' : ''}">${inner}</div>`; }).join('');
   return `<section class="card-sec rk-card">
     <div class="sec-head"><h2>ランキング</h2></div>
-    <div class="g-tabs" role="tablist">${RANK_KINDS.map(([v, l]) => `<button role="tab" data-act="rankKind" data-v="${v}" aria-selected="${kind === v}">${l}</button>`).join('')}</div>
+    <div class="g-tabs" role="tablist">${kinds.map(([v, l]) => `<button role="tab" data-act="rankKind" data-v="${v}" aria-selected="${kind === v}">${l}</button>`).join('')}</div>
     ${note ? `<p class="hint rk-note">${note}</p>` : ''}
-    ${rows ? `<div class="rk-head"><span>${kind === 'char' ? '押すと型ごとの出撃回数が見られます' : ''}</span><small>${shareName}</small></div>` : ''}
+    ${rows ? `<div class="rk-head"><span>${{ char: '押すと型ごとの出撃回数が見られます', lord: '押すと深き・浅き、通常・常夜の内訳が見られます', foe: '押すと負けた夜渡り・型が見られます', level: '押すと勝ち負けの数が見られます' }[kind] || ''}</span><small>${shareName}</small></div>` : ''}
     <div class="rk-list">${rows || (kind === 'foe' && !g.lossBy ? '' : '<p class="hint">まだデータがありません。</p>')}</div>
   </section>`;
 }
@@ -871,15 +932,15 @@ function trendChart(tr, r) {
 }
 // アップデート情報：新しい版がまだ見ていないものなら「NEW」（はじめて使う人には出さない）
 const newsUnseen = () => !!CHANGELOG[0] && (prefs().onboarded || liveRuns().length > 0) && prefs().seenNews !== CHANGELOG[0].v;  // 案内を閉じた人か、戦績がある人
-// 版の見せ方：データは 'v57' のまま、画面では「Ver.57」
-const verLabel = v => esc(String(v).replace(/^v/, 'Ver.'));
+// 版の見せ方：changelog の ver（例：1.2.0）を「Ver.1.2.0」と出す。ver がない一般公開前の版（v55 まで）は「Ver.0.55」
+const verLabel = c => esc(c.ver ? 'Ver.' + c.ver : String(c.v).replace(/^v/, 'Ver.0.'));
 // 最新の版はいつも開いたまま。それより前の版は、見出しを押して開く
 function newsSheet() {
   // 公開した日時（例：11/24 0:17）。時刻がないものは日付だけ
   const md = d => `${+d.slice(5, 7)}/${+d.slice(8, 10)}${d.length > 10 ? ` ${+d.slice(11, 13)}:${d.slice(14, 16)}` : ''}`;
   return `<div class="scrim" data-act="sClose"></div><div class="sheet help" role="dialog" aria-label="アップデート情報">
     <div class="sheet-head"><h2>アップデート情報</h2><button class="ghost" data-act="sClose">閉じる</button></div>
-    <div class="sheet-list help-list news">${CHANGELOG.map((c, i) => { const head = `<h3>${verLabel(c.v)}<small>${md(c.date)}</small>${i === 0 ? '<span class="badge new">最新</span>' : ''}</h3>`, list = `<ul class="help-points">${c.items.map(t => `<li>${esc(t)}</li>`).join('')}</ul>`;
+    <div class="sheet-list help-list news">${CHANGELOG.map((c, i) => { const head = `<h3>${verLabel(c)}<small>${md(c.date)}</small>${i === 0 ? '<span class="badge new">最新</span>' : ''}</h3>`, list = `<ul class="help-points">${c.items.map(t => `<li>${esc(t)}</li>`).join('')}</ul>`;
       return i === 0 ? `<section class="news-ver latest">${head}${list}</section>` : `<details class="news-ver"><summary>${head}</summary>${list}</details>`; }).join('')}</div></div>`;
 }
 // ビルドガチャ：次の試合で使うビルドを、今の一覧（夜渡りで絞り込んでいればその中）からランダムに1つ選ぶ
@@ -964,17 +1025,19 @@ function myAgg(runs) {
   const add2 = (m, a, b, win) => add(m[a] || (m[a] = {}), b, win);
   const inc = (m, a, b) => { const x = m[a] || (m[a] = {}); x[b] = (x[b] || 0) + 1; };
   const out = { total: { n: 0, w: 0 }, lord: {}, char: {}, lordChar: {}, styleW: {}, weaponW: {}, depthW: {}, partyW: {}, loss: {}, lordLoss: {}, lordDepth: {},
-    charDepthW: {}, charWeaponW: {}, charParty: {}, lordParty: {}, trend: {}, byDate: {}, lossBy: { d1: {}, d2: {} }, lordCharM: {}, charStyle: {} };
+    charDepthW: {}, charWeaponW: {}, charParty: {}, lordParty: {}, trend: {}, byDate: {}, lossBy: { d1: {}, d2: {} }, lordCharM: {}, charStyle: {}, foeChar: {}, foeStyle: {}, levelW: {} };
   runs.forEach(r => {
     const win = r.result === 'win', lord = r.lordId + (r.everdark ? ':ever' : ''), b = runBuild(r);
     const dk = r.mode === 'deep' ? 'deep' + (r.depth || '') : 'normal';
     add(out, 'total', win); add(out.lord, lord, win); add(out.char, r.charId, win); add(out.lordChar, `${lord}/${r.charId}`, win); add(out.lordCharM, `${lord}/${r.charId}/${r.mode === 'deep' ? 'deep' : 'normal'}`, win);
     if (b?.style) { add(out.styleW, b.style, win); inc(out.charStyle, r.charId, b.style); }
+    if (levelOf(r)) add(out.levelW, levelOf(r), win);  // 終わったときのレベル（自分の統計だけ。みんなの統計には送らない）
     const wt = effWeapon(b); if (wt) { add(out.weaponW, wt, win); add2(out.charWeaponW, r.charId, wt, win); }
     add(out.depthW, dk, win); add2(out.lordDepth, lord, dk, win); add2(out.charDepthW, r.charId, dk, win);
     if (r.party) { add(out.partyW, r.party, win); add2(out.charParty, r.charId, r.party, win); add2(out.lordParty, lord, r.party, win); }
     if (!win) { const la = r.lossAt || 'unknown'; out.loss[la] = (out.loss[la] || 0) + 1; inc(out.lordLoss, lord, la);
-      if (la === 'd1' || la === 'd2') inc(out.lossBy, la, r.lossBy || ''); }
+      if (la === 'd1' || la === 'd2') { inc(out.lossBy, la, r.lossBy || '');
+        if (r.lossBy) { inc(out.foeChar, r.lossBy, r.charId); if (b?.style) inc(out.foeStyle, r.lossBy, b.style); } } }  // 倒された夜の強敵ごとの、負けた夜渡り・型
     add(out.trend, r.date, win); add(out.byDate, r.date, win);
   });
   return out;
@@ -1062,14 +1125,14 @@ function parseShare(text) {
   try {
     const o = JSON.parse(unb64u(m[1]));
     if (!o || o.v !== 1) return null;
-    const slots = a => Array.isArray(a) && a.length === 3 ? a.map(r => (r && typeof r === 'object' ? r : null)) : [null, null, null];
+    // 遺物は1つずつ、実在の色・効果だけの形に作り直す（cleanRelic）
     const str = x => (typeof x === 'string' ? x.slice(0, 60) : null);
-    const charId = CHAR[o.charId] ? o.charId : null;
-    const vesselId = VESSEL[o.vesselId] && charId ? o.vesselId : null;
-    return { name: str(o.name) || '', nameAuto: o.nameAuto !== false || !str(o.name), charId, vesselId,
-      style: STYLES.some(x => x.id === o.style) ? o.style : null, spec: Array.isArray(o.spec) ? o.spec.filter(x => typeof x === 'string') : [],
+    const charId = own(CHAR, o.charId) ? o.charId : null;
+    const vesselId = own(VESSEL, o.vesselId) && charId ? o.vesselId : null;
+    return { name: (str(o.name) || '').slice(0, NAME_MAX), nameAuto: o.nameAuto !== false || !str(o.name), charId, vesselId,
+      style: STYLES.some(x => x.id === o.style) ? o.style : null, spec: Array.isArray(o.spec) ? o.spec.filter(x => typeof x === 'string').map(x => x.slice(0, 20)).slice(0, 10) : [],
       weaponType: WEAPON_TYPES.includes(o.weaponType) ? o.weaponType : null, weaponName: str(o.weaponName) || '',
-      normal: vesselId ? slots(o.normal) : [null, null, null], deep: vesselId ? slots(o.deep) : [null, null, null],
+      normal: vesselId ? cleanSlots(o.normal, 'normal') : [null, null, null], deep: vesselId ? cleanSlots(o.deep, 'deep') : [null, null, null],
       pubNote: typeof o.pubNote === 'string' ? o.pubNote.slice(0, 200) : '', neta: o.neta === true };
   } catch { return null; }
 }
@@ -1087,12 +1150,12 @@ const REACTIONS = [['like', '👍', 'いいね'], ['lol', '😂', '笑った'], 
 // 自分が付けたリアクション。前の「いいね」（prefs().votes が 1）は 👍 を付けたものとして扱う
 const myReacts = id => { const m = { ...((prefs().reacts || {})[id] || {}) }; if ((prefs().votes || {})[id] === 1) m.like = true; return m; };
 const reactCounts = b => { const r = { ...(b.reactions || {}) }; if (!b.reactions && b.likes) r.like = b.likes; return r; };  // 古い受け取り口は likes だけ
-const reactSummary = b => { const r = reactCounts(b); return REACTIONS.filter(([k]) => r[k]).map(([k, e]) => `${e} ${r[k]}`).join('　'); };
+const reactSummary = b => { const r = reactCounts(b); return REACTIONS.filter(([k]) => r[k]).map(([k, e]) => `${e} ${+r[k] || 0}`).join('　'); };
 function voteRow(pub) {
   const mine = myReacts(pub.presetId), cnt = reactCounts(pub);
   const rep = (prefs().reported || {})[pub.presetId];
   return `<p class="hint">リアクションは何種類でも付けられます。もう一度押すと取り消し（新しく付けるのは1日20回まで）。</p>
-    <div class="react-row">${REACTIONS.map(([k, e, l]) => `<button class="react ${mine[k] ? 'on' : ''}" data-act="react" data-v="${k}" aria-pressed="${!!mine[k]}" aria-label="${l}"><span class="e">${e}</span><span class="l">${l}</span><b>${cnt[k] || 0}</b></button>`).join('')}</div>
+    <div class="react-row">${REACTIONS.map(([k, e, l]) => `<button class="react ${mine[k] ? 'on' : ''}" data-act="react" data-v="${k}" aria-pressed="${!!mine[k]}" aria-label="${l}"><span class="e">${e}</span><span class="l">${l}</span><b>${+cnt[k] || 0}</b></button>`).join('')}</div>
     ${commentBox(pub)}
     <button class="link-btn report-link ${S.confirmDel === 'buildReport' ? 'danger-text' : 'dim-link'}" data-act="buildReport" ${rep ? 'disabled' : ''}>${rep ? '通報済み' : S.confirmDel === 'buildReport' ? 'もう一度押すと通報します' : '⚑ 不適切な内容を通報する'}</button>`;
 }
@@ -1102,7 +1165,7 @@ const cmtParts = x => ({ t: x[0], w: x[1], c: x[3] ?? -1, t2: x[4] ?? -1, w2: x[
 const validCmt = x => { const p = Array.isArray(x) ? cmtParts(x) : x; return !!COMMENT_TEMPLATES[p.t] && !!COMMENT_WORDS[p.w] && (!(p.c >= 0) || (!!COMMENT_CONJ[p.c] && !!COMMENT_TEMPLATES[p.t2] && !!COMMENT_WORDS[p.w2])); };
 const cmtTextOf = p => commentFull(p.t, p.w, p.c ?? -1, p.t2 ?? -1, p.w2 ?? -1);
 const sameCmt = (a, b) => !!a && !!b && a.t === b.t && a.w === b.w && (a.c ?? -1) === (b.c ?? -1) && ((a.c ?? -1) < 0 || (a.t2 === b.t2 && a.w2 === b.w2));
-const cmtCount = b => (b.comments || []).filter(validCmt).reduce((a, c) => a + (c[2] || 0), 0);
+const cmtCount = b => (b.comments || []).filter(validCmt).reduce((a, c) => a + (+c[2] || 0), 0);
 function commentBox(pub) {
   const list = (pub.comments || []).filter(validCmt);
   const mine = (prefs().comments || {})[pub.presetId], c = S.sheet?.compose;
@@ -1283,8 +1346,11 @@ function publicBuilds() {
 }
 function slotDots(p) {
   const v = p.vesselId && VESSEL[p.vesselId];
+  // 空きの枠には、遺物が入っていない献器の枠の色を順に見せる（遺物の順番は問わないので、並べ替えたあとの残り）
+  const free = k => { if (!v) return []; const a = arrangeSlots(v[k], p[k]) || []; return [0, 1, 2].filter(s => !a.includes(s)).map(s => v[k][s]); };
+  const left = { normal: free('normal'), deep: free('deep') };
   const d = (r, deep, i) => {
-    const sc = v ? v[deep ? 'deep' : 'normal'][i] : null;
+    const sc = v && !r ? left[deep ? 'deep' : 'normal'].shift() : null;
     return `<span class="slot-dot ${deep ? 'deep' : ''} ${r ? 'c-' + r.color : sc ? 'o-' + sc : ''}"></span>`;
   };
   return `<span class="slots">${p.normal.map((r, i) => d(r, false, i)).join('')}<span class="sep"></span>${p.deep.map((r, i) => d(r, true, i)).join('')}</span>`;
@@ -1631,7 +1697,8 @@ function editPreset() {
   const name = presetName(p);
   const nameRow = S.edit.editingName
     ? `<section class="card-sec"><div class="sec-head"><h2>プリセット名</h2></div>
-        <input type="text" id="e-name" data-edit="name" value="${esc(name)}" placeholder="${esc(autoName(p))}">
+        <input type="text" id="e-name" data-edit="name" value="${esc(name.slice(0, NAME_MAX))}" placeholder="${esc(autoName(p))}" maxlength="${NAME_MAX}">
+        <p class="hint">${NAME_MAX}文字まで</p>
         <div class="row-actions">${p.nameAuto ? '' : '<button class="ghost" data-act="nameAuto">自動の名前に戻す</button>'}<button class="ghost" data-act="nameDone">決定</button></div></section>`
     : `<button class="name-row" data-act="nameEdit"><span class="k">プリセット名</span><span class="nm">${esc(name)}</span><span class="pen">${p.nameAuto ? '自動・変更' : '変更'}</span></button>`;
   BAR = '';
@@ -1690,6 +1757,8 @@ function autoName(p) {
   return parts.length ? parts.join(' ') : p.charId ? `${CHAR[p.charId].name}のビルド` : '名前なしのビルド';
 }
 const presetName = p => (p.nameAuto || !p.name?.trim()) ? autoName(p) : p.name;
+// 自分で付けるビルド名の上限（共有・公開でもこの長さで切る）
+const NAME_MAX = 20;
 function styleText(p) {
   const parts = [];
   if (p.style) parts.push(STYLES.find(x => x.id === p.style).name + ((p.spec || []).length ? `（${p.spec.join('・')}特化）` : ''));
@@ -1869,7 +1938,7 @@ function menuSheet() {
   return `<div class="scrim" data-act="sClose"></div><div class="sheet" role="dialog" aria-label="データ管理">
     <div class="sheet-head"><h2>データ管理</h2><button class="ghost" data-act="sClose">閉じる</button></div>
     <div class="sheet-list">
-      ${item('newsOpen', `アップデート情報${newsUnseen() ? '<span class="badge new">NEW</span>' : ''}`, `いつ、どんな機能が増えたか（最新：${CHANGELOG[0] ? verLabel(CHANGELOG[0].v) : ''}）`)}
+      ${item('newsOpen', `アップデート情報${newsUnseen() ? '<span class="badge new">NEW</span>' : ''}`, `いつ、どんな機能が増えたか（最新：${CHANGELOG[0] ? verLabel(CHANGELOG[0]) : ''}）`)}
       ${item('requestOpen', '機能の実装リクエスト', '「こんな機能がほしい」を開発者に送れます')}
       ${item('guide', '使い方・ホーム画面に追加', 'はじめに出た案内をもう一度見る')}
       ${item('shareApp', '夜渡り日記を共有する', 'アプリのURLをコピーして、友だちに送れます')}
@@ -1908,18 +1977,18 @@ function replaceDb(next) {
   S.edit = null; S.openRun = null; S.form = blankForm();
 }
 function csvRows() {
-  const rows = [['日付', '夜の王', '常夜', '地図欠損など', 'モード', '深度', '人数', '夜渡り', '結果', '倒れた場所', '倒された相手', 'ビルド', 'メモ']];
+  const rows = [['日付', '夜の王', '常夜', '地図欠損など', 'モード', '深度', '人数', '夜渡り', '結果', '倒れた場所', '倒された相手', 'ビルド', 'レベル', 'メモ']];
   liveRuns().sort((a, b) => a.date.localeCompare(b.date) || a.updatedAt - b.updatedAt).forEach(r => rows.push([
     r.date, LORD[r.lordId]?.name ?? r.lordId, r.everdark ? '常夜' : '', (r.flags || []).map(x => flagName(x, r)).join('/'), MODE[r.mode]?.name ?? r.mode, r.depth ?? '', PARTYM[r.party]?.name ?? r.party,
     CHAR[r.charId]?.name ?? r.charId, r.result === 'win' ? '勝利' : '敗北', r.lossAt ? LOSS[r.lossAt].name : '', r.lossBy || '', presetById(r.presetId) ? presetLabel(presetById(r.presetId)) : (r.presetId ? '削除済み' : ''),
-    r.note]));
+    levelOf(r) ?? '', r.note]));
   return rows;
 }
 
 // ---------- render ----------
 // タブのアイコンは icons/tabs/<id>.png（tools/make_app_icons.py で Images/ の絵から作る）
 const TABS = [{ id: 'record', name: '記録' }, { id: 'history', name: '履歴' }, { id: 'stats', name: '統計' }, { id: 'builds', name: 'ビルド' }, { id: 'enemies', name: '知識', icon: 'knowledge' }];  // 「知識」タブ（中身は knowledge.js。id は昔の「敵」タブのまま）
-// ミニゲーム「遺物を求める者」は、下のタブには出さない。タイトルの右の小壺を押した人だけが入れる（S.tab が 'kotsubo'）
+// ミニゲーム「壺渡り」（前の名前は「遺物を求める者」）は、下のタブには出さない。タイトルの右の小壺を押した人だけが入れる（S.tab が 'kotsubo'）
 function appSub() {
   const runs = liveRuns();
   if (S.tab === 'enemies') return knowledgeSub();
@@ -1952,13 +2021,38 @@ function patchKeeping(root, html, keepId) {
     l = lp; f = fp;
   }
 }
+// 画面を作り直すとき、全部を入れ替えずに「変わった所だけ」を書き換える（開け閉めなどで画面全体がカクつき、アイコンが点滅するのを防ぐ）。
+// 入れ替え前と後で、同じ場所・同じ種類の要素はそのまま使い、属性と文字だけ合わせる。入力欄は、触っている最中のものは中身を変えない
+function morphHTML(root, html) {
+  const tpl = document.createElement('template'); tpl.innerHTML = html;
+  morphKids(root, tpl.content);
+}
+function morphKids(live, fresh) {
+  const kids = [...fresh.childNodes];
+  kids.forEach((f, i) => {
+    const l = live.childNodes[i];
+    if (!l) { live.appendChild(f); return; }
+    if (l.nodeType !== f.nodeType || l.nodeName !== f.nodeName || (l.nodeType === 1 && l.id !== f.id)) { l.replaceWith(f); return; }
+    if (l.nodeType !== 1) { if (l.nodeValue !== f.nodeValue) l.nodeValue = f.nodeValue; return; }
+    [...l.attributes].forEach(a => { if (!f.hasAttribute(a.name)) l.removeAttribute(a.name); });
+    [...f.attributes].forEach(a => { if (l.getAttribute(a.name) !== a.value) l.setAttribute(a.name, a.value); });
+    const busy = l === document.activeElement;
+    const sel = l.tagName === 'SELECT' ? [...f.querySelectorAll('option')].findIndex(o => o.hasAttribute('selected')) : -1;
+    morphKids(l, f);
+    if (busy) return;
+    if (l.tagName === 'INPUT') { if (l.type === 'checkbox' || l.type === 'radio') l.checked = f.hasAttribute('checked'); else if (l.value !== (f.getAttribute('value') ?? '')) l.value = f.getAttribute('value') ?? ''; }
+    else if (l.tagName === 'TEXTAREA') { if (l.value !== l.defaultValue) l.value = l.defaultValue; }
+    else if (l.tagName === 'SELECT') l.selectedIndex = Math.max(0, sel);
+  });
+  while (live.childNodes.length > kids.length) live.lastChild.remove();
+}
 function render(keepId) {
-  document.getElementById('tabs').innerHTML = TABS.map(t => `<button data-act="tab" data-v="${t.id}" ${S.tab === t.id ? 'aria-current="page"' : ''}><span class="tab-ico" style="-webkit-mask-image:url('icons/tabs/${t.icon || t.id}.png');mask-image:url('icons/tabs/${t.icon || t.id}.png')" aria-hidden="true"></span>${t.name}</button>`).join('');
+  morphHTML(document.getElementById('tabs'), TABS.map(t => `<button data-act="tab" data-v="${t.id}" ${S.tab === t.id ? 'aria-current="page"' : ''}><span class="tab-ico" style="-webkit-mask-image:url('icons/tabs/${t.icon || t.id}.png');mask-image:url('icons/tabs/${t.icon || t.id}.png')" aria-hidden="true"></span>${t.name}</button>`).join(''));  // 下のタブも変わった所だけ書き換える（毎回作り直すとアイコンが点滅する）
   BAR = '';
   const moving = Object.fromEntries([...document.querySelectorAll('.wheel')].filter(w => w._moving).map(w => [w.dataset.wheel, w._target ?? w.scrollTop]));  // タップで動かしている途中なら、行き先へ
   const v = { record: viewRecord, history: viewHistory, stats: viewStats, builds: viewBuilds, enemies: viewKnowledge, kotsubo: viewKotsubo }[S.tab];
   if (keepId) patchKeeping(document.getElementById('view'), v(), keepId);
-  else document.getElementById('view').innerHTML = v();
+  else morphHTML(document.getElementById('view'), v());
   if (S.tab === 'record') { initWheels(moving); initDateStrip(); }
   if (S.tab === 'enemies') initWheels(moving);  // 知識タブのボス不明チェッカー
   // みんなの統計：選んでいる分析のタブが見える位置まで、タブの列を横に動かす
@@ -1969,8 +2063,9 @@ function render(keepId) {
   const helpLabel = document.querySelector('[data-act=help] span');
   // 幅の狭いスマホでは「使い方」だけにして、タイトル横の小壺の場所をあける
   if (helpLabel) helpLabel.textContent = S.tab === 'kotsubo' ? '遊び方' : innerWidth < 400 ? '使い方' : `${TABS.find(t => t.id === S.tab)?.name ?? ''}の使い方`;
+  { const lb = document.querySelector('[data-act=kLock]'); if (lb) lb.hidden = S.tab !== 'kotsubo'; }  // 画面ロックは小壺のときだけ
   document.querySelector('[data-act=menu]')?.classList.toggle('due', backupState().due || codeNoticeDue() || newsUnseen());
-  document.getElementById('actionbar').innerHTML = BAR ? `<div class="action-bar"><div class="in">${BAR}</div></div>` : '';
+  morphHTML(document.getElementById('actionbar'), BAR ? `<div class="action-bar"><div class="in">${BAR}</div></div>` : '');
   document.querySelector('.app').classList.toggle('has-bar', !!BAR);
   renderSheet();
   if (pendingY !== null && lockY === null) { window.scrollTo(0, pendingY); pendingY = null; }
@@ -2062,7 +2157,7 @@ document.addEventListener('click', e => {
       const r = db.runs.find(x => x.id === v);
       S.editRun = r.id;
       S.form = { dateMode: 'pick', date: r.date || today(), lordId: r.lordId, everdark: !!r.everdark, flags: [...(r.flags || [])], shift: r.shift ?? null, mode: r.mode || 'normal', depth: r.depth ?? null,
-        party: r.party || 'trio', charId: r.charId, result: r.result, lossAt: r.lossAt ?? null, lossBy: r.lossBy ?? null, presetId: r.presetId ?? null, origPresetId: r.presetId ?? null, note: r.note || '' };
+        party: r.party || 'trio', charId: r.charId, result: r.result, lossAt: r.lossAt ?? null, lossBy: r.lossBy ?? null, presetId: r.presetId ?? null, origPresetId: r.presetId ?? null, note: r.note || '', level: r.level || '' };
       S.tab = 'record'; S.openRun = null; S.dayStripX = null; scrollTop(); break;
     }
     case 'cancelEdit': S.editRun = null; S.form = blankForm(); S.tab = 'history'; break;
@@ -2230,6 +2325,7 @@ document.addEventListener('click', e => {
         if (st?.needSpec && !(d.spec || []).length) { toast('「特化」は、何特化かを選んでください'); S.edit.open.style = true; break; } }
       if (d.public && (ngHit(d.nameAuto ? '' : d.name) || ngHit(d.weaponName) || ngHit(d.pubNote))) { toast('名前・武器名・メモに不適切な言葉が含まれているため、公開できません。直してから保存してください'); return; }
       if (d.nameAuto || !d.name.trim()) { d.nameAuto = true; d.name = autoName(d); }
+      else d.name = d.name.slice(0, NAME_MAX);
       const wasPublic = !!presetById(d.id)?.public;
       const old = presetById(d.id);
       if (old && JSON.stringify(buildSnapshot(old)) !== JSON.stringify(buildSnapshot(d)) && db.runs.some(r => r.presetId === d.id && (r.presetRev || 1) === presetRev(old))) {
@@ -2495,6 +2591,7 @@ document.addEventListener('click', e => {
 document.addEventListener('input', e => {
   const t = e.target;
   if (t.dataset.field) S.form[t.dataset.field] = t.value;
+  if (t.classList.contains('lv-sel')) t.classList.toggle('on', !!t.value);
   // 日付を直したら、記録ボタンを押せるかどうかをすぐ反映する
   if (t.dataset.edit) { S.edit.data[t.dataset.edit] = t.value; if (t.dataset.edit === 'name') S.edit.data.nameAuto = !t.value.trim(); syncDraft(); save(db); }
   if (t.hasAttribute('data-enemyq')) {

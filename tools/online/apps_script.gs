@@ -265,7 +265,7 @@ function doGet(e) {
   const out = { ok: true, updatedAt: Date.now(), range: { from: from, to: to }, players: 0, total: { n: 0, w: 0 }, lord: {}, char: {}, lordChar: {}, style: {}, weapon: {}, depth: {}, party: {},
     byDate: {}, charDepth: {}, charWeapon: {}, charStyle: {},
     // 分析用（勝敗つき）：型・武器・深度・人数ごと、敗北した場所、夜の王／夜渡りごとの深度・人数・武器、日ごとの推移
-    styleW: {}, weaponW: {}, depthW: {}, partyW: {}, loss: {}, lordLoss: {}, lordDepth: {}, charDepthW: {}, charWeaponW: {}, charParty: {}, lordParty: {}, trend: {}, lordCharM: {}, lossBy: { d1: {}, d2: {} } };
+    styleW: {}, weaponW: {}, depthW: {}, partyW: {}, loss: {}, lordLoss: {}, lordDepth: {}, charDepthW: {}, charWeaponW: {}, charParty: {}, lordParty: {}, trend: {}, lordCharM: {}, lossBy: { d1: {}, d2: {} }, foeChar: {}, foeStyle: {} };  // foeChar・foeStyle＝倒された夜の強敵ごとの、負けた夜渡り・型
   const add2 = (map, a, b, win) => add(map[a] || (map[a] = {}), b, win);
   // 日ごとの推移：期間を指定したらその期間すべて、全期間なら直近60日
   const trendSince = from || Utilities.formatDate(new Date(Date.now() - 59 * 864e5), 'Asia/Tokyo', 'yyyy-MM-dd');
@@ -306,7 +306,8 @@ function doGet(e) {
     add(out.depthW, dk, win);
     if (v[8]) add(out.partyW, v[8], win);
     if (!win) { const la = v[11] || 'unknown'; out.loss[la] = (out.loss[la] || 0) + 1; inc(out.lordLoss, lord, la);
-      if ((la === 'd1' || la === 'd2') && v[16]) inc(out.lossBy, la, String(v[16])); }  // 倒された夜の強敵（記録した戦績だけ）
+      if ((la === 'd1' || la === 'd2') && v[16]) { inc(out.lossBy, la, String(v[16]));  // 倒された夜の強敵（記録した戦績だけ）
+        inc(out.foeChar, String(v[16]), v[9]); if (v[14]) inc(out.foeStyle, String(v[16]), v[14]); } }
     add2(out.lordDepth, lord, dk, win);
     add2(out.charDepthW, v[9], dk, win);
     if (v[15]) add2(out.charWeaponW, v[9], v[15], win);
