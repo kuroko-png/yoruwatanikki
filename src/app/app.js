@@ -735,7 +735,7 @@ const statsK = () => S.stats.scope === 'all' ? 'g' : 'm';
 //   深き／浅き：深き夜か通常（浅き夜）か　使用数／勝率：マスの数字　すべて／通常／常夜：すべては通常と常夜の合計（常夜は紫）
 // g.lordCharM（「夜の王/夜渡り/deep|normal」ごとの数）がない古い受け取り口では、深き・浅きを分けずに合計で出す
 function matrixCard(g, K) {
-  const st = key => S.stats[K + key], deep = !!st('MxDeep'), val = st('MxVal') || 'rate', ev = st('MxEver') || 'all', sel = st('Cell');
+  const st = key => S.stats[K + key], deep = st('MxDeep') !== false,  /* 最初は「深き」（浅きを選んだときだけ false） */ val = st('MxVal') || 'rate', ev = st('MxEver') || 'all', sel = st('Cell');
   const M = g.lordCharM, split = !!M, sfx = ev === 'all' ? ['', ':ever'] : ev === 'ever' ? [':ever'] : [''];
   const get = (lordId, charId) => sfx.reduce((a, s) => { const base = `${lordId}${s}/${charId}`, x = (split ? M[`${base}/${deep ? 'deep' : 'normal'}`] : (g.lordChar || {})[base]) || { n: 0, w: 0 };
     return { n: a.n + x.n, w: a.w + x.w }; }, { n: 0, w: 0 });
