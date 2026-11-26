@@ -2762,17 +2762,18 @@ if ('serviceWorker' in navigator && !window.__DEV__) {
 // ホーム画面に置いたアプリ（ブラウザの引いて更新がない）だけで使う（ブラウザで開いたときは、ブラウザのものと二重になるので使わない。開発サーバーでは試せるように使う）。
 // 壺渡りの画面ロック中・戦い中（3・2・1、常夜ラッシュをためている間も）・下から出る画面（シート）が開いているとき・文字を入力中・横に動かす所や小壺の上では始めない
 {
-  // 指を PULL_GO まで引いてから離すと更新。少し引いただけ（PULL_SHOW まで）は、いつもの「伸びる」動きだけで何も出さない
-  const PULL_SHOW = 60, PULL_GO = 160, PULL_MAX = 130;
+  // 指を PULL_GO まで強めに引いてから離すと更新。少し引いただけ（PULL_SHOW まで）は、いつもの「伸びる」動きだけで何も出さない
+  // 出すのは言葉なしの、くるくる回るアイコンだけ（引くほど羽根が1本ずつ増え、全部そろったら離すと更新）
+  const PULL_SHOW = 60, PULL_GO = 190, PULL_MAX = 110, SPOKES = 12;
   const on = () => DEV_HOST || matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
   let y0 = null, x0 = 0, dy = 0, el = null, busy = false;
   const blocked = t => document.documentElement.classList.contains('k-locked') || kotsuboBusy() || document.body.classList.contains('typing') || document.querySelector('.scrim')
     || t.closest?.('.sheet, .wheel, .day-strip, #k-stage, input, textarea, select, [data-noswipe]');
-  const show = () => { if (!el) { el = document.createElement('div'); el.className = 'ptr'; el.innerHTML = '<span class="ptr-ico">↻</span><span class="ptr-txt"></span>'; document.body.appendChild(el); } return el; };
+  const show = () => { if (!el) { el = document.createElement('div'); el.className = 'ptr'; el.setAttribute('aria-hidden', 'true'); el.innerHTML = `<svg class="ptr-ico" viewBox="0 0 24 24">${Array.from({ length: SPOKES }, (_, i) => `<line x1="12" y1="3" x2="12" y2="7.5" transform="rotate(${i * 360 / SPOKES} 12 12)"/>`).join('')}</svg>`; document.body.appendChild(el); } return el; };
   const paintPull = () => { if (dy < PULL_SHOW) { if (el && !busy) { el.remove(); el = null; } return; }
-    const e = show(), d = Math.min(PULL_MAX, (dy - PULL_SHOW) * .9), ready = dy >= PULL_GO;
+    const e = show(), d = Math.min(PULL_MAX, (dy - PULL_SHOW) * .8), ready = dy >= PULL_GO, n = ready ? SPOKES : Math.floor((dy - PULL_SHOW) / (PULL_GO - PULL_SHOW) * SPOKES);
     e.style.transform = `translate(-50%, ${d - 48}px)`; e.style.opacity = String(Math.min(1, d / 40)); e.classList.toggle('ready', ready);
-    e.querySelector('.ptr-ico').style.transform = `rotate(${dy * 2}deg)`; e.querySelector('.ptr-txt').textContent = ready ? '離すと更新' : '引いて更新'; };
+    e.querySelectorAll('line').forEach((l, i) => l.style.opacity = i < n ? String(.25 + .75 * (i + 1) / SPOKES) : '0'); };
   const reset = () => { y0 = null; dy = 0; if (el && !busy) { el.remove(); el = null; } };
   document.addEventListener('touchstart', e => { if (busy || !on() || e.touches.length !== 1 || window.scrollY > 0 || blocked(e.target)) { y0 = null; return; } y0 = e.touches[0].clientY; x0 = e.touches[0].clientX; dy = 0; }, { passive: true });
   document.addEventListener('touchmove', e => {
@@ -2785,7 +2786,7 @@ if ('serviceWorker' in navigator && !window.__DEV__) {
   document.addEventListener('touchend', () => {
     if (y0 == null) return;
     if (dy < PULL_GO) { reset(); return; }
-    busy = true; const e = show(); e.classList.add('ready', 'spin'); e.style.transform = 'translate(-50%, 16px)'; e.style.opacity = '1'; e.querySelector('.ptr-txt').textContent = '更新しています…';
+    busy = true; const e = show(); e.classList.add('ready', 'spin'); e.style.transform = 'translate(-50%, 16px)'; e.style.opacity = '1'; e.querySelectorAll('line').forEach((l, i) => l.style.opacity = String(.25 + .75 * (i + 1) / SPOKES));
     y0 = null; save(db);  // 読み込み直す前に、いまの記録を保存しておく
     try { sessionStorage.setItem('ptr-tab', JSON.stringify({ tab: S.tab, from: S.kotsuboFrom })); } catch { /* 戻せなくても更新はする */ }
     const go = () => location.reload();

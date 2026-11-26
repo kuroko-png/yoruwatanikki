@@ -1472,3 +1472,9 @@ i.ico { display: inline-block; background-position: center; background-size: con
   .k-boss-h .k-boss-max { font-size: 11px; }
   .k-boss-h .k-boss-go { padding: 8px 9px; font-size: 13px; letter-spacing: 0; }
 }
+/* 下に引いて更新：言葉なしの丸いアイコンだけ（羽根12本。引くほど増え、更新中は回る） */
+.ptr { width: 38px; height: 38px; padding: 0; gap: 0; justify-content: center; border-radius: 50%; }
+.ptr-ico { width: 22px; height: 22px; font-size: 0; }
+.ptr-ico line { stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; transition: opacity .08s; }
+.ptr.ready, .ptr.ready .ptr-ico { color: inherit; border-color: color-mix(in srgb, currentColor 20%, transparent); }  /* そろっても色は変えない */
+.ptr.spin .ptr-ico { animation: ptr-spin 1s steps(12) infinite; }
