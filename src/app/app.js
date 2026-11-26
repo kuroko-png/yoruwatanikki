@@ -2758,42 +2758,68 @@ if ('serviceWorker' in navigator && !window.__DEV__) {
   navigator.serviceWorker.register('./sw.js').catch(e => console.warn('service worker', e));
 }
 
-// 下に引いて更新：画面のいちばん上で、指で下へ引いて離すと、新しい版を確かめてから読み込み直す。
+// 下に引いて更新：画面のいちばん上で、指で下へ引いて離すと更新する。
 // ホーム画面に置いたアプリ（ブラウザの引いて更新がない）だけで使う（ブラウザで開いたときは、ブラウザのものと二重になるので使わない。開発サーバーでは試せるように使う）。
 // 壺渡りの画面ロック中・戦い中（3・2・1、常夜ラッシュをためている間も）・下から出る画面（シート）が開いているとき・文字を入力中・横に動かす所や小壺の上では始めない
+// 新しい版が出ていなければ、読み込み直さずに、その場で画面とみんなの統計などを取り直す（読み込み直すと画面が一瞬消えて点滅するため）。
+// 新しい版かどうかは、開いたときに読み込んだファイル（js・css・index.html）の ETag／更新時刻を、もう一度サーバーに聞いて比べる
 {
   // 指を PULL_GO まで強めに引いてから離すと更新。少し引いただけ（PULL_SHOW まで）は、いつもの「伸びる」動きだけで何も出さない
-  // 出すのは言葉なしの、くるくる回るアイコンだけ（引くほど羽根が1本ずつ増え、全部そろったら離すと更新）
-  const PULL_SHOW = 60, PULL_GO = 190, PULL_MAX = 110, SPOKES = 12;
+  // 出すのは言葉なしの、くるくる回るアイコンだけ（引くほど羽根が1本ずつ増え、全部そろったら離すと更新）。動かすのは1コマに1回（requestAnimationFrame）
+  const PULL_SHOW = 60, PULL_GO = 190, PULL_MAX = 96, SPOKES = 12, SPIN_MIN = 600;
   const on = () => DEV_HOST || matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
-  let y0 = null, x0 = 0, dy = 0, el = null, busy = false;
+  let y0 = null, x0 = 0, dy = 0, el = null, lines = [], busy = false, raf = 0, shownN = -1;
   const blocked = t => document.documentElement.classList.contains('k-locked') || kotsuboBusy() || document.body.classList.contains('typing') || document.querySelector('.scrim')
     || t.closest?.('.sheet, .wheel, .day-strip, #k-stage, input, textarea, select, [data-noswipe]');
-  const show = () => { if (!el) { el = document.createElement('div'); el.className = 'ptr'; el.setAttribute('aria-hidden', 'true'); el.innerHTML = `<svg class="ptr-ico" viewBox="0 0 24 24">${Array.from({ length: SPOKES }, (_, i) => `<line x1="12" y1="3" x2="12" y2="7.5" transform="rotate(${i * 360 / SPOKES} 12 12)"/>`).join('')}</svg>`; document.body.appendChild(el); } return el; };
-  const paintPull = () => { if (dy < PULL_SHOW) { if (el && !busy) { el.remove(); el = null; } return; }
-    const e = show(), d = Math.min(PULL_MAX, (dy - PULL_SHOW) * .8), ready = dy >= PULL_GO, n = ready ? SPOKES : Math.floor((dy - PULL_SHOW) / (PULL_GO - PULL_SHOW) * SPOKES);
-    e.style.transform = `translate(-50%, ${d - 48}px)`; e.style.opacity = String(Math.min(1, d / 40)); e.classList.toggle('ready', ready);
-    e.querySelectorAll('line').forEach((l, i) => l.style.opacity = i < n ? String(.25 + .75 * (i + 1) / SPOKES) : '0'); };
-  const reset = () => { y0 = null; dy = 0; if (el && !busy) { el.remove(); el = null; } };
+  const show = () => { if (!el) { el = document.createElement('div'); el.className = 'ptr'; el.setAttribute('aria-hidden', 'true'); el.innerHTML = `<svg class="ptr-ico" viewBox="0 0 24 24">${Array.from({ length: SPOKES }, (_, i) => `<line x1="12" y1="3" x2="12" y2="7.5" transform="rotate(${i * 360 / SPOKES} 12 12)"/>`).join('')}</svg>`; document.body.appendChild(el); lines = [...el.querySelectorAll('line')]; } return el; };
+  const spokes = n => { if (n === shownN) return; shownN = n; lines.forEach((l, i) => { l.style.opacity = i < n ? String(.25 + .75 * (i + 1) / SPOKES) : '0'; }); };
+  const place = (y, op) => { const e = show(); e.style.transform = `translate3d(-50%, ${y}px, 0)`; e.style.opacity = String(op); };
+  // 引いた長さ → アイコンの位置。引くほど重くなる（指にぴったり付いてくるより、ゴムのように）
+  const paint = () => { raf = 0; if (busy || y0 == null) return;
+    const over = Math.max(0, dy - PULL_SHOW), d = PULL_MAX * (1 - Math.exp(-over / 110));
+    const e = show(); e.classList.remove('back');
+    place(d - 48, Math.min(1, over / 50)); spokes(dy >= PULL_GO ? SPOKES : Math.floor(over / (PULL_GO - PULL_SHOW) * SPOKES)); };
+  const ask = () => { if (!raf) raf = requestAnimationFrame(paint); };
+  // 離したあと・更新のあとは、アイコンをするっと上へ戻す
+  const back = () => { y0 = null; dy = 0; if (raf) { cancelAnimationFrame(raf); raf = 0; } if (!el) return; el.classList.add('back'); el.classList.remove('spin'); place(-48, 0); };
+  // 開いたときのファイルの「版の印」（ETag か更新時刻）
+  const files = () => [location.href.split('#')[0], ...new Set(performance.getEntriesByType('resource').map(r => r.name)
+    .filter(u => { try { const x = new URL(u); return x.origin === location.origin && /\.(js|css)$/.test(x.pathname) && !x.pathname.includes('/tools/'); } catch { return false; } }))];
+  const sigOf = u => fetch(u, { method: 'HEAD', cache: 'no-store' }).then(r => r.ok ? (r.headers.get('etag') || r.headers.get('last-modified') || '') : '').catch(() => null);
+  let base = null;
+  const takeBase = () => { const list = files(); Promise.all(list.map(sigOf)).then(v => { base = new Map(list.map((u, i) => [u, v[i]])); }); };
+  window.addEventListener('load', () => setTimeout(takeBase, 3000));
+  // 新しい版が出ているか（分からないときは「出ている」とみなして読み込み直す）
+  const changed = () => { if (!base) return Promise.resolve(true); const list = [...base.keys()];
+    return Promise.all(list.map(sigOf)).then(v => v.some((x, i) => x == null || !base.get(list[i]) || x !== base.get(list[i]))); };
+  const reload = () => {
+    save(db);  // 読み込み直す前に、いまの記録を保存しておく
+    const reg = 'serviceWorker' in navigator && !window.__DEV__ ? navigator.serviceWorker.getRegistration() : Promise.resolve(null);
+    const go = () => location.reload();
+    Promise.race([reg.then(r => r?.update()).catch(() => {}), new Promise(r => setTimeout(r, 2500))]).then(go, go);
+  };
+  // その場で取り直す：みんなの統計・みんなのビルドは次に描くときに取り直し、画面を作り直す
+  const soft = () => { resetGlobal(); PUB.at = 0; render(); };
   document.addEventListener('touchstart', e => { if (busy || !on() || e.touches.length !== 1 || window.scrollY > 0 || blocked(e.target)) { y0 = null; return; } y0 = e.touches[0].clientY; x0 = e.touches[0].clientX; dy = 0; }, { passive: true });
   document.addEventListener('touchmove', e => {
     if (y0 == null) return;
     const t = e.touches[0], d = t.clientY - y0;
-    if (window.scrollY > 0 || (dy === 0 && Math.abs(t.clientX - x0) > Math.abs(d))) { reset(); return; }  // 横に動かしたとき・もう下へ流れたときはやめる
-    if (d <= 0) { if (dy) { dy = 0; el?.remove(); el = null; } return; }
-    dy = d; paintPull();  // 画面の「伸びる」動きは止めない（preventDefault しない）
+    if (window.scrollY > 0 || (dy === 0 && Math.abs(t.clientX - x0) > Math.abs(d))) { back(); return; }  // 横に動かしたとき・もう下へ流れたときはやめる
+    dy = Math.max(0, d); ask();  // 画面の「伸びる」動きは止めない（preventDefault しない）
   }, { passive: true });
   document.addEventListener('touchend', () => {
     if (y0 == null) return;
-    if (dy < PULL_GO) { reset(); return; }
-    busy = true; const e = show(); e.classList.add('ready', 'spin'); e.style.transform = 'translate(-50%, 16px)'; e.style.opacity = '1'; e.querySelectorAll('line').forEach((l, i) => l.style.opacity = String(.25 + .75 * (i + 1) / SPOKES));
-    y0 = null; save(db);  // 読み込み直す前に、いまの記録を保存しておく
-    try { sessionStorage.setItem('ptr-tab', JSON.stringify({ tab: S.tab, from: S.kotsuboFrom })); } catch { /* 戻せなくても更新はする */ }
-    const go = () => location.reload();
-    const reg = 'serviceWorker' in navigator && !window.__DEV__ ? navigator.serviceWorker.getRegistration() : Promise.resolve(null);
-    Promise.race([reg.then(r => r?.update()).catch(() => {}), new Promise(r => setTimeout(r, 2500))]).then(go, go);
+    if (dy < PULL_GO) { back(); return; }
+    busy = true; y0 = null; if (raf) { cancelAnimationFrame(raf); raf = 0; }
+    const e = show(); e.classList.remove('back'); e.classList.add('settle', 'spin'); place(16, 1); spokes(SPOKES);
+    const t0 = Date.now();
+    changed().then(c => {
+      if (c) { reload(); return; }
+      soft();
+      setTimeout(() => { busy = false; e.classList.remove('settle'); back(); }, Math.max(0, SPIN_MIN - (Date.now() - t0)));
+    }, reload);
   }, { passive: true });
-  document.addEventListener('touchcancel', reset, { passive: true });
+  document.addEventListener('touchcancel', () => { if (!busy) back(); }, { passive: true });
 }
 
 document.addEventListener('focusin', e => { if (e.target.matches('input[type=text], input[type=search], input[type=date], textarea')) document.body.classList.add('typing'); });

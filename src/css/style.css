@@ -1478,3 +1478,8 @@ i.ico { display: inline-block; background-position: center; background-size: con
 .ptr-ico line { stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; transition: opacity .08s; }
 .ptr.ready, .ptr.ready .ptr-ico { color: inherit; border-color: color-mix(in srgb, currentColor 20%, transparent); }  /* そろっても色は変えない */
 .ptr.spin .ptr-ico { animation: ptr-spin 1s steps(12) infinite; }
+/* 下に引いて更新：なめらかに動かす（引いている間は指について動き、離したら0.25秒でするっと戻る） */
+.ptr { will-change: transform, opacity; backface-visibility: hidden; }
+.ptr.back { transition: transform .25s cubic-bezier(.2, .8, .2, 1), opacity .2s ease-out; }
+.ptr.settle { transition: transform .2s cubic-bezier(.2, .8, .2, 1); }
+.ptr-ico line { transition: none; }
