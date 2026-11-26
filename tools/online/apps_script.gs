@@ -26,7 +26,7 @@
  *  - みんなのビルドの通報（build_reports：3つ以上の端末から通報されたビルドは、自動で一覧から外す。行を消せば戻る）
  *  - 壺渡りのランキング（kotsubo2：参加した端末の「Ver.1.2.4 から後に稼いだマーク」だけ。前の kotsubo シートは v59 の不具合の分が入っているので使わない。名前は受け取らない。一覧には端末の番号から作った別の番号 rid だけを出す）
  *    一覧は、参加して数字を送ってきた端末への返事にだけ付ける（参加していない人は見られない。読み出すだけの口は作らない）
- *    不正対策：① 前回から急に増えすぎた数字（1時間あたり100倍＋余裕10倍を超える）は受け付けない ② たどり着いた深度でありえない大きさの数字は受け付けない
+ *    不正対策：① 前回から急に増えすぎた数字（1時間あたり1000倍＋余裕100倍を超える。前回が0のときは比べない）は受け付けない ② たどり着いた深度でありえない大きさの数字は受け付けない（はじいた理由は why で返す：fast＝①・big＝②）
  *    ③ 管理人の操作（rank_del＝消す／rank_ban＝消して、その端末はもう載せない。kotsubo_bans に rid が入る）。受け付けなかった回数は flags に数える
  *    depth＝今いる深度（0＝1周目）。maxDepth＝たどり着いた一番深い深度
  *  - 期間ごとのランキング（kotsubo_＋開催の日付：season が SEASON_ID のときは、その期間に稼いだマークをこの表で比べる。期間が終わったら数字を止める）
@@ -53,12 +53,13 @@ const adminNeta_ = () => { const sh = sheet_('build_admin', ADMIN_COLS); const n
 const banned_ = () => { const sh = sheet_('build_bans', BAN_COLS); const n = sh.getLastRow() - 1; const set = {}; (n > 0 ? sh.getRange(2, 1, n, 1).getDisplayValues() : []).forEach(v => { if (v[0]) set[String(v[0]).trim()] = 1; }); return set; };
 const MAX_RUNS_PER_DAY = 30, MAX_VOTES_PER_DAY = 20, HIDE_REPORTS = 3;
 // 壺渡りのランキング
-const KOTSUBO_COLS = ['clientId', 'rid', 'total', 'maxDepth', 'updatedAt', 'firstAt', 'flags', 'depth'];
+const KOTSUBO_COLS = ['clientId', 'rid', 'total', 'maxDepth', 'updatedAt', 'firstAt', 'flags', 'depth', 'loops'];  // loops＝深度5を抜けて深度1へ戻った回数（周回の印★）
 const KSHEET = 'kotsubo2';  // Ver.1.2.4 から数え直した表（前の kotsubo は使わない）
 const KBAN_COLS = ['rid', 'memo', 'at'];
 // たどり着いた深度（0〜5）ごとの「これまでのマーク」の上限（10の何乗か）。高難易度の最後の夜の王の体力のおよそ1億倍（遊び続けても届かない大きさ）
-const KOTSUBO_CAP_LOG10 = [20, 24, 28, 33, 39, 46];
-const KOTSUBO_FLOOR = 1e9, KOTSUBO_SLACK_LOG10 = 1, KOTSUBO_RATE_LOG10_PER_H = 2;  // この数までは自由。それより上は「前回×10×（1時間ごとに100倍）」まで
+// v62：数字が伸びきった人がはじかれたとのおたよりで、どの深度も10万倍ゆるくした
+const KOTSUBO_CAP_LOG10 = [25, 29, 33, 38, 44, 51];
+const KOTSUBO_FLOOR = 1e9, KOTSUBO_SLACK_LOG10 = 2, KOTSUBO_RATE_LOG10_PER_H = 3;  // この数までは自由。それより上は「前回×100×（1時間ごとに1000倍）」まで
 // 連打王（期間限定）：開催ごとに RENDA_ID と期間を変える（表も別になる）
 const RENDA_ID = '2026-11-26', RENDA_START = new Date('2026-11-26T12:00:00+09:00').getTime(), RENDA_END = new Date('2026-12-03T11:59:00+09:00').getTime();
 const RENDA_SHEET = 'renda_' + RENDA_ID.replace(/-/g, ''), RENDA_COLS = ['clientId', 'rid', 'taps', 'updatedAt', 'flags'];
@@ -191,13 +192,15 @@ function doPost(e) {
       }
       if (kbanned_()[rid]) { if (hit) sh.deleteRow(hit.getRow()); return json_({ ok: false, error: 'banned' }); }
       const total = Math.floor(Number(body.total)), maxDepth = Math.floor(Number(body.maxDepth)), depth = Math.min(5, Math.max(0, Math.floor(Number(body.depth)) || 0));
+      const loops = maxDepth >= 5 ? Math.min(99, Math.max(0, Math.floor(Number(body.loops)) || 0)) : 0;
       if (!isFinite(total) || total < 0 || !(maxDepth >= 0 && maxDepth <= 5)) return json_({ ok: false, error: 'bad data' });
       const prev = hit ? sh.getRange(hit.getRow(), 1, 1, KOTSUBO_COLS.length).getValues()[0] : null;
       const prevTotal = prev ? Number(prev[2]) || 0 : 0, prevAt = prev ? Date.parse(prev[4]) || now.getTime() : now.getTime();
       const hours = Math.max(0, (now.getTime() - prevAt) / 3600e3);
       const lg = x => Math.log10(Math.max(1, x));
       // ① 急に増えすぎていないか（前回の記録があるときだけ）② 深度にくらべて大きすぎないか
-      const tooFast = prev && total > Math.max(prevTotal, KOTSUBO_FLOOR) && lg(total) > lg(Math.max(prevTotal, KOTSUBO_FLOOR)) + KOTSUBO_SLACK_LOG10 + KOTSUBO_RATE_LOG10_PER_H * hours;
+      // 前回の記録が0（はじかれた行だけある）ときは、①では比べない
+      const tooFast = prev && prevTotal > 0 && total > Math.max(prevTotal, KOTSUBO_FLOOR) && lg(total) > lg(Math.max(prevTotal, KOTSUBO_FLOOR)) + KOTSUBO_SLACK_LOG10 + KOTSUBO_RATE_LOG10_PER_H * hours;
       const tooBig = lg(total) > KOTSUBO_CAP_LOG10[maxDepth];
       let accepted = true;
       const frozen = season && now.getTime() >= SEASON_END;  // 期間が終わったら、数字はそのまま（順位と一覧だけ返す）
@@ -205,9 +208,9 @@ function doPost(e) {
       else if (tooFast || tooBig) {
         accepted = false;
         if (hit) sh.getRange(hit.getRow(), 7).setValue((Number(prev[6]) || 0) + 1);
-        else sh.getRange(sh.getLastRow() + 1, 1, 1, KOTSUBO_COLS.length).setNumberFormat('@').setValues([[clientId, rid, '0', String(maxDepth), now.toISOString(), now.toISOString(), '1', String(depth)]]);
+        else sh.getRange(sh.getLastRow() + 1, 1, 1, KOTSUBO_COLS.length).setNumberFormat('@').setValues([[clientId, rid, '0', String(maxDepth), now.toISOString(), now.toISOString(), '1', String(depth), String(loops)]]);
       } else {
-        const row = [clientId, rid, String(total), String(maxDepth), now.toISOString(), prev ? String(prev[5]) : now.toISOString(), prev ? String(prev[6] || 0) : '0', String(depth)];
+        const row = [clientId, rid, String(total), String(maxDepth), now.toISOString(), prev ? String(prev[5]) : now.toISOString(), prev ? String(prev[6] || 0) : '0', String(depth), String(loops)];
         sh.getRange(hit ? hit.getRow() : sh.getLastRow() + 1, 1, 1, row.length).setNumberFormat('@').setValues([row]);
       }
       // 自分の順位（受け付けなかったときは、前の記録で数える）。人数は返さない
@@ -217,7 +220,7 @@ function doPost(e) {
       // 上位の一覧は、ここ（参加して数字を送ってきた端末への返事）でだけ返す。参加していない人は見られない
       // 連打王：期間の始まりから、終わって1週間までは、叩いた回数も受け取って順位と上位を返す
       const renda = body.rendaId === RENDA_ID && now.getTime() >= RENDA_START && now.getTime() < RENDA_END + RENDA_SHOW_MS ? renda_(clientId, rid, body.renda, now, bans) : undefined;
-      return json_({ ok: true, accepted: accepted, rank: rank, rid: rid, top: kotsuboTop_(sheetName, season ? 'kotsubo_rank_' + SEASON_ID : 'kotsubo_rank2'), renda: renda });
+      return json_({ ok: true, accepted: accepted, why: accepted ? undefined : tooBig ? 'big' : 'fast', rank: rank, rid: rid, top: kotsuboTop_(sheetName, season ? 'kotsubo_rank_' + SEASON_ID : 'kotsubo_rank2'), renda: renda });
     }
     if (body.type === 'build_put' || body.type === 'build_del') {
       const presetId = str_(body.id, 60);
@@ -420,8 +423,8 @@ function kotsuboTop_(sheetName, key) {
   const hit = cache.get(key);
   if (hit) return JSON.parse(hit);
   const sh = sheet_(sheetName, KOTSUBO_COLS), bans = kbanned_();
-  const all = sh.getLastRow() > 1 ? sh.getRange(2, 2, sh.getLastRow() - 1, 2).getValues().filter(v => v[0] && !bans[v[0]] && Number(v[1]) > 0) : [];
-  const top = all.map(v => ({ rid: String(v[0]), total: Number(v[1]) })).sort((a, b) => b.total - a.total).slice(0, KOTSUBO_TOP);
+  const all = sh.getLastRow() > 1 ? sh.getRange(2, 2, sh.getLastRow() - 1, 8).getValues().filter(v => v[0] && !bans[v[0]] && Number(v[1]) > 0) : [];
+  const top = all.map(v => ({ rid: String(v[0]), total: Number(v[1]), loops: Number(v[7]) || 0 })).sort((a, b) => b.total - a.total).slice(0, KOTSUBO_TOP);
   cache.put(key, JSON.stringify(top), 180);
   return top;
 }

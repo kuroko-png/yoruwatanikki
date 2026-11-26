@@ -9,7 +9,7 @@ import { HELP } from '../data/help.js';
 import { NIGHT_BOSSES } from '../data/night_bosses.js';
 import { load, save, exportJson, exportCsv, readJsonFile } from './store.js';
 import { scanRelics } from './scan.js';
-import { initKotsubo, viewKotsubo, kotsuboAct, kotsuboSub, startKotsubo } from './kotsubo.js';
+import { initKotsubo, viewKotsubo, kotsuboAct, kotsuboSub, startKotsubo, kotsuboBusy } from './kotsubo.js';
 import { initKnowledge, viewKnowledge, knowledgeAct, knowledgeSub, knowledgeWheel } from './knowledge.js';
 import { ngHit } from '../data/ngwords.js';
 import { PRIVACY, PRIVACY_UPDATED } from '../data/privacy.js';
@@ -2750,6 +2750,40 @@ document.addEventListener('click', e => { if (swEatClick && e.isTrusted) { swEat
 // オフラインでも開けるようにする（開発サーバーでは使わない）
 if ('serviceWorker' in navigator && !window.__DEV__) {
   navigator.serviceWorker.register('./sw.js').catch(e => console.warn('service worker', e));
+}
+
+// 下に引いて更新：画面のいちばん上で、指で下へ引いて離すと、新しい版を確かめてから読み込み直す。
+// ホーム画面に置いたアプリ（ブラウザの引いて更新がない）だけで使う（ブラウザで開いたときは、ブラウザのものと二重になるので使わない。開発サーバーでは試せるように使う）。
+// 壺渡りの画面ロック中・戦い中（3・2・1、常夜ラッシュをためている間も）・下から出る画面（シート）が開いているとき・文字を入力中・横に動かす所や小壺の上では始めない
+{
+  const PULL_GO = 80, PULL_MAX = 130;
+  const on = () => DEV_HOST || matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  let y0 = null, x0 = 0, dy = 0, el = null, busy = false;
+  const blocked = t => document.documentElement.classList.contains('k-locked') || kotsuboBusy() || document.body.classList.contains('typing') || document.querySelector('.scrim')
+    || t.closest?.('.sheet, .wheel, .day-strip, #k-stage, input, textarea, select, [data-noswipe]');
+  const show = () => { if (!el) { el = document.createElement('div'); el.className = 'ptr'; el.innerHTML = '<span class="ptr-ico">↻</span><span class="ptr-txt"></span>'; document.body.appendChild(el); } return el; };
+  const paintPull = () => { const e = show(), d = Math.min(PULL_MAX, dy * .55), ready = dy >= PULL_GO;
+    e.style.transform = `translate(-50%, ${d - 48}px)`; e.style.opacity = String(Math.min(1, d / 40)); e.classList.toggle('ready', ready);
+    e.querySelector('.ptr-ico').style.transform = `rotate(${dy * 2}deg)`; e.querySelector('.ptr-txt').textContent = ready ? '離すと更新' : '引いて更新'; };
+  const reset = () => { y0 = null; dy = 0; if (el && !busy) { el.remove(); el = null; } };
+  document.addEventListener('touchstart', e => { if (busy || !on() || e.touches.length !== 1 || window.scrollY > 0 || blocked(e.target)) { y0 = null; return; } y0 = e.touches[0].clientY; x0 = e.touches[0].clientX; dy = 0; }, { passive: true });
+  document.addEventListener('touchmove', e => {
+    if (y0 == null) return;
+    const t = e.touches[0], d = t.clientY - y0;
+    if (window.scrollY > 0 || (dy === 0 && Math.abs(t.clientX - x0) > Math.abs(d))) { reset(); return; }  // 横に動かしたとき・もう下へ流れたときはやめる
+    if (d <= 0) { if (dy) { dy = 0; el?.remove(); el = null; } return; }
+    dy = d; if (e.cancelable) e.preventDefault(); paintPull();
+  }, { passive: false });
+  document.addEventListener('touchend', () => {
+    if (y0 == null) return;
+    if (dy < PULL_GO) { reset(); return; }
+    busy = true; const e = show(); e.classList.add('ready', 'spin'); e.style.transform = 'translate(-50%, 16px)'; e.style.opacity = '1'; e.querySelector('.ptr-txt').textContent = '更新しています…';
+    y0 = null; save(db);  // 読み込み直す前に、いまの記録を保存しておく
+    const go = () => location.reload();
+    const reg = 'serviceWorker' in navigator && !window.__DEV__ ? navigator.serviceWorker.getRegistration() : Promise.resolve(null);
+    Promise.race([reg.then(r => r?.update()).catch(() => {}), new Promise(r => setTimeout(r, 2500))]).then(go, go);
+  }, { passive: true });
+  document.addEventListener('touchcancel', reset, { passive: true });
 }
 
 document.addEventListener('focusin', e => { if (e.target.matches('input[type=text], input[type=search], input[type=date], textarea')) document.body.classList.add('typing'); });

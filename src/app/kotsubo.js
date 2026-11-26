@@ -188,27 +188,32 @@ function upgradesShown(k) {
 // 「最初に記録した時刻」で数えるので、昔の戦績を直したり消して戻したりしても、もう一度は数えない
 const madeAt = r => r.createdAt || r.updatedAt || 0;
 // 戦果ボーナスは、マークの代わりに🩸消えぬ爪痕でも受け取れる（記録 SCAR_PER_RUNS 戦ごとに1つ。古い記録から使い、余った記録は次に残る）
-const SCAR_PER_RUNS = 3;
+// 1日（日本時間）に爪痕で受け取れるのは SCAR_PER_DAY 個まで（記録を手早く足して集められないように）。k.scarDay = { day, n }
+const SCAR_PER_RUNS = 2, SCAR_PER_DAY = 3;
+const jstDay = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+const scarTodayOf = k => k.scarDay?.day === jstDay() ? k.scarDay.n || 0 : 0;
 // 消えぬ爪痕は、深き壺にたどり着いた人（または持っている人）にだけ見せる（たどり着いた人だけが知る、の決めごと）
 const seesScar = k => maxDepthOf(k) > 0 || (itemsOf(k).scar || 0) > 0 || !!k.scarReady;
 function warSpoils(k) {
   // はじめて受け取るときは、これまでの記録の新しい50戦まで（記録が多い人が、最初から一気に進みすぎないように）
   const runs = H.liveRuns().filter(r => !r.sample && madeAt(r) > (k.claimAt || 0)).sort((a, b) => madeAt(b) - madeAt(a)).slice(0, k.claimAt ? Infinity : 50);
   const w = runs.filter(r => r.result === 'win').length, l = runs.length - w;
-  const room = ITEM_MAX - (itemsOf(k).scar || 0), scars = Math.max(0, Math.min(Math.floor(runs.length / SCAR_PER_RUNS), room));
-  return { w, l, runs, scars, room, gain: w * Math.max(100, prodOf(k) * 300) + l * Math.max(20, prodOf(k) * 60) };
+  const room = ITEM_MAX - (itemsOf(k).scar || 0), today = SCAR_PER_DAY - scarTodayOf(k);
+  const scars = Math.max(0, Math.min(Math.floor(runs.length / SCAR_PER_RUNS), room, today));
+  return { w, l, runs, scars, room, today, gain: w * Math.max(100, prodOf(k) * 300) + l * Math.max(20, prodOf(k) * 60) };
 }
 
 // ---------- 動き（叩く・時間がたつ・常夜の小壺・戦い） ----------
 let tuckTimer = null;
 let loop = null, lastTick = 0, lastSave = 0, rushUntil = 0, itemRushUntil = 0, jar = null, nextJarAt = 0, fight = null, combo = 0, onTab = false;
 // 夜の王に挑むとき：先に確かめる画面（prep：使うアイテム・画面のロック）→「3・2・1」（countdown）→ 戦いが始まる。アイテムは戦いが始まった瞬間に使う
-let prep = null, countdown = null;
+let prep = null, countdown = null, lastTick0 = 0;
 // 常夜の小壺から出た常夜ラッシュは、すぐには始めず、ためておく（1つまで）。「始める」を押すと「3・2・1」のあとに始まる（戦い中はすぐ）。壺渡りの画面を離れると消える
 let rushHeld = false;
 const $ = id => document.getElementById(id);
 function gain(k, n) { k.mark += n; k.total += n; }
-function scheduleJar(k) { nextJarAt = Date.now() + (50 + Math.random() * 100) * 1000 / (k.ups.jar1 ? 2 : 1); }
+// 常夜の小壺：次に出るまで100〜300秒（v62 で前の2倍に。多すぎたため）。常夜の嗅覚で半分
+function scheduleJar(k) { nextJarAt = Date.now() + (100 + Math.random() * 200) * 1000 / (k.ups.jar1 ? 2 : 1); }
 function tick() {
   const now = Date.now();
   // ミニゲームの画面を開いていないときは、何もしない（端末への保存もしない）。
@@ -223,6 +228,8 @@ function tick() {
   const p = prodOf(k);
   gain(k, p * dt);
   if (fight && now >= fight.end) endFight(false);  // 夜の王は、叩いたダメージでしか削れない（夜渡りは稼ぐ係。叩かずには勝てない）
+  if (countdown) { if (jar) jar.until += now - (lastTick0 || now); if (nextJarAt) nextJarAt += now - (lastTick0 || now); }  // 「3・2・1」の間は、常夜の小壺の時間も止める
+  lastTick0 = now;
   if (!nextJarAt) scheduleJar(k);
   if (!jar && now >= nextJarAt) showJar();
   if (jar && !$('k-jar')) { const u = jar.until; showJar(); if (jar) jar.until = u; }  // 画面を作り直して小壺が消えたら、同じ残り時間で出し直す
@@ -270,6 +277,7 @@ function showJar() {
 }
 function hideJar(missed) { $('k-jar')?.remove(); jar = null; scheduleJar(st()); if (missed) H.toast('常夜の小壺は逃げていった…'); }
 function tapJar(e) {
+  if (countdown) return;  // 「3・2・1」の間は叩けない
   const k = st(); k.jars = (k.jars || 0) + 1;
   if (Math.random() < .3 && !rushHeld) { rushHeld = true; floatText(e.clientX, e.clientY, '常夜ラッシュ！', 'gold'); H.toast('常夜ラッシュを手に入れた！好きなときに始められる（この画面を離れると消える）'); paintRushBtn(); }
   else { const g = Math.max(prodOf(k) * 90, tapOf(k) * 30, 50); gain(k, g); floatText(e.clientX, e.clientY, `+${fmtM(g)}`, 'gold'); H.toast(`常夜の小壺から ${fmtM(g)} マーク！`); }
@@ -314,6 +322,9 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 // 参加した人だけ（k.rankJoin）、これまでのマークと、たどり着いた一番深い深度を送る（名前は送らない。端末ごとのランダムな番号は app.js の postOnline が付ける）。
 // 受け取り口が、急に増えすぎた数字・深度にくらべて大きすぎる数字をはじく（tools/online/apps_script.gs）。送るのは5分に1回まで
 const maxDepthOf = k => Math.max(k.maxDepth || 0, depthOf(k));
+// 周回の印（★）：深度5を抜けて深度1へ戻った回数（k.loops）。数え始める前に戻った人は、深度5まで行って今は浅い所にいれば1回と数える。ランキングにも出す（強さは変わらない）
+const loopsOf = k => k.loops != null ? k.loops : (k.maxDepth || 0) >= DEPTH_MAX && depthOf(k) < DEPTH_MAX ? 1 : 0;
+const loopTag = n => n > 0 ? `<span class="k-loop" title="周回">★${n}</span>` : '';
 // ランキングで比べるのは「Ver.1.2.4 から後に稼いだマーク」：この版で初めて壺渡りを開いたときの「これまでのマーク」を起点（k.rankBase）にして、そこから増えた分だけを送る
 // （v59 の公開直後の不具合で一気に稼いだ分を入れないため。最初からやり直すと、起点も0に戻る）
 const rankValue = k => Math.max(0, Math.floor((k.total || 0) - (k.rankBase || 0)));
@@ -326,12 +337,17 @@ const RENDA_SHOW = RENDA.end + 7 * 86400e3;
 const rendaOn = (t = Date.now()) => t >= RENDA.start && t < RENDA.end;
 const rendaOf = k => k.renda && k.renda.id === RENDA.id ? k.renda.n : 0;
 let rendaList = null;
+// 連打王の3位まで：1位は金の王冠、2位は銀・3位は銅のメダル（どれも真ん中に「連」）。行も金・銀・銅の色にする（期間中、そのときの順位で入れ替わる）
+const RENDA_PRIZE = ['王冠（1位）', '銀のメダル（2位）', '銅のメダル（3位）'];
+const rendaIco = i => i === 0
+  ? `<svg class="k-prize" viewBox="0 0 30 26" role="img" aria-label="${RENDA_PRIZE[0]}"><path d="M3 9l6 5 6-10 6 10 6-5-2.5 13h-19z" fill="url(#k-gold)" stroke="#8a5a12" stroke-width="1.2" stroke-linejoin="round"/><circle cx="3" cy="8" r="2" fill="#ffe08a"/><circle cx="15" cy="3.5" r="2" fill="#ffe08a"/><circle cx="27" cy="8" r="2" fill="#ffe08a"/><rect x="5.5" y="21" width="19" height="3.5" rx="1" fill="#c8891c" stroke="#8a5a12" stroke-width="1"/><text x="15" y="19.3" text-anchor="middle" font-size="9.5" font-weight="900" fill="#5a3606">連</text><defs><linearGradient id="k-gold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe9a3"/><stop offset="1" stop-color="#e0a62a"/></linearGradient></defs></svg>`
+  : `<svg class="k-prize" viewBox="0 0 24 28" role="img" aria-label="${RENDA_PRIZE[i]}"><path d="M6 1h5l3 8h-5zM18 1h-5l-3 8h5z" fill="${i === 1 ? '#5b7bd6' : '#c0573a'}"/><circle cx="12" cy="17" r="9" fill="${i === 1 ? '#e6ebf2' : '#e0a374'}" stroke="${i === 1 ? '#8b96a8' : '#8a4f24'}" stroke-width="1.4"/><circle cx="12" cy="17" r="6.6" fill="none" stroke="${i === 1 ? '#aab4c3' : '#b06d3a'}" stroke-width=".8"/><text x="12" y="20.6" text-anchor="middle" font-size="9.5" font-weight="900" fill="${i === 1 ? '#4a5262' : '#5a2e10'}">連</text></svg>`;
 // マークのランキングも、連打王と同じ期間で比べる（期間中に稼いだマーク）。期間が始まってから最初に数えたときの「これまでのマーク」を起点にする。
 // 期間が終わったら、受け取り口がそのときの数字で止める（結果は連打王と同じく1週間出す）
 const SEASON = RENDA;
 function seasonBase(k) { if (Date.now() >= SEASON.start && k.rankSeason !== SEASON.id) { k.rankSeason = SEASON.id; k.rankBase = k.total || 0; } }
 // 開発用の画面では本物に送らず、見本の順位・一覧を出す
-const DEV_RANK = () => ({ top: [9.1e33, 4.2e30, 7.7e27, 3.3e24, 8e20, 5.5e17, 2.1e15, 6e12, 9e10, 3e9].map((t, i) => ({ rid: i === 2 ? 'dev-me' : `dev-${i}`, total: t })) });
+const DEV_RANK = () => ({ top: [9.1e33, 4.2e30, 7.7e27, 3.3e24, 8e20, 5.5e17, 2.1e15, 6e12, 9e10, 3e9].map((t, i) => ({ rid: i === 2 ? 'dev-me' : `dev-${i}`, total: t, loops: [3, 1][i] || 0 })) });
 const DEV_RENDA = () => ({ rank: 4, accepted: true, top: [98765, 54321, 32100, 20480, 12000, 8800, 5000, 3210, 1500, 900].map((n, i) => ({ rid: i === 3 ? 'dev-me' : `dev-${i}`, taps: n })) });
 // 上位の一覧は、送った返事にだけ付いてくる（参加した人だけが見られる。受け取り口に、読み出すだけの口はない）
 function rankSend(force) {
@@ -344,9 +360,9 @@ function rankSend(force) {
   rankLoading = true; rankFailed = false;
   const now = Date.now(), renda = now >= RENDA.start && now < RENDA_SHOW ? { rendaId: RENDA.id, renda: rendaOf(k) } : {};
   const season = k.rankSeason === SEASON.id ? { season: SEASON.id } : {};
-  H.postOnline({ type: 'kotsubo2', total: rankValue(k), maxDepth: maxDepthOf(k), depth: depthOf(k), ...season, ...renda }).then(r => {
+  H.postOnline({ type: 'kotsubo2', total: rankValue(k), maxDepth: maxDepthOf(k), depth: depthOf(k), loops: loopsOf(k), ...season, ...renda }).then(r => {
     if (!r?.ok) { if (r?.error === 'banned') { k.rankJoin = false; k.rankMe = null; rankList = null; H.save(); } else rankFailed = true; return; }
-    k.rankMe = { rank: r.rank, rid: r.rid, accepted: r.accepted !== false, at: Date.now() }; H.save();
+    k.rankMe = { rank: r.rank, rid: r.rid, accepted: r.accepted !== false, why: r.why === 'big' ? 'big' : 'fast', at: Date.now() }; H.save();
     if (Array.isArray(r.top)) { rankList = { top: r.top.slice(0, 10) }; rankListAt = Date.now(); }
     if (r.renda && Array.isArray(r.renda.top)) { k.rendaMe = { rank: r.renda.rank, accepted: r.renda.accepted !== false }; rendaList = { top: r.renda.top.slice(0, 10) }; H.save(); }
   }).catch(() => { rankFailed = true; }).finally(() => { rankLoading = false; paintRank(); });
@@ -360,10 +376,10 @@ function rankBody(k) {
     <button class="ghost small" data-act="kRankJoin">ランキングに参加する</button>`;
   const me = k.rankMe, ui = S(), admin = !!H.adminKey?.();
   const head = `<p class="hint">${what}のランキング${!inSeason ? `（${SEASON.label} は、その間に稼いだマークで数え直します）` : now >= SEASON.end ? '。終わりました。おつかれさまでした！' : ''}</p>`;
-  const meLine = me ? `<p class="k-rank-me">あなたは <b>${me.rank || '-'}位</b>です</p>${me.accepted ? '' : '<p class="hint">急に増えた記録は、ランキングに入れていません。続けて遊ぶと、少しずつ入ります。</p>'}`
+  const meLine = me ? `<p class="k-rank-me">あなたは <b>${me.rank || '-'}位</b>です</p>${me.accepted ? '' : me.why === 'big' ? '<p class="hint">今の記録は、たどり着いた深度にくらべて大きすぎるため、ランキングに入れていません（前の記録で順位を出しています）。おかしいと思ったら、おたよりで知らせてください。</p>' : '<p class="hint">急に増えた記録は、まだランキングに入れていません（前の記録で順位を出しています）。時間がたつと入ります。</p>'}`
     : '<p class="hint">順位を調べています…（通信できる所で開いてください）</p>';
   const fmt = n => k.fullDigits ? Math.floor(n).toLocaleString('ja-JP') : fmtM(n);
-  const rows = rankList ? (rankList.top || []).map((x, i) => `<li class="${me && x.rid === me.rid ? 'me' : ''}"><b>${i + 1}位</b><span>${fmt(x.total)} マーク</span>${me && x.rid === me.rid ? '<span class="badge">あなた</span>' : ''}${admin ? ['rank_del', 'rank_ban'].map(op => { const key = `${op}:${x.rid}`; return `<button class="link-btn k-rank-adm" data-act="kRankAdmin" data-v="${key}">${ui.rankConfirm === key ? 'もう一度押す' : op === 'rank_del' ? '消す' : '締め出す'}</button>`; }).join('') : ''}</li>`).join('') : '';
+  const rows = rankList ? (rankList.top || []).map((x, i) => `<li class="${me && x.rid === me.rid ? 'me' : ''}"><b>${i + 1}位</b><span>${fmt(x.total)} マーク</span>${loopTag(x.loops)}${me && x.rid === me.rid ? '<span class="badge">あなた</span>' : ''}${admin ? ['rank_del', 'rank_ban'].map(op => { const key = `${op}:${x.rid}`; return `<button class="link-btn k-rank-adm" data-act="kRankAdmin" data-v="${key}">${ui.rankConfirm === key ? 'もう一度押す' : op === 'rank_del' ? '消す' : '締め出す'}</button>`; }).join('') : ''}</li>`).join('') : '';
   const list = rankList ? (rows ? `<ol class="k-rank-list">${rows}</ol>` : '<p class="hint">まだ誰も参加していません。</p>')
     : `<p class="hint">${rankFailed ? '読み込めませんでした。通信できる所で、もう一度開いてください。' : '読み込んでいます…'}</p>`;
   return `${head}${meLine}${list}<button class="link-btn dim-link k-rank-leave" data-act="kRankLeave">${ui.rankConfirm === 'leave' ? 'もう一度押すと、ランキングから抜けます' : 'ランキングから抜ける'}</button>`;
@@ -377,7 +393,7 @@ function rendaBody(k) {
   if (!k.rankJoin) return `${head}<p class="hint">ランキングに参加すると、連打王にも参加できます。</p><button class="ghost small" data-act="kRankJoin">ランキングに参加する</button>${note}`;
   const mine = `<p class="k-rank-me">${now < RENDA.end ? 'あなたの連打' : '結果：あなたの連打'}　<b id="k-renda-n">${rendaOf(k).toLocaleString('ja-JP')}</b> 回${me && me.rank ? `・<b>${me.rank}位</b>` : ''}</p>${me && !me.accepted ? '<p class="hint">急に増えた回数は、入れていません。</p>' : ''}`;
   const rows = rendaList ? (rendaList.top || []).map((x, i) => { const self = k.rankMe && x.rid === k.rankMe.rid;
-    return `<li class="${self ? 'me' : ''}"><b>${i + 1}位</b><span>${Number(x.taps).toLocaleString('ja-JP')} 回</span>${self ? '<span class="badge">あなた</span>' : ''}${admin ? ['rank_del', 'rank_ban'].map(op => { const key = `${op}:${x.rid}`; return `<button class="link-btn k-rank-adm" data-act="kRankAdmin" data-v="${key}">${ui.rankConfirm === key ? 'もう一度押す' : op === 'rank_del' ? '消す' : '締め出す'}</button>`; }).join('') : ''}</li>`; }).join('') : '';
+    return `<li class="${[self ? 'me' : '', i < 3 ? `top${i + 1}` : ''].join(' ').trim()}"><b>${i < 3 ? rendaIco(i) : ''}${i + 1}位</b><span>${Number(x.taps).toLocaleString('ja-JP')} 回</span>${self ? '<span class="badge">あなた</span>' : ''}${admin ? ['rank_del', 'rank_ban'].map(op => { const key = `${op}:${x.rid}`; return `<button class="link-btn k-rank-adm" data-act="kRankAdmin" data-v="${key}">${ui.rankConfirm === key ? 'もう一度押す' : op === 'rank_del' ? '消す' : '締め出す'}</button>`; }).join('') : ''}</li>`; }).join('') : '';
   const list = rendaList ? (rows ? `<ol class="k-rank-list">${rows}</ol>` : '<p class="hint">まだ誰も叩いていません。</p>')
     : `<p class="hint">${rankFailed ? '読み込めませんでした。通信できる所で、もう一度開いてください。' : '読み込んでいます…（順位は5分ごとに新しくなります）'}</p>`;
   return `${head}${now >= RENDA.end ? '<p class="hint">連打王は終わりました。おつかれさまでした！</p>' : ''}${mine}${list}${note}`;
@@ -389,6 +405,7 @@ function paintRank() { const k = st(), b = $('k-rank-body'); if (b && !b.hidden)
 export function startKotsubo() {
   const k = st(), now = Date.now(), away = Math.min(8 * 3600e3, now - (k.lastAt || now));
   if (k.rankBase == null) k.rankBase = k.total || 0;  // ランキングの起点（この版で初めて開いたとき。留守の稼ぎより前）
+  if (k.loops == null) k.loops = loopsOf(k);  // 周回の印：数え始める前に戻った人の★1を、ここで残しておく（このあと深度5まで潜っても消えないように）
   if (away > 1000 && prodOf(k) > 0) { const g = prodOf(k) * away / 1000 * (k.ups.off1 ? .9 : .5); gain(k, g); if (away > 60e3) H.toast(`留守の間に ${fmtM(g)} マーク稼いでいました`); }
   seasonBase(k);  // 期間が始まって初めて開いたときは、留守の稼ぎを入れたあとを起点にする（期間の前の留守の分を入れないため）
   k.lastAt = now; lastTick = now; onTab = true;
@@ -403,13 +420,12 @@ const jarArt = () => JAR || '<img src="icons/kotsubo/jar.svg" alt="小壺" dragg
 fetch('icons/kotsubo/jar.svg').then(r => r.ok ? r.text() : Promise.reject()).then(t => { JAR = t.replace(/<!--[\s\S]*?-->/g, ''); const a = $('k-art'); if (a) a.innerHTML = JAR; }).catch(() => {});
 export function viewKotsubo() {
   const k = st(), esc = H.esc, n = S().buyN || 1;
-  const nextBoss = BOSSES[k.lords || 0], d = depthOf(k), dTag = d ? `<span class="k-depth">深度${d}</span>` : '', spoils = warSpoils(k), ups = upgradesShown(k);
+  const nextBoss = BOSSES[k.lords || 0], d = depthOf(k), dTag = (d ? `<span class="k-depth">深度${d}</span>` : '') + loopTag(loopsOf(k)), spoils = warSpoils(k), ups = upgradesShown(k);
   const bossCard = fight ? `<div class="k-boss fighting"><div class="k-boss-h">${foeIco(foeAt(k, fight.i))}${dTag}<b>${esc(foeName(foeAt(k, fight.i)))}と戦闘中</b></div>
       <div class="k-hp"><span id="k-boss-hp" style="width:${fight.hp / fight.max * 100}%"></span></div><div class="hint" id="k-boss-time"></div>
       <p class="hint">小壺を叩くと、叩く力の${FIGHT_TAP}倍のダメージ。叩くたびに、雇った夜渡りが稼ぎ（毎秒マーク）に応じて加勢します（加勢 +${fmtM(KASEI * prodOf(k) * FIGHT_TAP)}・1回 ${fmtM(hitOf(k))}）。</p></div>`
-    : nextBoss ? `<div class="k-boss"><div class="k-boss-h">${foeIco(foeAt(k, k.lords || 0))}${dTag}<b>${esc(foeName(foeAt(k, k.lords || 0)))}</b><span class="hint" id="k-boss-max">体力 ${fmtM(bossHp(k, k.lords || 0))}</span></div>${weakOf(k) < 1 ? `<p class="hint k-weak">長く戦い続けて、王は弱っている（体力 -${Math.round((1 - weakOf(k)) * 100)}%）</p>` : d > WEAK_MAX_DEPTH ? '<p class="hint k-weak">この深さの王は、時がたっても弱らない</p>' : ''}
-      <p class="hint">${FIGHT_SEC}秒のうちに削り切れば討伐。討伐するたびに、すべての稼ぎが永久に1.25倍（今 ${fmtX(globalMult(k))}倍）</p>
-      <button class="primary small-primary" data-act="kFight">挑む</button></div>`
+    : nextBoss ? `<div class="k-boss"><div class="k-boss-h">${foeIco(foeAt(k, k.lords || 0))}${dTag}<b>${esc(foeName(foeAt(k, k.lords || 0)))}</b><span class="hint k-boss-max" id="k-boss-max">体力 ${fmtM(bossHp(k, k.lords || 0))}</span><button class="k-info" data-act="kBossInfo" aria-label="夜の王の説明" title="説明">!</button><button class="primary small-primary k-boss-go" data-act="kFight">挑む</button></div>${weakOf(k) < 1 ? `<p class="hint k-weak">長く戦い続けて、王は弱っている（体力 -${Math.round((1 - weakOf(k)) * 100)}%）</p>` : d > WEAK_MAX_DEPTH ? '<p class="hint k-weak">この深さの王は、時がたっても弱らない</p>' : ''}
+</div>`
     : d < DEPTH_MAX ? `<div class="k-boss done"><b>🌅 ${d ? `深度${d}の` : ''}すべての夜の王を討伐しました</b><p class="hint">稼ぎは今 ${fmtX(globalMult(k))}倍です。</p>
       <p class="hint">深き壺に潜ると、深度${d + 1}で最初から周回できます。マークと雇った夜渡りは最初に戻りますが、夜の王の討伐ボーナスと遺物はそのまま。深度${d + 1}では稼ぎが${fmtX(DEPTH_GAIN[d + 1])}倍になり、そのぶん夜の王も硬くなります（深度${DEPTH_MAX}まで）。${d + 1 > SCAR_KEEP_DEPTH && (itemsOf(k).scar || itemsOf(k).rush) ? 'アイテムは、この先へは持っていけない。' : ''}</p>
       <button class="primary small-primary ${S().confirmDive ? 'danger' : ''}" data-act="kDive">${S().confirmDive ? 'もう一度押すと潜ります' : `深き壺に潜る（深度${d + 1}へ）`}</button></div>`
@@ -447,8 +463,8 @@ export function viewKotsubo() {
       <button class="primary small-primary k-rush-go" id="k-rush-go" data-act="kRushGo" ${rushHeld && !countdown ? '' : 'hidden'}>🔥 常夜ラッシュを始める</button>
       <p class="hint k-hint">小壺を叩くとマークがたまる。ときどき出る🏺（常夜の小壺）は、すぐ叩くとボーナス</p>
     </section>
-    ${spoils.w + spoils.l ? `<div class="k-spoils"><span>⚔️ 戦果ボーナス：記録した勝利${spoils.w}・敗北${spoils.l}<small>${seesScar(k) ? `どちらかで受け取れます（爪痕は記録${SCAR_PER_RUNS}戦ごとに1つ。余った記録は次に残ります）` : ''}</small></span>
-      <div class="k-spoils-btns"><button class="primary small-primary" data-act="kClaim">${fmtM(spoils.gain)} マーク</button>${seesScar(k) ? `<button class="ghost small-primary" data-act="kClaimScar" ${spoils.scars ? '' : 'disabled'}>${spoils.scars ? `🩸消えぬ爪痕 ×${spoils.scars}` : spoils.room ? `🩸爪痕（あと${SCAR_PER_RUNS - spoils.runs.length % SCAR_PER_RUNS}戦）` : '🩸爪痕（持ちきれない）'}</button>` : ''}</div></div>` : ''}
+    ${spoils.w + spoils.l ? `<div class="k-spoils"><span>⚔️ 戦果ボーナス：記録した勝利${spoils.w}・敗北${spoils.l}<small>${seesScar(k) ? `どちらかで受け取れます（爪痕は記録${SCAR_PER_RUNS}戦ごとに1つ・1日${SCAR_PER_DAY}つまで。余った記録は次に残ります）` : ''}</small></span>
+      <div class="k-spoils-btns"><button class="primary small-primary" data-act="kClaim">${fmtM(spoils.gain)} マーク</button>${seesScar(k) ? `<button class="ghost small-primary" data-act="kClaimScar" ${spoils.scars ? '' : 'disabled'}>${spoils.scars ? `🩸消えぬ爪痕 ×${spoils.scars}` : !spoils.room ? '🩸爪痕（持ちきれない）' : spoils.today <= 0 ? '🩸爪痕（今日はここまで）' : `🩸爪痕（あと${SCAR_PER_RUNS - spoils.runs.length % SCAR_PER_RUNS}戦）`}</button>` : ''}</div></div>` : ''}
     <section class="card-sec">${bossCard}<p class="hint k-scar" id="k-scar" ${scarText(k) ? '' : 'hidden'}>${scarText(k)}</p></section>
     <section class="card-sec k-items"><div class="sec-head"><h2>アイテム</h2></div><div class="k-item-list">${itemRows}</div></section>
     <section class="card-sec"><div class="sec-head"><h2 id="k-relic-h">${ownOpen ? '所持遺物' : '遺物'}</h2>${ownBtn}</div><div class="k-list" id="k-own" ${ownOpen ? '' : 'hidden'}>${ownRows}</div><div class="k-list" id="k-shop" ${ownOpen ? 'hidden' : ''}>${upRows}</div></section>
@@ -588,7 +604,11 @@ export function kotsuboAct(a, v) {
   if (a === 'kFight') {
     if (!BOSSES[k.lords || 0] || fight || countdown) return false;
     // 前の版で、挑む前に爪痕を刻んでいた人は、爪痕を使う形で始める（もう1つは減らない）
-    prep = { items: new Set(k.scarReady ? ['scar'] : []), lock: !locked };
+    // 画面のロックは、前に選んだほうから始める（初めては「しない」）
+    prep = { items: new Set(k.scarReady ? ['scar'] : []), lock: !locked && !!k.prepLock };
+    // 選ぶものがない（アイテムを1つも持っていなくて、画面もロック済み）ときは、確かめる画面を出さずに「3・2・1」へ
+    const it = itemsOf(k);
+    if (locked && !(it.rush > 0) && !(it.scar > 0) && !k.scarReady) { const p = prep; prep = null; paintRushBtn(); startCountdown(() => { beginFight(p.items); paintRushBtn(); }); return false; }
     paintPrep(k); return false;
   }
   // 使うアイテム：香・爪痕は押すたびに付け外し（一緒に選べる）。「使わない」で全部外す
@@ -600,6 +620,8 @@ export function kotsuboAct(a, v) {
   }
   if (a === 'kPrepLock') { if (!prep) return false; prep.lock = v === 'on'; paintPrep(k); return false; }
   if (a === 'kPrepClose') { closePrep(); return false; }
+  // 夜の王の欄の「!」：説明を出す
+  if (a === 'kBossInfo') { H.toast(`${FIGHT_SEC}秒のうちに削り切れば討伐。討伐するたびに、すべての稼ぎが永久に1.25倍（今 ${fmtX(globalMult(k))}倍）`); return false; }
   if (a === 'kRushGo') {
     if (!rushHeld || countdown) return false;
     if (fight) { goRush(); return false; }  // 戦い中は、時間が減らないよう、すぐ始める
@@ -608,6 +630,7 @@ export function kotsuboAct(a, v) {
   if (a === 'kPrepGo') {
     if (!prep || fight || countdown) return false;
     const p = prep; closePrep();
+    if (!locked) k.prepLock = p.lock;  // 次に挑むときのために、選んだほうを覚えておく
     if (p.lock && !locked) setLock(true);
     paintRushBtn(); startCountdown(() => { beginFight(p.items); paintRushBtn(); }); return false;
   }
@@ -618,6 +641,7 @@ export function kotsuboAct(a, v) {
     if (depthOf(k) < DEPTH_MAX || (k.lords || 0) < BOSSES.length || fight) return false;
     if (!ui.confirmReturn) { ui.confirmReturn = true; return true; }
     ui.confirmReturn = false; rushUntil = itemRushUntil = 0;
+    k.loops = loopsOf(k) + 1;  // 周回の印を1つ増やす
     Object.assign(k, { bank: BOSSES.length, lords: 0, lordAt: Date.now(), scarHp: null, scarReady: false, depth: 1, order: makeOrder(), mark: 0, hires: {}, maxDepth: DEPTH_MAX });
     H.toast('壺の底から、深度1へ戻った'); H.save(); return true;
   }
@@ -636,6 +660,7 @@ export function kotsuboAct(a, v) {
     const s = warSpoils(k); if (!s.scars || !seesScar(k)) return false;
     const used = s.runs.slice().reverse().slice(0, s.scars * SCAR_PER_RUNS);
     const got = giveItem(k, 'scar', s.scars); k.claimAt = madeAt(used[used.length - 1]);
+    k.scarDay = { day: jstDay(), n: scarTodayOf(k) + s.scars };
     H.toast(`戦果ボーナス：🩸消えぬ爪痕を${got}つ手に入れた`); H.save(); return true;
   }
   if (a === 'kReset') {
@@ -649,3 +674,5 @@ export function kotsuboAct(a, v) {
 // 上の小さな文字（タブを開いているとき）
 // 左上の小見出しは空にする（マーク・毎秒は叩く壺の上に出ているので要らない。長いと右上のボタンとかぶる）
 export const kotsuboSub = () => '';
+// 夜の王との戦い・3・2・1・挑む前の画面・常夜ラッシュ（ためている間も）のあいだは true（app.js の「下に引いて更新」を止める）
+export const kotsuboBusy = () => !!(fight || countdown || prep || rushHeld || rushUntil > Date.now());

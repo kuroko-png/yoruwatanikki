@@ -1436,3 +1436,39 @@ i.ico { display: inline-block; background-position: center; background-size: con
 /* 常夜の小壺から出たラッシュを始めるボタン */
 .k-rush-go { display: block; margin: 8px auto 0; }
 .k-rush-go[hidden] { display: none; }
+/* 周回の印（深度5を抜けて深度1へ戻った回数） */
+.k-loop { flex: none; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; color: #fde68a; background: color-mix(in srgb, #f59e0b 30%, transparent); border: 1px solid color-mix(in srgb, #fbbf24 55%, transparent); }
+.k-rank-list .k-loop { margin-left: 6px; }
+/* 下に引いて更新（画面のいちばん上で下へ引くと出る丸い印） */
+.ptr { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 8px); left: 50%; z-index: 200; display: flex; align-items: center; gap: 6px; padding: 6px 12px 6px 8px; border-radius: 999px;
+  background: var(--panel-2); border: 1px solid color-mix(in srgb, currentColor 20%, transparent); color: inherit; font-size: 12px; box-shadow: 0 4px 14px rgb(0 0 0 / .35); pointer-events: none; transform: translate(-50%, -48px); opacity: 0; }
+.ptr-ico { display: inline-block; font-size: 18px; line-height: 1; }
+.ptr.ready { border-color: #e3b866; }
+.ptr.ready .ptr-ico { color: #e3b866; }
+.ptr.spin .ptr-ico { animation: ptr-spin .8s linear infinite; }
+@keyframes ptr-spin { to { transform: rotate(360deg); } }
+/* 連打王の3位まで（金・銀・銅。1位は王冠、2・3位はメダル） */
+.k-renda .k-rank-list li b { display: inline-flex; align-items: center; gap: 4px; min-width: 4.2em; }
+.k-prize { width: 26px; height: 26px; flex: none; }
+.k-renda .k-rank-list li.top1 { background: linear-gradient(90deg, rgba(240,190,70,.22), rgba(240,190,70,.05)); border: 1px solid rgba(240,190,70,.55); }
+.k-renda .k-rank-list li.top1 b { color: #f5cf6b; }
+.k-renda .k-rank-list li.top2 { background: linear-gradient(90deg, rgba(200,210,225,.18), rgba(200,210,225,.04)); border: 1px solid rgba(200,210,225,.45); }
+.k-renda .k-rank-list li.top2 b { color: #d5dce8; }
+.k-renda .k-rank-list li.top3 { background: linear-gradient(90deg, rgba(205,127,70,.2), rgba(205,127,70,.04)); border: 1px solid rgba(205,127,70,.5); }
+.k-renda .k-rank-list li.top3 b { color: #e0a374; }
+/* 壺渡り：夜の王の欄を1行に（名前・体力・！・右端に挑む） */
+.k-boss-h { flex-wrap: wrap; }
+.k-boss-h .k-boss-max { margin-left: 0; }
+.k-boss-h .k-boss-go { margin-left: auto; }
+.k-info { width: 22px; height: 22px; min-height: 0; padding: 0; border-radius: 50%; border: 1px solid var(--line, #555); background: transparent; color: inherit; font-size: 13px; font-weight: 700; line-height: 1; flex: none; }
+/* 夜の王の欄の「!」：見た目はそのまま、押せる範囲だけ広げる */
+.k-info { position: relative; }
+.k-info::before { content: ''; position: absolute; inset: -11px; }
+/* いちばん小さいスマホ（幅340pxまで）：夜の王の欄を1行に収める */
+@media (max-width: 340px) {
+  .k-boss-h { gap: 4px; }
+  .k-boss-h .ico { width: 24px; height: 24px; }
+  .k-boss-h .k-depth, .k-boss-h .k-loop { padding: 1px 5px; font-size: 10px; }
+  .k-boss-h .k-boss-max { font-size: 11px; }
+  .k-boss-h .k-boss-go { padding: 8px 9px; font-size: 13px; letter-spacing: 0; }
+}
