@@ -2102,6 +2102,7 @@ function morphKids(live, fresh) {
   while (live.childNodes.length > kids.length) live.lastChild.remove();
 }
 function render(keepId) {
+  try { sessionStorage.setItem('ptr-tab', JSON.stringify({ tab: S.tab, from: S.kotsuboFrom })); } catch { /* 覚えられなくても動く */ }  // 読み込み直したとき（引いて更新・ブラウザの更新）に、同じタブへ戻すため
   morphHTML(document.getElementById('tabs'), TABS.map(t => `<button data-act="tab" data-v="${t.id}" ${S.tab === t.id ? 'aria-current="page"' : ''}><span class="tab-ico" style="-webkit-mask-image:url('icons/tabs/${t.icon || t.id}.png');mask-image:url('icons/tabs/${t.icon || t.id}.png')" aria-hidden="true"></span>${t.name}</button>`).join(''));  // 下のタブも変わった所だけ書き換える（毎回作り直すとアイコンが点滅する）
   BAR = '';
   const moving = Object.fromEntries([...document.querySelectorAll('.wheel')].filter(w => w._moving).map(w => [w.dataset.wheel, w._target ?? w.scrollTop]));  // タップで動かしている途中なら、行き先へ
@@ -2686,6 +2687,11 @@ initKotsubo({ prefs, save: () => save(db), toast, render: () => render(), liveRu
   postOnline, adminKey, devHost: DEV_HOST });
 // 知識タブ（敵の情報・ボス判別など）に、使う道具を渡す
 initKnowledge({ ico, esc, pressed, wheel, viewEnemies, ui: () => (S.know ||= {}) });
+// 読み込み直したとき（下に引いて更新・ブラウザの更新）は、そのとき開いていたタブに戻す（sessionStorage なので、アプリを閉じて開き直したときは記録タブから）
+if (!S.sheet) try { const t = JSON.parse(sessionStorage.getItem('ptr-tab') || 'null');  // 共有リンクで開いたとき（取り込み画面）は戻さない
+  if (t && TABS.some(x => x.id === t.tab)) S.tab = t.tab;
+  else if (t && t.tab === 'kotsubo') { S.kotsuboFrom = TABS.some(x => x.id === t.from) ? t.from : 'record'; S.tab = 'kotsubo'; startKotsubo(); }
+} catch { /* 読めなければ、いつもどおり記録タブから */ }
 render();
 // アイコンを手元に置く：夜の王・夜渡りのアイコン（全部で約20枚・合わせて約0.3MB）を、起動の後に1回だけ読み込んで、
 // アプリの中に置いておく（blob の URL）。ふつうの URL の画像は、画面を作り直すたびに読み込み直されるため、
@@ -2756,13 +2762,15 @@ if ('serviceWorker' in navigator && !window.__DEV__) {
 // ホーム画面に置いたアプリ（ブラウザの引いて更新がない）だけで使う（ブラウザで開いたときは、ブラウザのものと二重になるので使わない。開発サーバーでは試せるように使う）。
 // 壺渡りの画面ロック中・戦い中（3・2・1、常夜ラッシュをためている間も）・下から出る画面（シート）が開いているとき・文字を入力中・横に動かす所や小壺の上では始めない
 {
-  const PULL_GO = 80, PULL_MAX = 130;
+  // 指を PULL_GO まで引いてから離すと更新。少し引いただけ（PULL_SHOW まで）は、いつもの「伸びる」動きだけで何も出さない
+  const PULL_SHOW = 60, PULL_GO = 160, PULL_MAX = 130;
   const on = () => DEV_HOST || matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
   let y0 = null, x0 = 0, dy = 0, el = null, busy = false;
   const blocked = t => document.documentElement.classList.contains('k-locked') || kotsuboBusy() || document.body.classList.contains('typing') || document.querySelector('.scrim')
     || t.closest?.('.sheet, .wheel, .day-strip, #k-stage, input, textarea, select, [data-noswipe]');
   const show = () => { if (!el) { el = document.createElement('div'); el.className = 'ptr'; el.innerHTML = '<span class="ptr-ico">↻</span><span class="ptr-txt"></span>'; document.body.appendChild(el); } return el; };
-  const paintPull = () => { const e = show(), d = Math.min(PULL_MAX, dy * .55), ready = dy >= PULL_GO;
+  const paintPull = () => { if (dy < PULL_SHOW) { if (el && !busy) { el.remove(); el = null; } return; }
+    const e = show(), d = Math.min(PULL_MAX, (dy - PULL_SHOW) * .9), ready = dy >= PULL_GO;
     e.style.transform = `translate(-50%, ${d - 48}px)`; e.style.opacity = String(Math.min(1, d / 40)); e.classList.toggle('ready', ready);
     e.querySelector('.ptr-ico').style.transform = `rotate(${dy * 2}deg)`; e.querySelector('.ptr-txt').textContent = ready ? '離すと更新' : '引いて更新'; };
   const reset = () => { y0 = null; dy = 0; if (el && !busy) { el.remove(); el = null; } };
@@ -2772,13 +2780,14 @@ if ('serviceWorker' in navigator && !window.__DEV__) {
     const t = e.touches[0], d = t.clientY - y0;
     if (window.scrollY > 0 || (dy === 0 && Math.abs(t.clientX - x0) > Math.abs(d))) { reset(); return; }  // 横に動かしたとき・もう下へ流れたときはやめる
     if (d <= 0) { if (dy) { dy = 0; el?.remove(); el = null; } return; }
-    dy = d; if (e.cancelable) e.preventDefault(); paintPull();
-  }, { passive: false });
+    dy = d; paintPull();  // 画面の「伸びる」動きは止めない（preventDefault しない）
+  }, { passive: true });
   document.addEventListener('touchend', () => {
     if (y0 == null) return;
     if (dy < PULL_GO) { reset(); return; }
     busy = true; const e = show(); e.classList.add('ready', 'spin'); e.style.transform = 'translate(-50%, 16px)'; e.style.opacity = '1'; e.querySelector('.ptr-txt').textContent = '更新しています…';
     y0 = null; save(db);  // 読み込み直す前に、いまの記録を保存しておく
+    try { sessionStorage.setItem('ptr-tab', JSON.stringify({ tab: S.tab, from: S.kotsuboFrom })); } catch { /* 戻せなくても更新はする */ }
     const go = () => location.reload();
     const reg = 'serviceWorker' in navigator && !window.__DEV__ ? navigator.serviceWorker.getRegistration() : Promise.resolve(null);
     Promise.race([reg.then(r => r?.update()).catch(() => {}), new Promise(r => setTimeout(r, 2500))]).then(go, go);
