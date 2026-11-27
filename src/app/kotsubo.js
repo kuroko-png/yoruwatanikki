@@ -410,7 +410,10 @@ function rankSend(force) {
     if (!r?.ok) { if (r?.error === 'banned') { k.rankJoin = false; k.rankMe = null; rankList = null; H.save(); } else rankFailed = true; return; }
     k.rankMe = { rank: r.rank, rid: r.rid, accepted: r.accepted !== false, why: r.why === 'big' ? 'big' : 'fast', at: Date.now() }; H.save();
     if (Array.isArray(r.top)) { rankList = { top: r.top.slice(0, 10) }; rankListAt = Date.now(); }
-    if (r.renda && Array.isArray(r.renda.top)) { k.rendaMe = { rank: r.renda.rank, accepted: r.renda.accepted !== false }; rendaList = { top: r.renda.top.slice(0, 10) }; H.save(); }
+    if (r.renda && Array.isArray(r.renda.top)) { k.rendaMe = { rank: r.renda.rank, accepted: r.renda.accepted !== false }; rendaList = { top: r.renda.top.slice(0, 10) };
+      // 受け取り口の回数のほうが多いとき（最初からにした・別の端末から戻したなど）は、そちらに合わせて続きから数える
+      const srv = Math.floor(Number(r.renda.taps)) || 0; if (srv > rendaOf(k)) k.renda = { id: RENDA.id, n: srv };
+      H.save(); }
   }).catch(() => { rankFailed = true; }).finally(() => { rankLoading = false; paintRank(); });
 }
 // ランキングを開いたとき：一覧が古ければ（3分）、送り直して新しい一覧をもらう
@@ -742,7 +745,7 @@ export function kotsuboAct(a, v) {
   if (a === 'kReset') {
     if (!ui.confirmReset) { ui.confirmReset = true; return true; }
     ui.confirmReset = false; fight = null;
-    if (k.rankJoin && !H.devHost) H.postOnline({ type: 'kotsubo2_leave' }).catch(() => {});  // ランキングからも抜ける（最初からの数字で参加し直せる）
+    if (k.rankJoin && !H.devHost) H.postOnline({ type: 'kotsubo2_leave', keepRenda: true }).catch(() => {});  // マークのランキングからは抜ける（最初からの数字で参加し直せる）。連打王の回数は残す
     delete H.prefs().kotsubo; H.toast('小壺のデータを最初からにしました'); return true;
   }
   return false;

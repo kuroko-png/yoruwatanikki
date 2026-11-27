@@ -206,7 +206,8 @@ function doPost(e) {
       const hit = sh.getRange('A:A').createTextFinder(clientId).matchEntireCell(true).findNext();
       if (body.type === 'kotsubo2_leave') {
         [KSHEET, SEASON_SHEET].forEach(n => { const s2 = sheet_(n, KOTSUBO_COLS), h2 = s2.getRange('A:A').createTextFinder(clientId).matchEntireCell(true).findNext(); if (h2) s2.deleteRow(h2.getRow()); });
-        const rs = sheet_(RENDA_SHEET, RENDA_COLS), rh = rs.getRange('A:A').createTextFinder(clientId).matchEntireCell(true).findNext(); if (rh) rs.deleteRow(rh.getRow());
+        // 壺渡りを最初からにしたとき（keepRenda）は、連打王の行は残す（叩いた回数はゲームの進み具合と関係ないため）。「ランキングから抜ける」ときは消す
+        if (!body.keepRenda) { const rs = sheet_(RENDA_SHEET, RENDA_COLS), rh = rs.getRange('A:A').createTextFinder(clientId).matchEntireCell(true).findNext(); if (rh) rs.deleteRow(rh.getRow()); }
         CacheService.getScriptCache().removeAll(['kotsubo_rank2', 'kotsubo_rank_' + SEASON_ID, 'renda_rank_' + RENDA_ID]); return json_({ ok: true });
       }
       if (kbanned_()[rid]) { if (hit) sh.deleteRow(hit.getRow()); return json_({ ok: false, error: 'banned' }); }
@@ -469,7 +470,7 @@ function renda_(clientId, rid, v, now, bans) {
   }
   const all = sh.getLastRow() > 1 ? sh.getRange(2, 2, sh.getLastRow() - 1, 2).getValues().filter(x => x[0] && !bans[x[0]] && Number(x[1]) > 0) : [];
   const rank = mine > 0 ? all.filter(x => Number(x[1]) > mine).length + 1 : 0;
-  return { accepted: accepted, rank: rank, top: rendaTop_(bans) };
+  return { accepted: accepted, rank: rank, taps: mine, top: rendaTop_(bans) };  // taps＝受け取り口にある自分の回数（端末の数が少なければ、アプリがこれに合わせる）
 }
 // 連打王の上位10人（1分ごとに数え直す）
 function rendaTop_(bans, id) {
