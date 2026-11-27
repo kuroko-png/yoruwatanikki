@@ -60,8 +60,15 @@ const KBAN_COLS = ['rid', 'memo', 'at'];
 // v62：数字が伸びきった人がはじかれたとのおたよりで、どの深度も10万倍ゆるくした
 const KOTSUBO_CAP_LOG10 = [25, 29, 33, 38, 44, 51];
 const KOTSUBO_FLOOR = 1e9, KOTSUBO_SLACK_LOG10 = 2, KOTSUBO_RATE_LOG10_PER_H = 3;  // この数までは自由。それより上は「前回×100×（1時間ごとに1000倍）」まで
-// 連打王（期間限定）：開催ごとに RENDA_ID と期間を変える（表も別になる）
-const RENDA_ID = '2026-11-26', RENDA_START = new Date('2026-11-26T12:00:00+09:00').getTime(), RENDA_END = new Date('2026-12-03T11:59:00+09:00').getTime();
+// シーズン（連打王とマークのランキングの期間）：開催ごとに下の一覧へ1行足す（表もシーズンごとに別になる）。アプリの kotsubo.js の SEASONS と同じにする
+// 今のシーズン＝始まりが今より前のうち、いちばん新しいもの。前のシーズンの結果は type 'season_result' で返す
+const SEASONS = [
+  { id: '2026-11-26', start: '2026-11-26T12:00:00+09:00', end: '2026-12-03T11:59:00+09:00' },
+  { id: '2026-12-03', start: '2026-12-03T12:00:00+09:00', end: '2026-12-10T11:59:00+09:00' },
+].map(x => ({ id: x.id, start: new Date(x.start).getTime(), end: new Date(x.end).getTime() }));
+const CUR_SEASON_ = SEASONS.filter(x => x.start <= Date.now()).pop() || SEASONS[0];
+// 連打王（期間限定）
+const RENDA_ID = CUR_SEASON_.id, RENDA_START = CUR_SEASON_.start, RENDA_END = CUR_SEASON_.end;
 const RENDA_SHEET = 'renda_' + RENDA_ID.replace(/-/g, ''), RENDA_COLS = ['clientId', 'rid', 'taps', 'updatedAt', 'flags'];
 const RENDA_MAX_PER_SEC = 30, RENDA_SLACK = 300, RENDA_SHOW_MS = 7 * 86400e3;
 // マークのランキングも同じ期間で比べる（開催ごとに表が別になる）
@@ -181,6 +188,18 @@ function doPost(e) {
     // 壺渡りのランキング：これまでのマーク（total）と、たどり着いた深度（maxDepth）を受け取る。返すのは順位と人数と自分の rid
     // 前の版のアプリ（これまでのマーク全部を送ってくる）は受け付けない
     if (body.type === 'kotsubo' || body.type === 'kotsubo_leave') return json_({ ok: false, error: 'old' });
+    // 終わったシーズンの結果（マークと連打王の上位10人と、自分の順位）。今のシーズンや、まだ終わっていないシーズンは返さない
+    if (body.type === 'season_result') {
+      const ss = SEASONS.find(x => x.id === String(body.season || ''));
+      if (!ss || Date.now() < ss.end) return json_({ ok: false, error: 'not over' });
+      const bans = kbanned_(), rid = ridOf_(clientId), tag = ss.id.replace(/-/g, '');
+      const rankIn = (name, cols, col) => { const sh = sheet_(name, cols); if (sh.getLastRow() < 2) return 0;
+        const all = sh.getRange(2, 2, sh.getLastRow() - 1, 2).getValues().filter(v => v[0] && !bans[v[0]] && Number(v[1]) > 0), me = all.find(v => String(v[0]) === rid);
+        return me ? all.filter(v => Number(v[1]) > Number(me[1])).length + 1 : 0; };
+      return json_({ ok: true, season: ss.id, rid: rid,
+        mark: { top: kotsuboTop_('kotsubo_' + tag, 'kotsubo_rank_' + ss.id), rank: rankIn('kotsubo_' + tag, KOTSUBO_COLS) },
+        renda: { top: rendaTop_(bans, ss.id), rank: rankIn('renda_' + tag, RENDA_COLS) } });
+    }
     if (body.type === 'kotsubo2' || body.type === 'kotsubo2_leave') {
       const season = body.season === SEASON_ID, sheetName = season ? SEASON_SHEET : KSHEET;
       const sh = sheet_(sheetName, KOTSUBO_COLS), rid = ridOf_(clientId);
@@ -345,7 +364,7 @@ function doGet(e) {
   const out = { ok: true, updatedAt: Date.now(), range: { from: from, to: to }, filter: { mode: fMode, depth: fDepth }, players: 0, total: { n: 0, w: 0 }, lord: {}, char: {}, lordChar: {}, style: {}, weapon: {}, depth: {}, party: {},
     byDate: {}, charDepth: {}, charWeapon: {}, charStyle: {},
     // 分析用（勝敗つき）：型・武器・深度・人数ごと、敗北した場所、夜の王／夜渡りごとの深度・人数・武器、日ごとの推移
-    styleW: {}, weaponW: {}, depthW: {}, partyW: {}, loss: {}, lordLoss: {}, lordDepth: {}, charDepthW: {}, charWeaponW: {}, charParty: {}, lordParty: {}, trend: {}, lordCharM: {}, lossBy: { d1: {}, d2: {} }, foeChar: {}, foeStyle: {} };  // foeChar・foeStyle＝倒された夜の強敵ごとの、負けた夜渡り・型
+    styleW: {}, weaponW: {}, depthW: {}, partyW: {}, loss: {}, lordLoss: {}, lordDepth: {}, charDepthW: {}, charWeaponW: {}, styleWeaponW: {}, charParty: {}, lordParty: {}, trend: {}, lordCharM: {}, lossBy: { d1: {}, d2: {} }, foeChar: {}, foeStyle: {} };  // foeChar・foeStyle＝倒された夜の強敵ごとの、負けた夜渡り・型
   const add2 = (map, a, b, win) => add(map[a] || (map[a] = {}), b, win);
   // 日ごとの推移：期間を指定したらその期間すべて、全期間なら直近60日
   const trendSince = from || Utilities.formatDate(new Date(Date.now() - 59 * 864e5), 'Asia/Tokyo', 'yyyy-MM-dd');
@@ -393,6 +412,7 @@ function doGet(e) {
     add2(out.lordDepth, lord, dk, win);
     add2(out.charDepthW, v[9], dk, win);
     if (v[15]) add2(out.charWeaponW, v[9], v[15], win);
+    if (v[14] && v[15]) add2(out.styleWeaponW, v[14], v[15], win);  // 型ごとのメイン武器（統計の型を開いたときの内訳）
     if (v[8]) { add2(out.charParty, v[9], v[8], win); add2(out.lordParty, lord, v[8], win); }
     if (day >= trendSince) add(out.trend, day, win);
   });
@@ -452,10 +472,11 @@ function renda_(clientId, rid, v, now, bans) {
   return { accepted: accepted, rank: rank, top: rendaTop_(bans) };
 }
 // 連打王の上位10人（1分ごとに数え直す）
-function rendaTop_(bans) {
-  const cache = CacheService.getScriptCache(), key = 'renda_rank_' + RENDA_ID, hit = cache.get(key);
+function rendaTop_(bans, id) {
+  id = id || RENDA_ID;
+  const cache = CacheService.getScriptCache(), key = 'renda_rank_' + id, hit = cache.get(key);
   if (hit) return JSON.parse(hit);
-  const sh = sheet_(RENDA_SHEET, RENDA_COLS);
+  const sh = sheet_('renda_' + id.replace(/-/g, ''), RENDA_COLS);
   const all = sh.getLastRow() > 1 ? sh.getRange(2, 2, sh.getLastRow() - 1, 2).getValues().filter(x => x[0] && !bans[x[0]] && Number(x[1]) > 0) : [];
   const top = all.map(x => ({ rid: String(x[0]), taps: Number(x[1]) })).sort((a, b) => b.taps - a.taps).slice(0, KOTSUBO_TOP);
   cache.put(key, JSON.stringify(top), 60);

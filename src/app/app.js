@@ -217,10 +217,13 @@ const prefs = () => db.prefs;
 // 夜の王は「未選択」にせず、最初はグラディウス。夜渡りは毎回選んでもらうので、最初は「未選択」
 const DEFAULT_LORD = 'gladius';
 const blankForm = () => ({ dateMode: 'today', date: today(), lordId: DEFAULT_LORD, everdark: null, flags: [], shift: null, mode: prefs().mode || 'normal', depth: prefs().depth || null,
-  party: prefs().party || 'trio', charId: null, result: null, lossAt: null, lossBy: null, presetId: null, note: '', level: '' });
+  party: prefs().party || 'trio', charId: null, result: null, lossAt: null, lossBy: null, presetId: null, note: '', level: '', deaths: '', style: '', spec: [] });
 // 試合を終えたときのレベル（任意。入れなくても記録できる）
 const LEVEL_MAX = 15;
 const levelOf = r => { const n = Math.round(+r.level); return n >= 1 && n <= LEVEL_MAX ? n : null; };
+// その試合のダウン数（倒れた回数）の合計（任意。0回もある）。自分の記録だけで、みんなの統計には送らない
+const DEATHS_MAX = 20;
+const deathsOf = r => { if (r.deaths === '' || r.deaths == null) return null; const n = Math.round(+r.deaths); return n >= 0 && n <= DEATHS_MAX ? n : null; };
 const lastPresetFor = charId => { const id = (prefs().presetByChar || {})[charId]; return id && db.presets.some(p => p.id === id && !p.deleted) ? id : null; };
 const S = {
   tab: 'record', form: blankForm(), openRun: null, confirmDel: null,
@@ -256,7 +259,8 @@ const isMelee = p => STYLES.find(x => x.id === p.style)?.group === 'melee';
 const effWeapon = p => !p ? '' : p.weaponType || (isMelee(p) ? favWeapons(p).join('・') : '');
 function runBuild(r) {
   const p = r.presetId && presetById(r.presetId);
-  if (!p) return null;
+  // ビルドなしで、記録タブで型だけ選んだ試合は、型だけのビルドとして数える（統計の型・メイン武器に入る）
+  if (!p) return !r.presetId && r.style && STYLES.some(x => x.id === r.style) ? { style: r.style, charId: r.charId, spec: r.spec || [] } : null;
   const want = r.presetRev || 1;
   if (presetRev(p) === want) return p;
   return (p.history || []).find(h => h.rev === want) || p;
@@ -297,15 +301,16 @@ function viewRecord() {
       </div>
       <div class="pick-build"><div class="label">ビルド</div>
         ${f.charId ? `<div class="chips one-line">${chip('preset', '', 'ビルドなし', !f.presetId)}${presets.map(p => chip('preset', p.id, esc(presetLabel(p)), f.presetId === p.id)).join('')}</div>
+          ${!f.presetId ? recStyleBody(f) : ''}
           ${presets.length ? '' : `<p class="hint">${CHAR[f.charId].name}のプリセットはまだありません。「ビルド」タブで作れます。</p>`}`
           : '<p class="hint">夜渡りを選ぶと、その夜渡りのビルドを選べます。</p>'}</div>
     </section>
     <section class="card-sec cond-card">
       ${condRow('夜の王', chip('everdark', 'no', '通常', f.everdark === false, 'chip small') + chip('everdark', 'yes', '常夜', f.everdark === true, 'chip small'), f.everdark === null)}
-      ${condRow('モード', MODES.map(m => chip('mode', m.id, m.name, f.mode === m.id, 'chip small')).join(''))}
-      ${f.mode === 'deep' ? condRow('深度', DEPTHS.map(d => chip('depth', d, d, f.depth === d, 'chip small dchip')).join(''), !depthOk) : ''}
+      ${condRow('モード', MODES.map(m => chip('mode', m.id, m.name, f.mode === m.id, 'chip small')).join('')
+        + (f.mode === 'deep' ? `<span class="depth-pick" aria-label="深度">${DEPTHS.map(d => chip('depth', d, d, f.depth === d, 'chip small dchip')).join('')}</span>` : ''), f.mode === 'deep' && !depthOk)}
       ${condRow('人数', PARTY.map(m => chip('party', m.id, m.name, f.party === m.id, 'chip small')).join(''))}
-      ${condRow('レベル', `<select class="lv-sel ${levelOf(f) ? 'on' : ''}" data-field="level" aria-label="終わったときのレベル（任意）"><option value="">任意</option>${Array.from({ length: LEVEL_MAX }, (_, i) => i + 1).map(n => `<option value="${n}" ${levelOf(f) === n ? 'selected' : ''}>Lv ${n}</option>`).join('')}</select>`)}
+      ${condRow('レベル', `<select class="lv-sel ${levelOf(f) ? 'on' : ''}" data-field="level" aria-label="終わったときのレベル（任意）"><option value="">Lv 任意</option>${Array.from({ length: LEVEL_MAX }, (_, i) => i + 1).map(n => `<option value="${n}" ${levelOf(f) === n ? 'selected' : ''}>Lv ${n}</option>`).join('')}</select><select class="lv-sel ${deathsOf(f) != null ? 'on' : ''}" data-field="deaths" aria-label="その試合のダウン数の合計（任意）"><option value="">ダウン数 任意</option>${Array.from({ length: DEATHS_MAX + 1 }, (_, i) => i).map(n => `<option value="${n}" ${deathsOf(f) === n ? 'selected' : ''}>ダウン ${n}回</option>`).join('')}</select>`)}
       ${condRow('あれば', [RUN_FLAG.mapLoss, RUN_FLAG.bossUnknown, RUN_FLAG.shift].map(x => chip('flag', x.id, x.name, f.flags.includes(x.id), 'chip small')).join(''))}
       ${f.flags.includes('shift') ? condRow('地変', SHIFTS.map(x => chip('shift', x.id, x.name, f.shift === x.id, 'chip small')).join(''), false, 'sub') : ''}
       ${S.noteOpen || f.note ? `<div class="cond-note"><textarea id="f-note" data-field="note" placeholder="メモ（任意）例：最終戦で回復が足りなかった">${esc(f.note)}</textarea></div>`
@@ -332,7 +337,7 @@ function saveRecord() {
   const date = recDate(f);
   const p = f.presetId && presetById(f.presetId);
   const fields = { date, lordId: f.lordId, everdark: f.everdark, flags: f.flags, shift: f.flags.includes('shift') ? f.shift : null, mode: f.mode, depth: f.mode === 'deep' ? f.depth : null, party: f.party,
-    charId: f.charId, result: f.result, lossAt: f.result === 'loss' ? f.lossAt : null, lossBy: needFoe(f) ? f.lossBy : null, presetId: f.presetId, note: f.note.trim(), level: levelOf(f) };
+    charId: f.charId, result: f.result, lossAt: f.result === 'loss' ? f.lossAt : null, lossBy: needFoe(f) ? f.lossBy : null, presetId: f.presetId, note: f.note.trim(), level: levelOf(f), deaths: deathsOf(f), style: !f.presetId && STYLES.some(x => x.id === f.style && !x.old) ? f.style : null, spec: !f.presetId && STYLES.find(x => x.id === f.style)?.needSpec ? (f.spec || []).slice(0, 10) : [] };
   if (S.editRun) {
     const r = db.runs.find(x => x.id === S.editRun);
     const keepRev = r.presetId === f.presetId ? r.presetRev : (p ? presetRev(p) : null);
@@ -348,9 +353,22 @@ function saveRecord() {
   // 日付は、過去の日を選んでいたら、続けて記録しやすいようにそのまま残す（「今日」のままなら次も今日）
   // 夜の王はグラディウス、夜渡りは「未選択」に戻す（前回のまま記録してしまわないように）。ビルドは夜渡りを選ぶと、その夜渡りで前回使ったものが入る
   S.noteOpen = false;
-  Object.assign(f, { lordId: DEFAULT_LORD, everdark: null, flags: [], shift: null, charId: null, presetId: null, result: null, lossAt: null, lossBy: null, note: '', level: '' });
+  Object.assign(f, { lordId: DEFAULT_LORD, everdark: null, flags: [], shift: null, charId: null, presetId: null, result: null, lossAt: null, lossBy: null, note: '', level: '', deaths: '', style: '', spec: [] });
 }
 // 記録の「条件」カードの1行（左に項目名、右にボタン）。need＝まだ選んでいない（項目名を目立たせる）
+// 記録：ビルドなしのときの「型」。プリセットの型と同じ選び方（近接／スペル／弓 → 押すとその中の型。スペルは魔術／祈祷 → 型 → 特化なら何特化か）。メイン武器は選ばない（得意武器で数える）
+function recStyleBody(f) {
+  const chip = (act, v, label, on) => `<button class="chip small" data-act="${act}" data-v="${v}" ${pressed(on)}>${label}</button>`;
+  const st = STYLES.find(x => x.id === f.style && !x.old), sg = S.qStyleGroup ?? (st ? styleTop(st) : null);
+  const school = S.qStyleSchool ?? (st && (st.group === 'sorc' || st.group === 'inc') ? st.group : null);
+  const sub = grp => `<div class="chips">${STYLES.filter(x => x.group === grp).map(x => chip('qstyle', x.id, x.short, f.style === x.id)).join('')}</div>`;
+  return `<div class="quick-style"><span class="k">型</span><div class="qs-body">
+      <div class="chips">${[['melee', '近接'], ['spell', 'スペル'], ['bow', '弓']].map(([v, l]) => chip('qstyleGroup', v, l, sg === v)).join('')}</div>
+      ${sg === 'melee' || sg === 'bow' ? `<div class="subpanel">${sub(sg)}</div>` : ''}
+      ${sg === 'spell' ? `<div class="subpanel"><div class="chips">${[['sorc', '魔術'], ['inc', '祈祷']].map(([v, l]) => chip('qstyleSchool', v, l, school === v)).join('')}</div>${school ? sub(school) : ''}
+        ${st?.needSpec ? `<div class="label">何特化？（任意・複数選べます）</div><div class="chips">${(st.needSpec === 'sorc' ? SPEC_SORC : SPEC_INC).map(x => chip('qspec', x, x, (f.spec || []).includes(x))).join('')}</div>` : ''}</div>` : ''}
+    </div></div>`;
+}
 const condRow = (k, body, need = false, cls = '') => `<div class="cond-row ${cls} ${need ? 'need' : ''}"><span class="k">${k}</span><div class="chips">${body}</div></div>`;
 // 記録するのに足りないもの（勝敗は別）
 function recMissing(f) {
@@ -409,7 +427,7 @@ function commitWheel(w) {
   if (v === undefined || (!v && w.dataset.wheel === 'lord')) return;  // 夜の王に「未選択」はない
   // 常夜にいない夜の王（ナメレス・ストラゲス）を選んだら、夜の王の種類は自動で「通常」にする
   if (w.dataset.wheel === 'lord') { if (f.lordId === v) return; f.lordId = v; if (LORD[v]?.everdark === false) f.everdark = false; }
-  else { const c = v || null; if (f.charId === c) return; f.presetId = c ? lastPresetFor(c) : null; f.charId = c; }
+  else { const c = v || null; if (f.charId === c) return; f.presetId = c ? lastPresetFor(c) : null; f.style = c && !f.presetId ? (prefs().styleByChar || {})[c] || '' : ''; f.spec = []; S.qStyleGroup = S.qStyleSchool = null; f.charId = c; }
   render();
 }
 document.addEventListener('scroll', e => {
@@ -467,7 +485,7 @@ function viewHistory() {
       <select data-hf="lord" aria-label="夜の王で絞り込む" class="${h.lord ? 'on' : ''}">${opt(usedLords, h.lord, '夜の王：すべて')}</select>
       <select data-hf="char" aria-label="夜渡りで絞り込む" class="${h.char ? 'on' : ''}">${opt(usedChars, h.char, '夜渡り：すべて')}</select>
     </div>
-    ${active ? `<div class="hist-sum"><span>${x.n}戦 ${x.w}勝 ${x.n - x.w}敗${x.n ? `・勝率 ${pct(x.p)}` : ''}</span><button class="ghost small" data-act="hfClear">絞り込みを解除</button></div>`
+    ${active ? `<div class="hist-sum"><span>${x.n}戦 ${x.w}勝 ${x.n - x.w}敗${x.n && h.result === 'all' ? `・勝率 ${pct(x.p)}` : ''}</span><button class="ghost small" data-act="hfClear">絞り込みを解除</button></div>`
       : `<p class="hint">戦績をタップすると、メモの確認・編集・削除ができます。</p>`}
   </div>`;
   if (!runs.length) return `<div class="stack-lg">${backupNotice()}${filter}<div class="empty-state">この条件の記録はありません</div></div>`;
@@ -482,17 +500,17 @@ function viewHistory() {
 function runRow(r) {
   const p = r.presetId && presetById(r.presetId);
   const open = S.openRun === r.id;
-  const pname = p ? presetLabel(p) : r.presetId ? '削除済みのプリセット' : '';
+  const pname = p ? presetLabel(p) : r.presetId ? '削除済みのプリセット' : r.style ? (STYLES.find(x => x.id === r.style)?.name || '') + ((r.spec || []).length ? `（${r.spec.join('・')}）` : '') : '';
   return `<button class="run ${r.result}" data-act="openRun" data-v="${r.id}" aria-expanded="${open}">
     <span class="stripe"></span>
     <span class="main"><span class="who">${(() => { const sh = (r.flags || []).includes('shift') && r.shift ? SHIFT[r.shift]?.name : '';  // 深度の札の下に地変の名前
       return r.mode === 'deep' || sh ? `<span class="run-tags">${r.mode === 'deep' ? `<span class="deep-tag">深${r.depth || ''}</span>` : ''}${sh ? `<span class="shift-tag">${esc(sh)}</span>` : ''}</span>` : ''; })()}<span class="nm-ico" title="${esc(LORD[r.lordId]?.name ?? r.lordId)}">${ico('lord', r.lordId, r.everdark)}</span><span class="x">×</span><span class="nm-ico">${ico('char', r.charId)}<span class="${pname ? 'bn' : 'bn dim'}">${pname ? esc(pname) : 'ビルドなし'}</span></span></span>
 </span>
-    <span class="res">${r.result === 'win' ? '勝利' : '敗北'}${(() => { const t = [r.lossAt && LOSS[r.lossAt].name + (r.lossBy ? `・${esc(r.lossBy)}` : ''), levelOf(r) && `Lv${levelOf(r)}`].filter(Boolean).join('・'); return t ? `<small>${t}</small>` : ''; })()}</span>
+    <span class="res">${r.result === 'win' ? '勝利' : '敗北'}${(() => { const t = [r.lossAt && LOSS[r.lossAt].name + (r.lossBy ? `・${esc(r.lossBy)}` : ''), levelOf(r) && `Lv${levelOf(r)}`, deathsOf(r) != null && `ダウン${deathsOf(r)}`].filter(Boolean).join('・'); return t ? `<small>${t}</small>` : ''; })()}</span>
     <span class="more-dots" aria-hidden="true">${open ? '×' : '⋯'}</span>
   </button>
   ${open ? `<div class="run-detail">
-    <div class="run-info">${[CHAR[r.charId]?.name, r.everdark ? '常夜' : '通常', r.mode === 'deep' ? `深き夜${r.depth ? ' 深度' + r.depth : ''}` : '浅き夜', PARTYM[r.party]?.name, levelOf(r) && `レベル${levelOf(r)}`, ...(r.flags || []).map(x => flagName(x, r))].filter(Boolean).join('・')}</div>
+    <div class="run-info">${[CHAR[r.charId]?.name, r.everdark ? '常夜' : '通常', r.mode === 'deep' ? `深き夜${r.depth ? ' 深度' + r.depth : ''}` : '浅き夜', PARTYM[r.party]?.name, levelOf(r) && `レベル${levelOf(r)}`, deathsOf(r) != null && `ダウン${deathsOf(r)}回`, ...(r.flags || []).map(x => flagName(x, r))].filter(Boolean).join('・')}</div>
     ${r.note ? `<div>${esc(r.note)}</div>` : `<div style="color:var(--dim)">メモなし</div>`}
     <div class="row-actions">
       <button class="ghost" data-act="editRun" data-v="${r.id}">編集</button>
@@ -772,18 +790,25 @@ function matrixCard(g, K) {
     return { n: a.n + x.n, w: a.w + x.w }; }, { n: 0, w: 0 });
   const lords = ev === 'ever' ? lordsFor(true) : LORDS, purple = ev === 'ever';
   const maxN = Math.max(1, ...lords.flatMap(l => CHARS.map(c => get(l.id, c.id).n)));
-  const cell = (l, c) => { const x = get(l.id, c.id), p = x.n ? x.w / x.n : null;
-    const col = !x.n ? 'transparent' : val === 'n' ? `color-mix(in srgb, var(--win) ${Math.round(16 + x.n / maxN * 66)}%, var(--panel))`  /* 使用数は緑の濃さで（多いほど濃い） */
+  // 合計：一番右の列＝その夜の王の全夜渡り、一番下の行＝その夜渡りの全夜の王、右下＝全部（'*' は「すべて」）
+  const add = xs => xs.reduce((a, x) => ({ n: a.n + x.n, w: a.w + x.w }), { n: 0, w: 0 });
+  const getX = (lid, cid) => lid === '*' && cid === '*' ? add(lords.flatMap(l => CHARS.map(c => get(l.id, c.id))))
+    : lid === '*' ? add(lords.map(l => get(l.id, cid))) : cid === '*' ? add(CHARS.map(c => get(lid, c.id))) : get(lid, cid);
+  const maxS = Math.max(1, ...lords.map(l => getX(l.id, '*').n), ...CHARS.map(c => getX('*', c.id).n));
+  const lName = id => id === '*' ? 'すべての夜の王' : LORD[id].name, cName = id => id === '*' ? 'すべての夜渡り' : CHAR[id].name;
+  const cell = (lid, cid) => { const sum = lid === '*' || cid === '*', x = getX(lid, cid), p = x.n ? x.w / x.n : null, mx = sum ? maxS : maxN;
+    const col = !x.n ? 'transparent' : val === 'n' ? `color-mix(in srgb, var(--win) ${Math.round(16 + Math.min(1, x.n / mx) * 66)}%, var(--panel))`  /* 使用数は緑の濃さで（多いほど濃い） */
       : `color-mix(in srgb, ${p >= .5 ? 'var(--win)' : 'var(--loss)'} ${x.n < STATS_MIN_RUNS ? 16 : Math.round(22 + Math.abs(p - .5) * 2 * 60)}%, var(--panel))`;
     const txt = !x.n ? '' : val === 'n' ? x.n : Math.round(p * 100);
-    return `<button class="mx-cell ${val === 'rate' && x.n && x.n < STATS_MIN_RUNS ? 'few' : ''} ${sel === `${l.id}/${c.id}` ? 'on' : ''}" style="background:${col}" data-act="gCell" data-v="${l.id}/${c.id}" aria-label="${LORD[l.id].name}×${c.name}">${txt}</button>`; };
-  const [sl, sc] = (sel || '/').split('/'), sx = sel && LORD[sl] && CHAR[sc] ? get(sl, sc) : null;
+    return `<button class="mx-cell ${sum ? 'sum' : ''} ${val === 'rate' && x.n && x.n < STATS_MIN_RUNS ? 'few' : ''} ${sel === `${lid}/${cid}` ? 'on' : ''}" style="background:${col}" data-act="gCell" data-v="${lid}/${cid}" aria-label="${lName(lid)}×${cName(cid)}">${txt}</button>`; };
+  const [sl, sc] = (sel || '/').split('/'), sx = sel && (sl === '*' || LORD[sl]) && (sc === '*' || CHAR[sc]) ? getX(sl, sc) : null;
   const sw = (act, cur, opts, cls = '') => `<span class="mx-sw ${cls}">${opts.map(([v, l]) => `<button data-act="${act}" data-v="${v}" ${pressed(cur === v)}>${l}</button>`).join('')}</span>`;
   return `<section class="card-sec mx-card ${purple ? 'ever' : ''}">
     <div class="mx-tools">${sw('mxDeep', deep ? 'deep' : 'shallow', [['deep', '深き'], ['shallow', '浅き']])}${sw('mxVal', val, [['n', '使用数'], ['rate', '勝率']])}${sw('mxEver', ev, [['all', 'すべて'], ['normal', '通常'], ['ever', '常夜']], 'ev')}</div>
-    <div class="mx"><span class="mx-corner"></span>${CHARS.map(c => `<span class="mx-h">${ico('char', c.id)}</span>`).join('')}
-      ${lords.map(l => `<span class="mx-r">${ico('lord', l.id, purple)}</span>${CHARS.map(c => cell(l, c)).join('')}`).join('')}</div>
-    ${sx || !split ? `<p class="hint mx-note">${sx ? `${LORD[sl].name} × ${CHAR[sc].name}：${sx.n ? `${sx.n}戦・勝率 <b>${pct(sx.w / sx.n)}</b>（${sx.w}勝 ${sx.n - sx.w}敗）` : 'まだなし'}` : ''}${!split ? `${sx ? '<br>' : ''}※深き／浅きは準備中（今は合計）` : ''}</p>` : ''}
+    <div class="mx"><span class="mx-corner"></span>${CHARS.map(c => `<span class="mx-h">${ico('char', c.id)}</span>`).join('')}<span class="mx-h mx-sum-h">ALL</span>
+      ${lords.map(l => `<span class="mx-r">${ico('lord', l.id, purple)}</span>${CHARS.map(c => cell(l.id, c.id)).join('')}${cell(l.id, '*')}`).join('')}
+      <span class="mx-r mx-sum-h">ALL</span>${CHARS.map(c => cell('*', c.id)).join('')}${cell('*', '*')}</div>
+    ${sx || !split ? `<p class="hint mx-note">${sx ? `${lName(sl)} × ${cName(sc)}：${sx.n ? `${sx.n}戦・勝率 <b>${pct(sx.w / sx.n)}</b>（${sx.w}勝 ${sx.n - sx.w}敗）` : 'まだなし'}` : ''}${!split ? `${sx ? '<br>' : ''}※深き／浅きは準備中（今は合計）` : ''}</p>` : ''}
   </section>`;
 }
 // 相性の表の下の「多いものランキング」：見たいもの（夜渡り・夜の王・武器・型・深度・敗北した敵）を選ぶと、多い順に並ぶ
@@ -801,6 +826,9 @@ function rankCardG(g) {
   if (G.data && !G.unsupported) return rankCard(G.data, 'g');
   return rankCard({}, 'g', G.unsupported ? 'この絞り込みは、スプレッドシート側の更新後に使えます。' : G.loading || !G.at ? '読み込んでいます…' : '読み込めませんでした。通信できる所で、もう一度開いてください。');
 }
+// 型の大まかな分け方（前の分け方の型も、近い所に入れる）
+const STYLE_GRP = { melee: '近接', spell: 'スペル', bow: '弓' };
+const styleGrp = id => { const st = STYLES.find(x => x.id === id); if (!st) return null; if (st.old) return st.id === 'caster' ? 'spell' : 'melee'; return styleTop(st); };
 const RANK_KINDS = [['char', '夜渡り'], ['lord', '夜の王'], ['weapon', '武器'], ['style', '型'], ['depth', '深度'], ['foe', '敗北した敵'], ['level', 'レベル']];
 function rankCard(g, K, msg) {
   const kinds = RANK_KINDS.filter(([v]) => v !== 'level' || K === 'm');
@@ -811,8 +839,9 @@ function rankCard(g, K, msg) {
   if (kind === 'char') items = Object.entries(g.char || {}).filter(([id]) => CHAR[id]).map(([id, x]) => ({ id, icon: ico('char', id), name: CHAR[id].name, x }));
   if (kind === 'lord') items = Object.entries(sumBy(g.lord, k => k.split(':')[0])).filter(([id]) => LORD[id]).map(([id, x]) => ({ id, icon: ico('lord', id), name: LORD[id].name, x }));  // 通常と常夜はまとめて数え、押すと内訳が開く
   // 武器：得意武器が複数の夜渡り（無頼漢）は「大斧・大槌・特大武器」でひとまとめに数える
-  if (kind === 'weapon') { items = Object.entries(g.weaponW || {}).filter(([k]) => k.split('・').every(w => WEAPON_TYPES.includes(w))).map(([k, x]) => ({ name: k, x })); note = 'ビルドを選んで記録した試合が対象です'; }
-  if (kind === 'style') { items = Object.entries(g.styleW || {}).map(([k, x]) => ({ name: STYLES.find(st => st.id === k)?.name || k, x })); note = 'ビルドを選んで記録した試合が対象です'; }
+  if (kind === 'weapon') { items = Object.entries(g.weaponW || {}).filter(([k]) => k.split('・').every(w => WEAPON_TYPES.includes(w))).map(([k, x]) => ({ name: k, x })); note = 'ビルドか型を選んで記録した試合が対象です'; }
+  // 型：まず近接・スペル・弓の3つ（大まか）で並べ、押すとその中の型、型を押すとメイン武器と、その型の公開ビルドが開く
+  if (kind === 'style') { items = Object.entries(sumBy(g.styleW, styleGrp)).map(([id, x]) => ({ id, name: STYLE_GRP[id], x })); note = 'ビルドか型を選んで記録した試合が対象です'; }
   if (kind === 'depth') items = Object.entries(g.depthW || {}).filter(([k]) => DEPTH[k]).map(([k, x]) => ({ name: DEPTH[k], x }));
   if (kind === 'foe') { unit = '敗';
     if (!g.lossBy) note = 'みんなの統計では、まだ数えていません（準備中）';
@@ -824,11 +853,15 @@ function rankCard(g, K, msg) {
   // 右の黄色の％の名前（一番上に同じ色で出す）
   const shareName = { lord: '出現率', foe: '割合', level: '割合' }[kind] || '使用率';
   // 行を押すと内訳が開く：夜渡り＝型ごとの出撃回数／夜の王＝深き・浅き×通常・常夜／敗北した敵＝負けた夜渡り・型
-  const canOpen = ['char', 'lord', 'foe', 'level'].includes(kind), openId = canOpen ? S.stats[K + 'RankOpen'] : null;
+  const canOpen = ['char', 'lord', 'foe', 'level', 'style'].includes(kind), openId = canOpen ? S.stats[K + 'RankOpen'] : null, open2 = S.stats[K + 'RankOpen2'];
   const styleName = k => STYLES.find(st => st.id === k)?.name || k;
   // 内訳の行の並び。list は [名前, 数, 薄くするか, アイコン]
   const subRows = (list, u) => list.map(([name, n, dim, icon]) => `<div class="rk-subrow ${dim ? 'dim' : ''}"><span>${icon || ''}${esc(name)}</span><b>${n}${u}</b></div>`).join('');
   const subOf = it => {
+    if (kind === 'style') {
+      const list = Object.entries(g.styleW || {}).filter(([k]) => styleGrp(k) === it.id).map(([k, x]) => ({ k, x: typeof x === 'number' ? { n: x, w: 0 } : x })).filter(o => o.x.n).sort((a, b) => b.x.n - a.x.n);
+      return list.map(({ k, x }) => { const on = open2 === k;
+        return `<button class="rk-subrow tap ${on ? 'open' : ''}" data-act="rankOpen2" data-v="${esc(k)}" aria-expanded="${on}"><span>${esc(it.id !== 'spell' && STYLES.find(st => st.id === k)?.short || styleName(k))}</span><b>${x.n}回<small>${x.w || x.n ? ` 勝率${pct(x.w / x.n)}` : ''}</small><span class="go" aria-hidden="true">${on ? '−' : '+'}</span></b></button>${on ? `<div class="rk-sub2">${styleDetail(k)}</div>` : ''}`; }).join('') || '<p class="hint">内訳はまだありません。</p>'; }
     if (kind === 'char') { const cs = (g.charStyle || {})[it.id] || {}, list = Object.entries(cs).map(([k, n]) => [styleName(k), n]).sort((a, b) => b[1] - a[1]);
       const rest = it.x.n - list.reduce((a, [, n]) => a + n, 0); if (rest > 0) list.push(['型なし（ビルドを選ばずに記録）', rest, true]);
       return subRows(list, '回'); }
@@ -847,6 +880,16 @@ function rankCard(g, K, msg) {
     const rest = it.x.n - styles.reduce((a, [, n]) => a + n, 0); if (rest > 0) styles.push(['型なし（ビルドを選ばずに記録）', rest, true]);
     return `<div class="rk-subhead">夜渡り</div>${subRows(chars, '敗')}<div class="rk-subhead">型</div>${subRows(styles, '敗')}`;
   };
+  // 型の中身：メイン武器ごとの回数・勝率と、その型の公開ビルド（みんなに公開されたもの）
+  const styleDetail = k => {
+    const ws = Object.entries((g.styleWeaponW || {})[k] || {}).map(([w, x]) => [w, typeof x === 'number' ? { n: x, w: 0 } : x]).filter(([, x]) => x.n).sort((a, b) => b[1].n - a[1].n);
+    const wRows = !g.styleWeaponW ? '<p class="hint">武器の内訳は、スプレッドシート側の更新後に見られます。</p>'
+      : ws.length ? ws.map(([w, x]) => `<div class="rk-subrow"><span>${esc(w)}</span><b>${x.n}回<small> 勝率${pct(x.w / x.n)}</small></b></div>`).join('') : '';
+    loadPublic();
+    const pubs = (PUB.list || []).map((b, i) => ({ b, i, d: parsePublic(b.data) })).filter(o => o.d && o.d.style === k).slice(0, 5);
+    const pRows = pubs.map(({ b, i }) => `<button class="rk-pub" data-act="pubPick" data-v="${i}">${CHAR[b.charId] ? ico('char', b.charId) : ''}<span>${esc(b.name || '')}</span><span class="go" aria-hidden="true">›</span></button>`).join('');
+    return `${ws.length || !g.styleWeaponW ? `<div class="rk-subhead">メイン武器</div>${wRows}` : ''}<div class="rk-subhead">この型の公開ビルド</div>${pRows || `<p class="hint">${PUB.loading && !PUB.list ? '読み込んでいます…' : 'まだありません。'}</p>`}`;
+  };
   const rows = items.map((it, i) => { const open = canOpen && openId === it.id;
     const inner = `<span class="rk-no">${i + 1}</span><span class="rk-name">${it.icon || ''}${esc(it.name)}</span>
       <span class="rk-num"><b>${it.x.n}</b>${unit}<small>${pct(it.x.n / sum)}</small>${canOpen ? `<span class="go" aria-hidden="true">${open ? '−' : '+'}</span>` : ''}</span><span class="rk-bar"><i style="width:${it.x.n / top * 100}%"></i></span>`;
@@ -857,7 +900,7 @@ function rankCard(g, K, msg) {
       ${rkMode(K) !== 'normal' ? `<select class="mini-select rk-depth ${rkDepth(K) ? 'on' : ''}" data-gsel="${K}RkDepth" aria-label="深度で絞り込む"><option value="">全深度</option>${[1, 2, 3, 4, 5].map(n => `<option value="${n}" ${rkDepth(K) === String(n) ? 'selected' : ''}>深度${n}</option>`).join('')}</select>` : ''}</div></div>
     <div class="g-tabs" role="tablist">${kinds.map(([v, l]) => `<button role="tab" data-act="rankKind" data-v="${v}" aria-selected="${kind === v}">${l}</button>`).join('')}</div>
     ${note ? `<p class="hint rk-note">${note}</p>` : ''}
-    ${rows ? `<div class="rk-head"><span>${{ char: '押すと型ごとの出撃回数が見られます', lord: '押すと深き・浅き、通常・常夜の内訳が見られます', foe: '押すと負けた夜渡り・型が見られます', level: '押すと勝ち負けの数が見られます' }[kind] || ''}</span><small>${shareName}</small></div>` : ''}
+    ${rows ? `<div class="rk-head"><span>${{ char: '押すと型ごとの出撃回数が見られます', lord: '押すと深き・浅き、通常・常夜の内訳が見られます', style: '押すと中の型、さらに押すと武器と公開ビルドが見られます', foe: '押すと負けた夜渡り・型が見られます', level: '押すと勝ち負けの数が見られます' }[kind] || ''}</span><small>${shareName}</small></div>` : ''}
     <div class="rk-list">${msg ? `<p class="hint">${msg}</p>` : rows || (kind === 'foe' && !g.lossBy ? '' : '<p class="hint">まだデータがありません。</p>')}</div>
   </section>`;
 }
@@ -1069,14 +1112,14 @@ function myAgg(runs) {
   const add2 = (m, a, b, win) => add(m[a] || (m[a] = {}), b, win);
   const inc = (m, a, b) => { const x = m[a] || (m[a] = {}); x[b] = (x[b] || 0) + 1; };
   const out = { total: { n: 0, w: 0 }, lord: {}, char: {}, lordChar: {}, styleW: {}, weaponW: {}, depthW: {}, partyW: {}, loss: {}, lordLoss: {}, lordDepth: {},
-    charDepthW: {}, charWeaponW: {}, charParty: {}, lordParty: {}, trend: {}, byDate: {}, lossBy: { d1: {}, d2: {} }, lordCharM: {}, charStyle: {}, foeChar: {}, foeStyle: {}, levelW: {} };
+    charDepthW: {}, charWeaponW: {}, styleWeaponW: {}, charParty: {}, lordParty: {}, trend: {}, byDate: {}, lossBy: { d1: {}, d2: {} }, lordCharM: {}, charStyle: {}, foeChar: {}, foeStyle: {}, levelW: {} };
   runs.forEach(r => {
     const win = r.result === 'win', lord = r.lordId + (r.everdark ? ':ever' : ''), b = runBuild(r);
     const dk = r.mode === 'deep' ? 'deep' + (r.depth || '') : 'normal';
     add(out, 'total', win); add(out.lord, lord, win); add(out.char, r.charId, win); add(out.lordChar, `${lord}/${r.charId}`, win); add(out.lordCharM, `${lord}/${r.charId}/${r.mode === 'deep' ? 'deep' : 'normal'}`, win);
     if (b?.style) { add(out.styleW, b.style, win); inc(out.charStyle, r.charId, b.style); }
     if (levelOf(r)) add(out.levelW, levelOf(r), win);  // 終わったときのレベル（自分の統計だけ。みんなの統計には送らない）
-    const wt = effWeapon(b); if (wt) { add(out.weaponW, wt, win); add2(out.charWeaponW, r.charId, wt, win); }
+    const wt = effWeapon(b); if (wt) { add(out.weaponW, wt, win); add2(out.charWeaponW, r.charId, wt, win); if (b?.style) add2(out.styleWeaponW, b.style, wt, win); }
     add(out.depthW, dk, win); add2(out.lordDepth, lord, dk, win); add2(out.charDepthW, r.charId, dk, win);
     if (r.party) { add(out.partyW, r.party, win); add2(out.charParty, r.charId, r.party, win); add2(out.lordParty, lord, r.party, win); }
     if (!win) { const la = r.lossAt || 'unknown'; out.loss[la] = (out.loss[la] || 0) + 1; inc(out.lordLoss, lord, la);
@@ -1324,7 +1367,7 @@ function loadPublic(force) {
   PUB.loading = true;
   // 失敗したときも時刻を残し、すぐにはやり直さない（通信できないときに読み込みが止まらず画面が固まるため）
   net(`${ONLINE_URL}?type=builds`).then(r => r.json()).then(d => { if (!d.ok) throw new Error(); PUB.list = d.builds || []; PUB.failed = false; PUB.at = Date.now(); writeCache('builds', PUB.list); },
-    () => { PUB.failed = true; PUB.at = Date.now() - 60e3; }).finally(() => { PUB.loading = false; if (S.buildView === 'public') render(); });
+    () => { PUB.failed = true; PUB.at = Date.now() - 60e3; }).finally(() => { PUB.loading = false; if (S.buildView === 'public' || S.tab === 'stats') render(); });
 }
 // 公開用の中身（共有リンクと同じ形）
 const publicPayload = p => JSON.stringify({ v: 1, ...Object.fromEntries(SHARE_FIELDS.map(k => [k, p[k] ?? null])) });
@@ -2032,11 +2075,11 @@ function replaceDb(next) {
   S.edit = null; S.openRun = null; S.form = blankForm();
 }
 function csvRows() {
-  const rows = [['日付', '夜の王', '常夜', '地図欠損など', 'モード', '深度', '人数', '夜渡り', '結果', '倒れた場所', '倒された相手', 'ビルド', 'レベル', 'メモ']];
+  const rows = [['日付', '夜の王', '常夜', '地図欠損など', 'モード', '深度', '人数', '夜渡り', '結果', '倒れた場所', '倒された相手', 'ビルド', 'レベル', 'ダウン数', 'メモ']];
   liveRuns().sort((a, b) => a.date.localeCompare(b.date) || a.updatedAt - b.updatedAt).forEach(r => rows.push([
     r.date, LORD[r.lordId]?.name ?? r.lordId, r.everdark ? '常夜' : '', (r.flags || []).map(x => flagName(x, r)).join('/'), MODE[r.mode]?.name ?? r.mode, r.depth ?? '', PARTYM[r.party]?.name ?? r.party,
     CHAR[r.charId]?.name ?? r.charId, r.result === 'win' ? '勝利' : '敗北', r.lossAt ? LOSS[r.lossAt].name : '', r.lossBy || '', presetById(r.presetId) ? presetLabel(presetById(r.presetId)) : (r.presetId ? '削除済み' : ''),
-    levelOf(r) ?? '', r.note]));
+    levelOf(r) ?? '', deathsOf(r) ?? '', r.note]));
   return rows;
 }
 
@@ -2197,6 +2240,10 @@ document.addEventListener('click', e => {
     case 'mode': f.mode = v; f.depth = v === 'deep' ? (f.depth || prefs().lastDepth || null) : null; if (!S.editRun) { prefs().mode = v; prefs().depth = f.depth; } break;
     case 'depth': f.depth = +v; if (!S.editRun) { prefs().depth = f.depth; prefs().lastDepth = f.depth; } break;
     case 'party': f.party = v; if (!S.editRun) prefs().party = v; break;
+    case 'qstyleGroup': { const cur = STYLES.find(x => x.id === f.style); S.qStyleGroup = S.qStyleGroup === v || (S.qStyleGroup == null && cur && styleTop(cur) === v) ? '' : v; S.qStyleSchool = null; if (!cur || styleTop(cur) !== S.qStyleGroup) f.style = ''; if (!S.editRun && f.charId) (prefs().styleByChar ||= {})[f.charId] = f.style; break; }
+    case 'qstyleSchool': { const cur = STYLES.find(x => x.id === f.style); S.qStyleSchool = v; if (cur?.group !== v) f.style = ''; if (!S.editRun && f.charId) (prefs().styleByChar ||= {})[f.charId] = f.style; break; }
+    case 'qspec': { const a = f.spec || []; f.spec = a.includes(v) ? a.filter(x => x !== v) : [...a, v]; break; }
+    case 'qstyle': f.style = f.style === v ? '' : v; f.spec = []; if (!S.editRun && f.charId) (prefs().styleByChar ||= {})[f.charId] = f.style; break;  // 型（ビルドなしのとき）も、夜渡りごとに前回のものを覚えておく
     case 'preset': f.presetId = v || null; if (!S.editRun) (prefs().presetByChar ||= {})[f.charId] = f.presetId; break;
     case 'recWin': case 'recLoss': {
       const miss = recMissing(f);
@@ -2213,7 +2260,7 @@ document.addEventListener('click', e => {
       const r = db.runs.find(x => x.id === v);
       S.editRun = r.id;
       S.form = { dateMode: 'pick', date: r.date || today(), lordId: r.lordId, everdark: !!r.everdark, flags: [...(r.flags || [])], shift: r.shift ?? null, mode: r.mode || 'normal', depth: r.depth ?? null,
-        party: r.party || 'trio', charId: r.charId, result: r.result, lossAt: r.lossAt ?? null, lossBy: r.lossBy ?? null, presetId: r.presetId ?? null, origPresetId: r.presetId ?? null, note: r.note || '', level: r.level || '' };
+        party: r.party || 'trio', charId: r.charId, result: r.result, lossAt: r.lossAt ?? null, lossBy: r.lossBy ?? null, presetId: r.presetId ?? null, origPresetId: r.presetId ?? null, note: r.note || '', level: r.level || '', deaths: r.deaths ?? '', style: r.style || '', spec: [...(r.spec || [])] };
       S.tab = 'record'; S.openRun = null; S.dayStripX = null; scrollTop(); break;
     }
     case 'cancelEdit': S.editRun = null; S.form = blankForm(); S.tab = 'history'; break;
@@ -2236,7 +2283,8 @@ document.addEventListener('click', e => {
     case 'gTab': { const K = statsK(); S.stats[K + 'Tab'] = v; S.stats[K + 'Open'] = null; break; }
     case 'gSort': S.stats[statsK() + 'Sort'] = v; break;
     case 'rankKind': S.stats[statsK() + 'Rank'] = v; S.stats[statsK() + 'RankOpen'] = null; break;
-    case 'rankOpen': { const k = statsK() + 'RankOpen'; S.stats[k] = S.stats[k] === v ? null : v; break; }
+    case 'rankOpen': { const k = statsK() + 'RankOpen'; S.stats[k] = S.stats[k] === v ? null : v; S.stats[k + '2'] = null; break; }
+    case 'rankOpen2': { const k = statsK() + 'RankOpen2'; S.stats[k] = S.stats[k] === v ? null : v; break; }
     case 'mxDeep': S.stats[statsK() + 'MxDeep'] = v === 'deep'; break;
     case 'rkMode': if (['deep', 'normal', 'all'].includes(v)) S.stats[statsK() + 'RkMode'] = v; break;  // 統計のランキング：深き／浅き／両方
     case 'mxVal': S.stats[statsK() + 'MxVal'] = v; break;
@@ -2782,16 +2830,17 @@ if ('serviceWorker' in navigator && !window.__DEV__) {
   const ask = () => { if (!raf) raf = requestAnimationFrame(paint); };
   // 離したあと・更新のあとは、アイコンをするっと上へ戻す
   const back = () => { y0 = null; dy = 0; if (raf) { cancelAnimationFrame(raf); raf = 0; } if (!el) return; el.classList.add('back'); el.classList.remove('spin'); place(-48, 0); };
-  // 開いたときのファイルの「版の印」（ETag か更新時刻）
-  const files = () => [location.href.split('#')[0], ...new Set(performance.getEntriesByType('resource').map(r => r.name)
-    .filter(u => { try { const x = new URL(u); return x.origin === location.origin && /\.(js|css)$/.test(x.pathname) && !x.pathname.includes('/tools/'); } catch { return false; } }))];
+  // 開いたときのファイルの「版の印」（ETag か更新時刻）。聞くのは、ページ・sw.js・プログラム（src/app）・style.css の数個だけ
+  // （データのファイルだけ変わったときは、次にアプリを開き直したときに新しくなる）
+  const files = () => [location.href.split('#')[0], new URL('sw.js', location.href).href, ...new Set(performance.getEntriesByType('resource').map(r => r.name)
+    .filter(u => { try { const x = new URL(u); return x.origin === location.origin && (/\/src\/app\/[^/]+\.js$/.test(x.pathname) || /\/style\.css$/.test(x.pathname)); } catch { return false; } }))];
   const sigOf = u => fetch(u, { method: 'HEAD', cache: 'no-store' }).then(r => r.ok ? (r.headers.get('etag') || r.headers.get('last-modified') || '') : '').catch(() => null);
   let base = null;
   const takeBase = () => { const list = files(); Promise.all(list.map(sigOf)).then(v => { base = new Map(list.map((u, i) => [u, v[i]])); }); };
   window.addEventListener('load', () => setTimeout(takeBase, 3000));
   // 新しい版が出ているか（分からないときは「出ている」とみなして読み込み直す）
   const changed = () => { if (!base) return Promise.resolve(true); const list = [...base.keys()];
-    return Promise.all(list.map(sigOf)).then(v => v.some((x, i) => x == null || !base.get(list[i]) || x !== base.get(list[i]))); };
+    return Promise.all(list.map(sigOf)).then(v => v.some((x, i) => x == null || (!!base.get(list[i]) && x !== base.get(list[i])))); };  // 印が取れなかったファイル（開発用の sw.js など）は比べない
   const reload = () => {
     save(db);  // 読み込み直す前に、いまの記録を保存しておく
     const reg = 'serviceWorker' in navigator && !window.__DEV__ ? navigator.serviceWorker.getRegistration() : Promise.resolve(null);

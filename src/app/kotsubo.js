@@ -21,7 +21,7 @@ export function initKotsubo(helpers) {
   if (window.__DEV__ && location.hash === '#kotsubo-all') {
     const k = st();
     RELICS.forEach(([id]) => { k.ups[id] = 1; });
-    HIRE.forEach(([id]) => { k.ups[`h10:${id}`] = 1; k.ups[`h25:${id}`] = 1; });
+    HIRE.forEach(([id]) => { k.ups[`h10:${id}`] = 1; k.ups[`h25:${id}`] = 1; k.ups[`ess:${id}`] = 1; });
     ITEMS.forEach(([id]) => giveItem(k, id, 10));  // アイテムも10個ずつ
     history.replaceState(null, '', location.pathname); H.save();
     setTimeout(() => H.toast('開発用：遺物をすべて持った状態にしました'), 500);
@@ -76,6 +76,43 @@ const CHAR_FLAVOR = {
   scholar: ['学者は、壺を叩く前に壺を測る。\n\n数えること。比べること。\nそして、増やすこと', '学者の手帳の、最後の頁。\nそこには、ただ一行だけが残されていた。\n\n「マークは、マークを生む」'],
   undertaker: ['葬儀屋は、眠ったマークの在処を知っている。\n\n土の下にも、稼ぎはある。\n弔いとは、掘り起こすことでもある', '弔われたものは、ふたたび掘り起こされる。\n\nそれが慈悲か、冒涜か。\n葬儀屋は、問わない'],
 };
+// 夜渡りの真髄（最終強化の遺物）：記録タブの記録 ESS_PER_RUNS 戦ごとに、まだ持っていない夜渡りの真髄が1つ、ランダムで手に入る（戦果ボーナスを受け取ったときに数える）。
+// 1日（日本時間）に ESS_PER_DAY 個まで。買うことはできない。潜っても、最初からやり直さない限り消えない（k.ups['ess:<夜渡り>']）。
+// 効果は「雇ったその夜渡り1人につき、毎秒マーク +ESS_P」。安い夜渡りほどたくさん雇えるので、追跡者や守護者のような下位の夜渡りを雇い足すことにも意味が出る（葬儀屋の真髄は控えめ）。
+// 強くなりすぎないように、夜の王の体力も「真髄で上がった倍率の平方根」だけ上げる（essHp）
+const ESS_PER_RUNS = 10, ESS_PER_DAY = 1, ESS_P = .002;
+const ESS_FLAVOR = {
+  wylder: '追跡者が最後にたどり着いた、狩りの理。\n\n獲物は大きさではなく、数で量れ。\n鉤縄が百度鳴れば、夜もまた揺らぐ',
+  guardian: '守護者の盾に刻まれた、無数の小さな傷。\nその一つひとつが、守り抜いた壺の数である。\n\n小さきものを守る者だけが、大きく稼ぐ',
+  ironeye: '鉄の目が、最後に見据えたもの。\nそれは壺ではなく、壺を叩く仲間の背であった。\n\n狙いは、ひとりでは定まらない',
+  duchess: 'レディが残した、最後の記憶。\n繰り返された打撃は、やがて一つの調べとなる。\n\n数多の夜は、ただ一度の夜に似ている',
+  raider: '無頼漢の真髄に、作法はない。\nただ、数を頼みとする。\n\n揺さぶる腕が多いほど、壺はよく吐き出すのだ',
+  revenant: '呼び声は、ついに夜の果てまで届いた。\n\n応えた者の数だけ、壺は鳴る。\n復讐者は、その音を子守唄と呼ぶ',
+  recluse: '隠者の魔術の、最後の頁。\n束ねるべきは、マークではなかった。\n\n集う者そのものが、魔力の源なのだ',
+  executor: '執行者の刃は、ついに音を置き去りにした。\n\n残されたのは、静寂と\nいつのまにか満ちた壺だけである',
+  scholar: '学者は、最後の式を書き終えた。\n「数は、数を呼ぶ」\n\nそれは研究の終わりであり\n新しい夜の始まりでもあった',
+  undertaker: '葬儀屋が、最後に掘り起こしたもの。\nそれは、眠らせたはずの自らの名であった。\n\n弔う者もまた、いつか弔われる',
+};
+const essOwned = k => HIRE.filter(([id]) => k.ups[`ess:${id}`]).map(([id]) => id);
+const essMult = k => 1 + HIRE.reduce((a, [id]) => a + (k.ups[`ess:${id}`] ? ESS_P * (k.hires[id] || 0) : 0), 0);
+const essHp = k => Math.sqrt(essMult(k));
+const essTodayOf = k => k.essDay?.day === jstDay() ? k.essDay.n || 0 : 0;
+// 記録を数えて、たまっていれば真髄を渡す（受け取った名前の一覧を返す）
+function giveEss(k, runs) {
+  const got = [];
+  if (essOwned(k).length >= HIRE.length) return got;
+  k.essRuns = (k.essRuns || 0) + runs;
+  while (k.essRuns >= ESS_PER_RUNS && essTodayOf(k) < ESS_PER_DAY) {
+    const left = HIRE.map(([id]) => id).filter(id => !k.ups[`ess:${id}`]); if (!left.length) break;
+    const id = left[Math.floor(Math.random() * left.length)];
+    k.ups[`ess:${id}`] = 1; k.essRuns -= ESS_PER_RUNS; k.essDay = { day: jstDay(), n: essTodayOf(k) + 1 }; got.push(id);
+  }
+  if (essOwned(k).length >= HIRE.length) k.essRuns = 0;
+  return got;
+}
+const essToast = ids => ids.length ? `　🔥${ids.map(id => `${H.CHAR[id]?.name || id}の真髄`).join('・')}を手に入れた！` : '';
+const essNote = (k, pending = 0) => { if (essOwned(k).length >= HIRE.length) return ''; const r = (k.essRuns || 0) + pending;  // pending＝まだ受け取っていない記録の数
+  return r >= ESS_PER_RUNS && essTodayOf(k) >= ESS_PER_DAY ? '夜渡りの真髄：今日はここまで（明日の受け取りで手に入ります）' : r >= ESS_PER_RUNS ? '受け取ると、夜渡りの真髄が手に入ります' : `夜渡りの真髄まで、あと記録${ESS_PER_RUNS - r}戦（記録${ESS_PER_RUNS}戦ごと・1日1つまで）`; };
 // アイテム（使うとなくなる）：[id, 絵, 名前, 使うと, フレーバーテキスト]
 // 手に入れ方（ITEM_DROP）：夜の王を討伐したとき・常夜の小壺を叩いたときに、それぞれの確率で。買うことはできない。持てるのは種類ごとに99個まで
 // scar（消えぬ爪痕）：使うと、次の夜の王との戦い（戦い中に使えばその戦い）で削った体力が、逃げられても残る。倒すか潜るまで残り、普通の戦いで逃げられても戻らない
@@ -106,7 +143,8 @@ function ownedRelics(k) {
   const list = RELICS.filter(([id]) => k.ups[id]).map(([id, name, desc]) => ({ id, name, desc, flavor: FLAVOR[id] }));
   HIRE.forEach(([id]) => { const nm = H.CHAR[id]?.name || id;
     if (k.ups[`h10:${id}`]) list.push({ id: `h10:${id}`, name: `${nm}の心得`, desc: `${nm}の稼ぎが2倍`, flavor: CHAR_FLAVOR[id]?.[0], char: id });
-    if (k.ups[`h25:${id}`]) list.push({ id: `h25:${id}`, name: `${nm}の極意`, desc: `${nm}の稼ぎがさらに2倍`, flavor: CHAR_FLAVOR[id]?.[1], char: id }); });
+    if (k.ups[`h25:${id}`]) list.push({ id: `h25:${id}`, name: `${nm}の極意`, desc: `${nm}の稼ぎがさらに2倍`, flavor: CHAR_FLAVOR[id]?.[1], char: id });
+    if (k.ups[`ess:${id}`]) list.push({ id: `ess:${id}`, name: `${nm}の真髄`, desc: `雇った${nm}1人につき、毎秒マーク+${ESS_P * 100}%（今 +${fmtX((ESS_P * (k.hires[id] || 0)) * 100)}%）`, flavor: ESS_FLAVOR[id], char: id }); });
   return list;
 }
 // 夜の王：討伐する順番と体力
@@ -134,7 +172,7 @@ function orderOf(k) { if (!depthOf(k)) return null; if (!Array.isArray(k.order) 
 const foeAt = (k, i) => orderOf(k)?.[i] || { id: BOSSES[i][0], ever: false };
 const foeName = f => `${f.ever ? '常夜の' : ''}${H.LORD[f.id]?.name ?? f.id}`;
 const foeIco = f => H.ico('lord', f.id, f.ever);
-const bossHp = (k, i) => BOSSES[i][1] * DEPTH_HP[depthOf(k)] * (i === (k.lords || 0) ? weakOf(k) : 1);
+const bossHp = (k, i) => BOSSES[i][1] * DEPTH_HP[depthOf(k)] * essHp(k) * (i === (k.lords || 0) ? weakOf(k) : 1);
 const FIGHT_SEC = 30, FIGHT_TAP = 10;  // 戦いでは、叩く力の10倍のダメージ
 // 夜渡りの加勢：戦いで1回叩くたびに、雇った夜渡りの毎秒マークの2%も上乗せ（×10）。1秒に5回叩くと、毎秒マークと同じくらい削れる。
 // 夜渡りは自分では戦わない（叩かないと勝てない）が、雇うほど1回の叩きが重くなる
@@ -152,7 +190,7 @@ const st = () => {
 const hireMult = (k, id) => (k.ups[`h10:${id}`] ? 2 : 1) * (k.ups[`h25:${id}`] ? 2 : 1);
 // 夜の王の討伐ボーナス（前の周回の分 bank も含む）×深度の稼ぎ
 const globalMult = k => Math.pow(1.25, (k.bank || 0) + (k.lords || 0)) * DEPTH_GAIN[depthOf(k)];
-const prodOf = k => HIRE.reduce((a, [id, , base]) => a + (k.hires[id] || 0) * base * hireMult(k, id), 0) * globalMult(k);
+const prodOf = k => HIRE.reduce((a, [id, , base]) => a + (k.hires[id] || 0) * base * hireMult(k, id), 0) * globalMult(k) * essMult(k);
 const tapOf = k => { const p = prodOf(k); return ((k.ups.tap1 ? 2 : 1) * (k.ups.tap2 ? 2 : 1) * (k.ups.tap5 ? 3 : 1) * globalMult(k) + p * ((k.ups.tap3 ? .01 : 0) + (k.ups.tap4 ? .03 : 0))) * (rushUntil > Date.now() ? 7 : 1); };
 // 深き壺では、雇う値段（心得・極意も）を、その深度の稼ぎの倍率（潜る前の討伐ボーナス×深度の倍率）と同じだけ高くする。
 // 値段が1周目のままだと、潜った直後から葬儀屋まで一瞬で雇えて、稼ぎが一気に跳ね上がってしまうため（v59 の公開直後に深度5まで1時間で抜けられた）。
@@ -332,8 +370,16 @@ const RANK_SEND_GAP = 5 * 60e3, RANK_LIST_TTL = 3 * 60e3;
 let rankSentAt = 0, rankList = null, rankListAt = 0, rankLoading = false, rankFailed = false;
 // 連打王（期間限定のおまけのランキング）：期間中に小壺を叩いた回数（戦いの中も数える。常夜の小壺は数えない）。参加はランキングと同じ。
 // 期間の前から知らせて、終わったあとも1週間は結果を出す。数えるのは期間中だけ（送るのは期間のあとでもよい。受け取り口も同じ期間で数える）
-const RENDA = { id: '2026-11-26', label: '11/26（木）12:00〜12/3（木）11:59', start: Date.parse('2026-11-26T12:00:00+09:00'), end: Date.parse('2026-12-03T11:59:00+09:00') };
-const RENDA_SHOW = RENDA.end + 7 * 86400e3;
+// シーズン：開催ごとに1行足す（受け取り口 tools/online/apps_script.gs の SEASONS と同じにする）。今のシーズン＝始まりが今より前のうち、いちばん新しいもの。
+// 終わったシーズンの結果は、壺渡りの「シーズンの結果」のボタンから見られる（受け取り口の season_result）
+const SEASONS = [
+  { id: '2026-11-26', name: 'シーズン1', label: '11/26（木）12:00〜12/3（木）11:59', start: Date.parse('2026-11-26T12:00:00+09:00'), end: Date.parse('2026-12-03T11:59:00+09:00') },
+  { id: '2026-12-03', name: 'シーズン2', label: '12/3（木）12:00〜12/10（木）11:59', start: Date.parse('2026-12-03T12:00:00+09:00'), end: Date.parse('2026-12-10T11:59:00+09:00') },
+];
+const curSeason = () => SEASONS.filter(x => x.start <= Date.now()).pop() || SEASONS[0];
+let RENDA = curSeason(), RENDA_SHOW = RENDA.end + 7 * 86400e3;
+// アプリを開いたままシーズンが変わったときは、今のシーズンに切り替えて、前のシーズンの一覧は捨てる
+function syncSeason() { const c = curSeason(); if (c.id === RENDA.id) return; RENDA = SEASON = c; RENDA_SHOW = c.end + 7 * 86400e3; rankList = rendaList = null; rankListAt = 0; }
 const rendaOn = (t = Date.now()) => t >= RENDA.start && t < RENDA.end;
 const rendaOf = k => k.renda && k.renda.id === RENDA.id ? k.renda.n : 0;
 let rendaList = null;
@@ -344,14 +390,14 @@ const rendaIco = i => i === 0
   : `<svg class="k-prize" viewBox="0 0 24 28" role="img" aria-label="${RENDA_PRIZE[i]}"><path d="M6 1h5l3 8h-5zM18 1h-5l-3 8h5z" fill="${i === 1 ? '#5b7bd6' : '#c0573a'}"/><circle cx="12" cy="17" r="9" fill="${i === 1 ? '#e6ebf2' : '#e0a374'}" stroke="${i === 1 ? '#8b96a8' : '#8a4f24'}" stroke-width="1.4"/><circle cx="12" cy="17" r="6.6" fill="none" stroke="${i === 1 ? '#aab4c3' : '#b06d3a'}" stroke-width=".8"/><text x="12" y="20.6" text-anchor="middle" font-size="9.5" font-weight="900" fill="${i === 1 ? '#4a5262' : '#5a2e10'}">連</text></svg>`;
 // マークのランキングも、連打王と同じ期間で比べる（期間中に稼いだマーク）。期間が始まってから最初に数えたときの「これまでのマーク」を起点にする。
 // 期間が終わったら、受け取り口がそのときの数字で止める（結果は連打王と同じく1週間出す）
-const SEASON = RENDA;
+let SEASON = RENDA;
 function seasonBase(k) { if (Date.now() >= SEASON.start && k.rankSeason !== SEASON.id) { k.rankSeason = SEASON.id; k.rankBase = k.total || 0; } }
 // 開発用の画面では本物に送らず、見本の順位・一覧を出す
 const DEV_RANK = () => ({ top: [9.1e33, 4.2e30, 7.7e27, 3.3e24, 8e20, 5.5e17, 2.1e15, 6e12, 9e10, 3e9].map((t, i) => ({ rid: i === 2 ? 'dev-me' : `dev-${i}`, total: t, loops: [3, 1][i] || 0 })) });
 const DEV_RENDA = () => ({ rank: 4, accepted: true, top: [98765, 54321, 32100, 20480, 12000, 8800, 5000, 3210, 1500, 900].map((n, i) => ({ rid: i === 3 ? 'dev-me' : `dev-${i}`, taps: n })) });
 // 上位の一覧は、送った返事にだけ付いてくる（参加した人だけが見られる。受け取り口に、読み出すだけの口はない）
 function rankSend(force) {
-  const k = st(); seasonBase(k); if (!k.rankJoin || rankLoading) return;
+  syncSeason(); const k = st(); seasonBase(k); if (!k.rankJoin || rankLoading) return;
   if (!force && Date.now() - rankSentAt < RANK_SEND_GAP) return;
   rankSentAt = Date.now();
   if (H.devHost) { k.rankMe = { rank: 3, rid: 'dev-me', accepted: true, at: Date.now() }; rankList = DEV_RANK(); rankListAt = Date.now();
@@ -399,10 +445,35 @@ function rendaBody(k) {
   return `${head}${now >= RENDA.end ? '<p class="hint">連打王は終わりました。おつかれさまでした！</p>' : ''}${mine}${list}${note}`;
 }
 // ランキングの欄だけを書き換える（画面全体は作り直さない）
+// 終わったシーズンの結果（マークと連打王の上位10人・自分の順位）。ボタンを押したときに受け取り口から読む（開発用の画面では見本）
+// 開発用の画面では、今のシーズンも「終わった」ものとして結果のボタンを出す（見た目の確かめ用）
+const pastSeasons = () => SEASONS.filter(x => x.end <= Date.now() || (H.devHost && x.start <= Date.now())).reverse();
+const seasonRes = {};
+function loadSeason(id) {
+  const r = seasonRes[id];
+  if (r && (r.loading || r.data)) return;
+  if (H.devHost) { seasonRes[id] = { data: { rid: 'dev-me', mark: { rank: 3, top: DEV_RANK().top }, renda: { rank: 4, top: DEV_RENDA().top } } }; paintSeason(); return; }
+  seasonRes[id] = { loading: true }; paintSeason();
+  H.postOnline({ type: 'season_result', season: id }).then(x => { seasonRes[id] = x?.ok ? { data: x } : { failed: true }; })
+    .catch(() => { seasonRes[id] = { failed: true }; }).finally(paintSeason);
+}
+function seasonBody(k) {
+  const id = S().seasonOpen, ss = SEASONS.find(x => x.id === id); if (!ss) return '';
+  const r = seasonRes[id] || {}, fmt = n => k.fullDigits ? Math.floor(n).toLocaleString('ja-JP') : fmtM(n);
+  if (!r.data) return `<p class="hint">${r.failed ? '読み込めませんでした。通信できる所で、もう一度押してください。' : '読み込んでいます…'}</p>`;
+  const d = r.data, me = d.rid;
+  const list = (top, val, medal) => top?.length ? `<ol class="k-rank-list">${top.map((x, i) => `<li class="${[x.rid === me ? 'me' : '', i < 3 ? `top${i + 1}` : ''].join(' ').trim()}"><b>${medal && i < 3 ? rendaIco(i) : ''}${i + 1}位</b><span>${val(x)}</span>${x.loops ? loopTag(x.loops) : ''}${x.rid === me ? '<span class="badge">あなた</span>' : ''}</li>`).join('')}</ol>` : '<p class="hint">参加した人はいませんでした。</p>';
+  const mine = n => n ? `<p class="k-rank-me">あなたは <b>${n}位</b>でした</p>` : '';
+  return `<p class="hint">${ss.name}（${ss.label}）の結果です。おつかれさまでした！</p>
+    <h3 class="k-season-h">マークのランキング<small>期間中に稼いだマーク</small></h3>${mine(d.mark?.rank)}${list(d.mark?.top, x => `${fmt(x.total)} マーク`)}
+    <h3 class="k-season-h">🥊 連打王<small>期間中に小壺を叩いた回数</small></h3>${mine(d.renda?.rank)}${list(d.renda?.top, x => `${Number(x.taps).toLocaleString('ja-JP')} 回`, true)}`;
+}
+function paintSeason() { const b = $('k-season-body'); if (b) { b.innerHTML = seasonBody(st()); b.hidden = !S().seasonOpen; } }
 function paintRank() { const k = st(), b = $('k-rank-body'); if (b && !b.hidden) b.innerHTML = rankBody(k); const r = $('k-renda-body'); if (r) r.innerHTML = rendaBody(k); }
 
 // ミニゲームを開いたとき：離れていた間（アプリを閉じていた間・ほかの画面にいた間。最大8時間）の稼ぎを入れて、動かし始める
 export function startKotsubo() {
+  syncSeason();
   const k = st(), now = Date.now(), away = Math.min(8 * 3600e3, now - (k.lastAt || now));
   if (k.rankBase == null) k.rankBase = k.total || 0;  // ランキングの起点（この版で初めて開いたとき。留守の稼ぎより前）
   if (k.loops == null) k.loops = loopsOf(k);  // 周回の印：数え始める前に戻った人の★1を、ここで残しておく（このあと深度5まで潜っても消えないように）
@@ -419,6 +490,7 @@ let JAR = null;
 const jarArt = () => JAR || '<img src="icons/kotsubo/jar.svg" alt="小壺" draggable="false">';
 fetch('icons/kotsubo/jar.svg').then(r => r.ok ? r.text() : Promise.reject()).then(t => { JAR = t.replace(/<!--[\s\S]*?-->/g, ''); const a = $('k-art'); if (a) a.innerHTML = JAR; }).catch(() => {});
 export function viewKotsubo() {
+  syncSeason();
   const k = st(), esc = H.esc, n = S().buyN || 1;
   const nextBoss = BOSSES[k.lords || 0], d = depthOf(k), dTag = (d ? `<span class="k-depth">深度${d}</span>` : '') + loopTag(loopsOf(k)), spoils = warSpoils(k), ups = upgradesShown(k);
   const bossCard = fight ? `<div class="k-boss fighting"><div class="k-boss-h">${foeIco(foeAt(k, fight.i))}${dTag}<b>${esc(foeName(foeAt(k, fight.i)))}と戦闘中</b></div>
@@ -463,7 +535,7 @@ export function viewKotsubo() {
       <button class="primary small-primary k-rush-go" id="k-rush-go" data-act="kRushGo" ${rushHeld && !countdown ? '' : 'hidden'}>🔥 常夜ラッシュを始める</button>
       <p class="hint k-hint">小壺を叩くとマークがたまる。ときどき出る🏺（常夜の小壺）は、すぐ叩くとボーナス</p>
     </section>
-    ${spoils.w + spoils.l ? `<div class="k-spoils"><span>⚔️ 戦果ボーナス：記録した勝利${spoils.w}・敗北${spoils.l}<small>${seesScar(k) ? `どちらかで受け取れます（爪痕は記録${SCAR_PER_RUNS}戦ごとに1つ・1日${SCAR_PER_DAY}つまで。余った記録は次に残ります）` : ''}</small></span>
+    ${spoils.w + spoils.l ? `<div class="k-spoils"><span>⚔️ 戦果ボーナス：記録した勝利${spoils.w}・敗北${spoils.l}<small>${[seesScar(k) ? `どちらかで受け取れます（爪痕は記録${SCAR_PER_RUNS}戦ごとに1つ・1日${SCAR_PER_DAY}つまで。余った記録は次に残ります）` : '', essNote(k, spoils.runs.length)].filter(Boolean).join('<br>')}</small></span>
       <div class="k-spoils-btns"><button class="primary small-primary" data-act="kClaim">${fmtM(spoils.gain)} マーク</button>${seesScar(k) ? `<button class="ghost small-primary" data-act="kClaimScar" ${spoils.scars ? '' : 'disabled'}>${spoils.scars ? `🩸消えぬ爪痕 ×${spoils.scars}` : !spoils.room ? '🩸爪痕（持ちきれない）' : spoils.today <= 0 ? '🩸爪痕（今日はここまで）' : `🩸爪痕（あと${SCAR_PER_RUNS - spoils.runs.length % SCAR_PER_RUNS}戦）`}</button>` : ''}</div></div>` : ''}
     <section class="card-sec">${bossCard}<p class="hint k-scar" id="k-scar" ${scarText(k) ? '' : 'hidden'}>${scarText(k)}</p></section>
     <section class="card-sec k-items"><div class="sec-head"><h2>アイテム</h2></div><div class="k-item-list">${itemRows}</div></section>
@@ -473,6 +545,7 @@ export function viewKotsubo() {
     <section class="card-sec k-rank"><div class="sec-head"><h2>ランキング</h2><button class="chip mini" data-act="kRank" aria-pressed="${!!S().rankOpen}">${S().rankOpen ? '閉じる' : '見る'}</button></div>
       <div id="k-rank-body" ${S().rankOpen ? '' : 'hidden'}>${rankBody(k)}</div></section>
     ${Date.now() < RENDA_SHOW ? `<section class="card-sec k-rank k-renda"><div class="sec-head"><h2>🥊 連打王</h2></div><div id="k-renda-body">${rendaBody(k)}</div></section>` : ''}
+    ${pastSeasons().length ? `<section class="card-sec k-rank k-season"><div class="sec-head"><h2>🏆 シーズンの結果</h2><div class="chips">${pastSeasons().map(x => `<button class="chip mini" data-act="kSeason" data-v="${x.id}" aria-pressed="${S().seasonOpen === x.id}">${x.name}</button>`).join('')}</div></div><div id="k-season-body" ${S().seasonOpen ? '' : 'hidden'}>${seasonBody(k)}</div></section>` : ''}
     <p class="hint k-stats">これまで<br>${[`${fmtM(k.total)} マーク`, `${fmtM(k.taps)} 回叩いた`, `常夜の小壺 ${k.jars || 0} 回`, `討伐 ${k.lords || 0}/${BOSSES.length}`, d ? `深度${d}` : ''].filter(Boolean).join('<br>')}</p>
     <button class="link-btn dim-link k-reset ${S().confirmReset ? 'danger-text' : ''}" data-act="kReset">${S().confirmReset ? 'もう一度押すと、小壺のデータを最初からにします' : '最初からやり直す'}</button>
   </div>`;
@@ -559,6 +632,9 @@ export function kotsuboAct(a, v) {
     if (ui.rankOpen) { paintRank(); loadRank(false); }
     return false;
   }
+  if (a === 'kSeason') { const ui = S(); ui.seasonOpen = ui.seasonOpen === v ? null : v;
+    document.querySelectorAll('[data-act="kSeason"]').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.v === ui.seasonOpen)));
+    if (ui.seasonOpen) loadSeason(ui.seasonOpen); paintSeason(); return false; }
   if (a === 'kRankJoin') { k.rankJoin = true; H.save(); paintRank(); rankSend(true); return false; }
   if (a === 'kRankLeave') {
     if (ui.rankConfirm !== 'leave') { ui.rankConfirm = 'leave'; paintRank(); return false; }
@@ -654,14 +730,14 @@ export function kotsuboAct(a, v) {
     if (k.depth > SCAR_KEEP_DEPTH) { itemsOf(k).scar = 0; itemsOf(k).rush = 0; }  // 消えぬ爪痕・常夜の香は深度3までしか持ち越せない（深度4・5へ潜るときに消える）
     H.toast(`深き壺に潜った…深度${k.depth}。稼ぎは${fmtX(globalMult(k))}倍から`); H.save(); return true;
   }
-  if (a === 'kClaim') { const s = warSpoils(k); gain(k, s.gain); k.claimAt = Date.now(); H.toast(`戦果ボーナス ${fmtM(s.gain)} マーク！`); return true; }
+  if (a === 'kClaim') { const s = warSpoils(k); gain(k, s.gain); k.claimAt = Date.now(); const e = giveEss(k, s.runs.length); H.toast(`戦果ボーナス ${fmtM(s.gain)} マーク！${essToast(e)}`); H.save(); return true; }
   // 爪痕で受け取る：古い記録から（爪痕の数×SCAR_PER_RUNS）戦ぶんを使い、使った最後の記録の時刻までを受け取り済みにする
   if (a === 'kClaimScar') {
     const s = warSpoils(k); if (!s.scars || !seesScar(k)) return false;
     const used = s.runs.slice().reverse().slice(0, s.scars * SCAR_PER_RUNS);
     const got = giveItem(k, 'scar', s.scars); k.claimAt = madeAt(used[used.length - 1]);
-    k.scarDay = { day: jstDay(), n: scarTodayOf(k) + s.scars };
-    H.toast(`戦果ボーナス：🩸消えぬ爪痕を${got}つ手に入れた`); H.save(); return true;
+    k.scarDay = { day: jstDay(), n: scarTodayOf(k) + s.scars }; const e = giveEss(k, used.length);
+    H.toast(`戦果ボーナス：🩸消えぬ爪痕を${got}つ手に入れた${essToast(e)}`); H.save(); return true;
   }
   if (a === 'kReset') {
     if (!ui.confirmReset) { ui.confirmReset = true; return true; }

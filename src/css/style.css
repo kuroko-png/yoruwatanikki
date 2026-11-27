@@ -1483,3 +1483,59 @@ i.ico { display: inline-block; background-position: center; background-size: con
 .ptr.back { transition: transform .25s cubic-bezier(.2, .8, .2, 1), opacity .2s ease-out; }
 .ptr.settle { transition: transform .2s cubic-bezier(.2, .8, .2, 1); }
 .ptr-ico line { transition: none; }
+/* 統計の早見表：一番右の列と一番下の行に合計「ALL」（その夜の王・その夜渡りの全体） */
+.mx { grid-template-columns: 24px repeat(11, minmax(0, 1fr)); }
+.mx-sum-h { font-size: 8.5px; font-weight: 900; letter-spacing: -.06em; color: var(--accent); }
+.mx-r.mx-sum-h { font-size: 9px; }
+.mx-cell.sum { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+/* 記録の「条件」：行の余白と区切り線を減らして詰める。夜の王とモードは、入る幅なら1行に並べる */
+.cond-card { padding-top: 8px; padding-bottom: 6px; }
+.cond-card .cond-row { padding: 4px 0; border-top: 0; gap: 8px; }
+.cond-card .cond-row .k { width: 50px; font-size: 13px; white-space: nowrap; }
+.cond-card .cond-row.need .k::after { margin-left: 2px; }
+.cond-pair { display: flex; flex-wrap: wrap; column-gap: 14px; }
+.cond-pair .cond-row { flex: 0 1 auto; }
+.cond-pair .cond-row + .cond-row .k { width: auto; }
+.cond-card .chip.small { padding: 5px 11px; }
+.cond-card .cond-memo { margin: 2px 0 0; }
+/* 記録：ビルドなしのときの「型」（かんたんな型） */
+.quick-style { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; }
+.quick-style .k { flex: none; font-size: 12.5px; color: var(--dim); }
+.quick-style .chips { gap: 6px; min-width: 0; }
+.quick-style { align-items: flex-start; }
+.quick-style .k { padding-top: 6px; }
+.quick-style .chips { flex-wrap: wrap; }
+.cond-card .lv-sel { padding: 5px 24px 5px 10px; background-position: right 8px center; font-size: 12.5px; }
+.cond-card .cond-row:has(.lv-sel) .chips { flex-wrap: nowrap; }
+.cond-pair + .cond-row { margin-top: 0; }
+@media (max-width: 340px) { .cond-card .cond-row .k { width: 44px; } .cond-card .cond-row { gap: 6px; } .cond-card .chip.small { padding: 5px 9px; } }
+.cond-card { row-gap: 2px; }
+.cond-pair { row-gap: 2px; }
+.quick-style .qs-body { display: grid; gap: 6px; min-width: 0; flex: 1; }
+.quick-style .subpanel { margin: 0; padding: 8px; display: grid; gap: 6px; }
+/* 記録の「条件」：項目名の幅をそろえ、ボタンの出だしを同じ位置にする。深度は「深き夜」の右隣に出す（入らなければ次の行） */
+.cond-card .cond-row .k, .quick-style .k { width: 50px; flex: none; }
+.cond-card .cond-row > .chips { flex: 1; }
+.depth-pick { display: inline-flex; gap: 4px; }
+.depth-pick .chip.dchip { min-width: 28px; padding-left: 0; padding-right: 0; justify-content: center; }
+.cond-row:has(.depth-pick) .chips { flex-wrap: wrap; }
+@media (max-width: 340px) { .cond-card .cond-row .k, .quick-style .k { width: 44px; } }
+.depth-pick { gap: 3px; }
+.depth-pick .chip.dchip { min-width: 25px; }
+.cond-row:has(.depth-pick) .chip.small { padding-left: 9px; padding-right: 9px; }
+.cond-row:has(.depth-pick) .chip.small.dchip { padding-left: 0; padding-right: 0; }
+.cond-row:has(.depth-pick) { align-items: flex-start; }
+.cond-row:has(.depth-pick) .k { padding-top: 7px; }
+/* 壺渡り：終わったシーズンの結果 */
+.k-season-h { margin: 14px 0 4px; font-size: 14px; display: flex; align-items: baseline; gap: 8px; }
+.k-season-h:first-of-type { margin-top: 6px; }
+.k-season-h small { font-size: 11.5px; font-weight: 500; color: var(--dim); }
+/* 統計の型：中の型（押すと武器と公開ビルドが開く） */
+.rk-subrow.tap { width: 100%; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.rk-subrow.tap .go { margin-left: 6px; color: var(--dim); }
+.rk-subrow small { color: var(--dim); font-weight: 500; }
+.rk-sub2 { margin: 2px 0 8px 12px; padding-left: 10px; border-left: 2px solid var(--line); }
+.rk-pub { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 4px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--fg); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.rk-pub .ico { width: 18px; height: 18px; margin: 0; }
+.rk-pub span:not(.go) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rk-pub .go { color: var(--dim); }
