@@ -1539,3 +1539,37 @@ i.ico { display: inline-block; background-position: center; background-size: con
 .rk-pub .ico { width: 18px; height: 18px; margin: 0; }
 .rk-pub span:not(.go) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rk-pub .go { color: var(--dim); }
+
+/* 壺渡りのアイテム：上限（/8）は小さく */
+.k-item-main i small { font-size: 10.5px; font-weight: 500; color: var(--dim); margin-left: 1px; }
+
+/* 壺渡り：数の単位の早見表（「!」から開く） */
+.k-mark .k-info { align-self: center; margin-left: 2px; }
+.k-unit-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.k-unit-list li { border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; background: rgba(255,255,255,.03); }
+.k-unit-list li.now { border-color: var(--accent); background: rgba(255,255,255,.08); }
+.k-unit-h { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.k-unit-h b { font-size: 17px; color: var(--accent); }
+.k-unit-yomi { font-size: 12px; color: var(--dim); }
+.k-unit-e { margin-left: auto; font-size: 12px; font-variant-numeric: tabular-nums; }
+.k-unit-list p { margin: 4px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--fg); }
+
+/* 壺の主：4つの王の切り替えと、10人ごとのページ */
+.k-boards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 8px; }
+.k-boards button { padding: 8px 4px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255,255,255,.04); color: var(--fg); font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+.k-boards button.k-board-master { grid-column: 1 / -1; font-size: 14px; font-weight: 700; }
+.k-boards button[aria-selected="true"] { border-color: var(--accent); color: var(--accent); background: rgba(255,255,255,.09); font-weight: 700; }
+.k-pager { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 12.5px; color: var(--dim); }
+.k-pager .chip:disabled { opacity: .35; }
+.k-pager-me { display: block; margin: 6px auto 0; }
+/* 壺の主の一覧も、1〜3位を金・銀・銅の色に */
+.k-boards ~ .k-rank-list li.top1 { background: linear-gradient(90deg, rgba(240,190,70,.22), rgba(240,190,70,.05)); border: 1px solid rgba(240,190,70,.55); }
+.k-boards ~ .k-rank-list li.top1 b { color: #f5cf6b; }
+.k-boards ~ .k-rank-list li.top2 { background: linear-gradient(90deg, rgba(200,210,225,.18), rgba(200,210,225,.04)); border: 1px solid rgba(200,210,225,.45); }
+.k-boards ~ .k-rank-list li.top2 b { color: #d5dce8; }
+.k-boards ~ .k-rank-list li.top3 { background: linear-gradient(90deg, rgba(205,127,70,.2), rgba(205,127,70,.04)); border: 1px solid rgba(205,127,70,.5); }
+.k-boards ~ .k-rank-list li.top3 b { color: #e0a374; }
+/* 壺の主：🔰（まだ深き壺を開けていない人） */
+.k-nb { font-size: 13px; line-height: 1; }
+.k-nb-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 2px 0 4px; }
+.k-board-info { margin: 2px 0 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.04); }

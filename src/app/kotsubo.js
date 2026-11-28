@@ -76,7 +76,7 @@ const CHAR_FLAVOR = {
   scholar: ['学者は、壺を叩く前に壺を測る。\n\n数えること。比べること。\nそして、増やすこと', '学者の手帳の、最後の頁。\nそこには、ただ一行だけが残されていた。\n\n「マークは、マークを生む」'],
   undertaker: ['葬儀屋は、眠ったマークの在処を知っている。\n\n土の下にも、稼ぎはある。\n弔いとは、掘り起こすことでもある', '弔われたものは、ふたたび掘り起こされる。\n\nそれが慈悲か、冒涜か。\n葬儀屋は、問わない'],
 };
-// 夜渡りの真髄（最終強化の遺物。隠し要素：遊び方・アップデート情報・戦果ボーナスの欄では名前を出さない）：記録タブの記録 ESS_PER_RUNS 戦ごとに、まだ持っていない夜渡りの真髄が1つ、ランダムで手に入る（戦果ボーナスを受け取ったときに数える）。
+// 夜渡りの真髄（最終強化の遺物。隠し要素：遊び方・アップデート情報・戦果ボーナスの欄では名前を出さない）：記録タブの記録 ESS_PER_RUNS 戦ごとに、まだ持っていない夜渡りの真髄が1つ、追跡者から順に（安い夜渡りから）手に入る（戦果ボーナスを受け取ったときに数える）。
 // 1日（日本時間）に ESS_PER_DAY 個まで。買うことはできない。潜っても、最初からやり直さない限り消えない（k.ups['ess:<夜渡り>']）。
 // 効果は「雇ったその夜渡り1人につき、毎秒マーク +ESS_P」。安い夜渡りほどたくさん雇えるので、追跡者や守護者のような下位の夜渡りを雇い足すことにも意味が出る（葬儀屋の真髄は控えめ）。
 // 強くなりすぎないように、夜の王の体力も「真髄で上がった倍率の平方根」だけ上げる（essHp）
@@ -104,7 +104,7 @@ function giveEss(k, runs) {
   k.essRuns = (k.essRuns || 0) + runs;
   while (k.essRuns >= ESS_PER_RUNS && essTodayOf(k) < ESS_PER_DAY) {
     const left = HIRE.map(([id]) => id).filter(id => !k.ups[`ess:${id}`]); if (!left.length) break;
-    const id = left[Math.floor(Math.random() * left.length)];
+    const id = left[0];  // 追跡者から順に（安い夜渡りから。人数が多いほどよく効くので、最初の1つからすぐ役に立つ）
     k.ups[`ess:${id}`] = 1; k.essRuns -= ESS_PER_RUNS; k.essDay = { day: jstDay(), n: essTodayOf(k) + 1 }; got.push(id);
   }
   if (essOwned(k).length >= HIRE.length) k.essRuns = 0;
@@ -127,7 +127,7 @@ const itemsOf = k => { const it = (k.items ||= {}); for (const id in it) if (it[
 // アイテムの行（持っている数・使えるか）だけを書き換える
 function paintItem(k, id) {
   const c = $(`k-item-${id}`); if (!c) return;
-  const n = itemsOf(k)[id] || 0, row = c.closest('.k-item'); c.textContent = n; row?.classList.toggle('none', !n);
+  const n = itemsOf(k)[id] || 0, row = c.closest('.k-item'); c.innerHTML = `${n}<small>/${ITEM_MAX}</small>`; row?.classList.toggle('none', !n);
   const b = row?.querySelector('.k-use'); if (b) b.disabled = !n || itemOff(k, id);
 }
 // 1回の夜の王との戦いで使えるアイテムは、種類ごとに1つまで（香と爪痕は一緒に使える）
@@ -172,7 +172,7 @@ function orderOf(k) { if (!depthOf(k)) return null; if (!Array.isArray(k.order) 
 const foeAt = (k, i) => orderOf(k)?.[i] || { id: BOSSES[i][0], ever: false };
 const foeName = f => `${f.ever ? '常夜の' : ''}${H.LORD[f.id]?.name ?? f.id}`;
 const foeIco = f => H.ico('lord', f.id, f.ever);
-const bossHp = (k, i) => BOSSES[i][1] * DEPTH_HP[depthOf(k)] * essHp(k) * (i === (k.lords || 0) ? weakOf(k) : 1);
+const bossHp = (k, i) => BOSSES[i][1] * DEPTH_HP[depthOf(k)] * essHp(k) * Math.sqrt(loopMult(k)) * (i === (k.lords || 0) ? weakOf(k) : 1);
 const FIGHT_SEC = 30, FIGHT_TAP = 10;  // 戦いでは、叩く力の10倍のダメージ
 // 夜渡りの加勢：戦いで1回叩くたびに、雇った夜渡りの毎秒マークの2%も上乗せ（×10）。1秒に5回叩くと、毎秒マークと同じくらい削れる。
 // 夜渡りは自分では戦わない（叩かないと勝てない）が、雇うほど1回の叩きが重くなる
@@ -189,7 +189,10 @@ const st = () => {
 // ---------- 数え方 ----------
 const hireMult = (k, id) => (k.ups[`h10:${id}`] ? 2 : 1) * (k.ups[`h25:${id}`] ? 2 : 1);
 // 夜の王の討伐ボーナス（前の周回の分 bank も含む）×深度の稼ぎ
-const globalMult = k => Math.pow(1.25, (k.bank || 0) + (k.lords || 0)) * DEPTH_GAIN[depthOf(k)];
+// 周回の加護（シーズン2から）：★1つごとに、すべての稼ぎ（叩く力も）が10倍。夜の王の体力は、その平方根だけ上げる（真髄と同じ考え方）
+const LOOP_GAIN = 10, loopOn = () => H.devHost || Date.now() >= LORDS_FROM;
+const loopMult = k => loopOn() ? Math.pow(LOOP_GAIN, loopsOf(k)) : 1;
+const globalMult = k => Math.pow(1.25, (k.bank || 0) + (k.lords || 0)) * DEPTH_GAIN[depthOf(k)] * loopMult(k);
 const prodOf = k => HIRE.reduce((a, [id, , base]) => a + (k.hires[id] || 0) * base * hireMult(k, id), 0) * globalMult(k) * essMult(k);
 const tapOf = k => { const p = prodOf(k); return ((k.ups.tap1 ? 2 : 1) * (k.ups.tap2 ? 2 : 1) * (k.ups.tap5 ? 3 : 1) * globalMult(k) + p * ((k.ups.tap3 ? .01 : 0) + (k.ups.tap4 ? .03 : 0))) * (rushUntil > Date.now() ? 7 : 1); };
 // 深き壺では、雇う値段（心得・極意も）を、その深度の稼ぎの倍率（潜る前の討伐ボーナス×深度の倍率）と同じだけ高くする。
@@ -197,6 +200,26 @@ const tapOf = k => { const p = prodOf(k); return ((k.ups.tap1 ? 2 : 1) * (k.ups.
 // こうすると、深度ごとの「稼ぎ・値段・夜の王の硬さ」の釣り合いが1周目と同じになり、潜るたびに一から積み上げ直す形になる
 const priceMult = k => depthOf(k) ? Math.pow(1.25, k.bank || 0) * DEPTH_GAIN[depthOf(k)] : 1;
 const priceOf = (i, owned, n = 1, m = 1, up = PRICE_UP) => { let s = 0; for (let j = 0; j < n; j++) s += Math.ceil(HIRE[i][1] * m * Math.pow(up, owned + j)); return s; };
+// 「!」で開く、数の単位の早見表：[10の何乗, 漢字, 読み, ひとこと（たとえは大まかな数）]
+const UNIT_INFO = [
+  [4, '万', 'まん', '1万戦を記録しようとすると、毎日10戦でも3年かかる。'],
+  [8, '億', 'おく', '日本の人口がだいたい1.2億人。全員に1マークずつ配れる。'],
+  [12, '兆', 'ちょう', '日本の国の1年の予算が、だいたい100兆円。'],
+  [16, '京', 'けい', 'スーパーコンピューター「京」は、1秒に1京回計算できるのが名前の由来。'],
+  [20, '垓', 'がい', '地球の海の水が、だいたい13垓リットル。小壺には入りきらない。'],
+  [24, '秭', 'じょ', '地球の重さが、だいたい6秭キログラム。'],
+  [28, '穣', 'じょう', '太陽の重さが、だいたい200穣キログラム。'],
+  [32, '溝', 'こう', 'ここから先は何かに例えるのも難しいくらい大きいので、雑学にします。'],
+  [36, '澗', 'かん', '「溝」も「澗」も水の流れの字。マークはもう川になった。'],
+  [40, '正', 'せい', '数を数えるときに書く「正」の字と同じ字。5画で5を数えられる。'],
+  [44, '載', 'さい', '「載」は、もともと「のせる」という意味の字。'],
+  [48, '極', 'ごく', '名前のとおり「極み」。昔は、ここが一番大きな単位だったことも。'],
+  [52, '恒河沙', 'ごうがしゃ', '「ガンジス川の砂の数」という意味。ここから仏教の言葉の世界。'],
+  [56, '阿僧祇', 'あそうぎ', '「数えられない」という意味。数えられないのに単位がある。'],
+  [60, '那由他', 'なゆた', 'インドの古い言葉（サンスクリット語）の「ナユタ」から来ている。'],
+  [64, '不可思議', 'ふかしぎ', '「思いはかることもできない」という意味。「不思議」という言葉のもとになったと言われる。'],
+  [68, '無量大数', 'むりょうたいすう', 'はかりようがない、いちばん上の単位。この先は「◯◯無量大数」と数える。見える宇宙ぜんぶの原子でも、約1兆無量大数個と言われる。'],
+];
 // 大きな数は「1.2万」「3.4億」のように
 export function fmtM(n) {
   n = Math.floor(n);
@@ -213,12 +236,15 @@ const digitsLabel = k => k.fullDigits ? '単位で表示' : 'すべての桁で�
 const fmtRate = n => n < 10 ? n.toFixed(1) : fmtM(n);
 const fmtX = n => n < 100 ? String(+n.toFixed(2)) : fmtM(n);  // 倍率（1.25倍・1.56倍…）
 // 遺物（夜渡りの強化を含む）で、今買えるようになっているもの
+// 極意の値段＝その夜渡りの元の値段×KIWAMI_X（×深度の倍率）。葬儀屋だけ v64 で1500→60（どの深度でも高すぎて買えなかったため。葬儀屋をあと1人雇うのと同じくらいの値段）
+const KIWAMI_X = 1500, KIWAMI_ONE = { undertaker: 60 };
+const kiwamiX = (k, id) => KIWAMI_ONE[id] || KIWAMI_X;
 function upgradesShown(k) {
   const list = RELICS.filter(([id, , , , need]) => !k.ups[id] && k.total >= need).map(([id, name, desc, cost]) => ({ id, name, desc, cost }));
   HIRE.forEach(([id, base], i) => {
     const n = k.hires[id] || 0, nm = H.CHAR[id]?.name || id;
     if (n >= 10 && !k.ups[`h10:${id}`]) list.push({ id: `h10:${id}`, name: `${nm}の心得`, desc: `${nm}の稼ぎが2倍`, cost: base * 60 * priceMult(k), char: id });
-    if (n >= 25 && !k.ups[`h25:${id}`]) list.push({ id: `h25:${id}`, name: `${nm}の極意`, desc: `${nm}の稼ぎがさらに2倍`, cost: base * 1500 * priceMult(k), char: id });
+    if (n >= 25 && !k.ups[`h25:${id}`]) list.push({ id: `h25:${id}`, name: `${nm}の極意`, desc: `${nm}の稼ぎがさらに2倍`, cost: base * kiwamiX(k, id) * priceMult(k), char: id });
   });
   return list.sort((a, b) => a.cost - b.cost);
 }
@@ -257,7 +283,7 @@ function tick() {
   // ミニゲームの画面を開いていないときは、何もしない（端末への保存もしない）。
   // 離れた瞬間に、戦いと常夜の小壺はお知らせなしで終わらせ、離れた時刻を残す（稼ぎは、次に開いたときに「留守の間」としてまとめて入れる）
   if (H.tab() !== 'kotsubo') {
-    if (onTab) { onTab = false; closePrep(); stopCountdown(); rushHeld = false; setLock(false); fight = null; rushUntil = itemRushUntil = 0; if (jar) { $('k-jar')?.remove(); jar = null; nextJarAt = 0; } st().lastAt = now; H.save(); rankSend(true); }
+    if (onTab) { onTab = false; closePrep(); closeUnits(); stopCountdown(); rushHeld = false; setLock(false); fight = null; rushUntil = itemRushUntil = 0; if (jar) { $('k-jar')?.remove(); jar = null; nextJarAt = 0; } st().lastAt = now; H.save(); rankSend(true); }
     return;
   }
   rankSend(false);  // ランキングに参加していれば、5分に1回送る
@@ -326,7 +352,7 @@ function tapJar(e) {
 }
 function endFight(win) {
   const k = st(), f = fight; fight = null;
-  if (win) { k.lords = Math.max(k.lords || 0, f.i + 1); k.lordAt = Date.now(); k.scarHp = null;
+  if (win) { k.lords = Math.max(k.lords || 0, f.i + 1); k.lordAt = Date.now(); k.scarHp = null; addKillPts(k);
     // 落ちたアイテム：持ちきれない（8個）ものは、手に入らなかったことだけを添える
     const drop = ITEMS.filter(([id]) => Math.random() < ITEM_DROP[id].lord || (id === 'scar' && foeAt(k, f.i).ever)), got = [], full = [];
     drop.forEach(x => (giveItem(k, x[0]) ? got : full).push(x[1] + x[2]));
@@ -373,8 +399,8 @@ let rankSentAt = 0, rankList = null, rankListAt = 0, rankLoading = false, rankFa
 // シーズン：開催ごとに1行足す（受け取り口 tools/online/apps_script.gs の SEASONS と同じにする）。今のシーズン＝始まりが今より前のうち、いちばん新しいもの。
 // 終わったシーズンの結果は、壺渡りの「シーズンの結果」のボタンから見られる（受け取り口の season_result）
 const SEASONS = [
-  { id: '2026-11-26', name: 'シーズン1', label: '11/26（木）12:00〜12/3（木）11:59', start: Date.parse('2026-11-26T12:00:00+09:00'), end: Date.parse('2026-12-03T11:59:00+09:00') },
-  { id: '2026-12-03', name: 'シーズン2', label: '12/3（木）12:00〜12/10（木）11:59', start: Date.parse('2026-12-03T12:00:00+09:00'), end: Date.parse('2026-12-10T11:59:00+09:00') },
+  { id: '2026-11-26', name: 'シーズン1', label: '11/26（木）12:00〜11/29（日）23:59', start: Date.parse('2026-11-26T12:00:00+09:00'), end: Date.parse('2026-11-29T23:59:00+09:00') },
+  { id: '2026-11-30', name: 'シーズン2', label: '11/30（月）0:00〜12/6（日）23:59', start: Date.parse('2026-11-30T00:00:00+09:00'), end: Date.parse('2026-12-06T23:59:00+09:00') },
 ];
 const curSeason = () => SEASONS.filter(x => x.start <= Date.now()).pop() || SEASONS[0];
 let RENDA = curSeason(), RENDA_SHOW = RENDA.end + 7 * 86400e3;
@@ -392,6 +418,71 @@ const rendaIco = i => i === 0
 // 期間が終わったら、受け取り口がそのときの数字で止める（結果は連打王と同じく1週間出す）
 let SEASON = RENDA;
 function seasonBase(k) { if (Date.now() >= SEASON.start && k.rankSeason !== SEASON.id) { k.rankSeason = SEASON.id; k.rankBase = k.total || 0; } }
+// ── 壺の主（シーズン2から）：総合の「壺の主」と、その下の「マーク王」「連打王」「周回王」 ──
+// 周回王＝そのシーズンに倒した夜の王の点数（1体10点。深度1つにつき＋2点、★1つにつき＋5点）
+// 壺の主＝決まった点数の足し算：夜の王の点（周回王と同じ）＋ 小壺1万回で4点 ＋ マークの桁1つで6点（全員を足すと、周回45%・連打30%・マーク25%くらい。ずれてきたらシーズンの終わりに見直す）
+// 🔰＝まだ深き壺を開けていない人（1周目の夜の王を倒しきっていない）。🔰だけの順位も見られる
+// 周回王で数える討伐は1日10体まで（★が増えるほど速く倒せるので、何周もして点が青天井にならないように）
+// 受け取り口が一覧（boards）を返してきたときだけ、この形で出す（返さない間は、今までのランキングのまま）。開発用の画面では見本を出す
+const LORDS_FROM = Date.parse('2026-11-30T00:00:00+09:00');
+const KILL_PT = 10, KILL_DEPTH = 2, KILL_LOOP = 5, KILL_PER_DAY = 10, MASTER_TAPS = 2500, MASTER_DIGIT = 6;
+const killPt = (d, loops) => KILL_PT + KILL_DEPTH * d + KILL_LOOP * loops;
+const seasonPts = k => k.sp && k.sp.id === SEASON.id ? k.sp : { id: SEASON.id, pts: 0, kills: 0 };
+function addKillPts(k) {
+  const t = Date.now(); if (!H.devHost && (t < SEASON.start || t >= SEASON.end)) return;
+  const sp = seasonPts(k), day = jstDay(), today = sp.day === day ? sp.today || 0 : 0;
+  if (today >= KILL_PER_DAY) return;  // 今日はもう10体数えた
+  k.sp = { id: SEASON.id, pts: Math.round((sp.pts + killPt(depthOf(k), loopsOf(k))) * 10) / 10, kills: sp.kills + 1, day, today: today + 1 };
+}
+const digitsOf = n => n >= 1 ? Math.floor(Math.log10(n)) + 1 : 0;
+// 壺の主の点（ppl＝{ mark, taps, pts } の一覧。受け取り口でも同じ数え方をする）
+function masterPts(ppl) { ppl.forEach(x => { x.master = Math.round((x.pts + x.taps / MASTER_TAPS + MASTER_DIGIT * digitsOf(x.mark)) * 10) / 10; }); }
+const isNewbie = k => maxDepthOf(k) === 0 && (k.lords || 0) < BOSSES.length;  // 🔰：まだ深き壺を開けていない
+const BOARDS = [
+  ['master', '👑 壺の主', '総合の王。夜の王を1体倒すと10点（深度1つにつき＋2点、★1つにつき＋5点）／小壺を1万回叩くと4点／マークの桁が1つ増えると6点'],
+  ['mark', '💰 マーク王', 'シーズンの間に稼いだマーク'],
+  ['renda', '🥊 連打王', 'シーズンの間に小壺を叩いた回数（夜の王との戦いの中も数えます）'],
+  ['loop', '🔁 周回王', '夜の王を1体倒すと10点（深度1つにつき＋2点、★1つにつき＋5点）。数えるのは1日10体まで'],
+];
+const PAGE = 10;
+// 開発用：20人が参加している想定の見本（自分は、この端末の本当の数字で入る）。[★, 深度, マーク, 連打, 倒した夜の王]
+function devBoards(k) {
+  const ppl = [[3, 5, 1e44, 480000, 30], [2, 5, 3e40, 260000, 24], [1, 5, 8e37, 520000, 18], [1, 4, 2e33, 150000, 14], [0, 5, 6e31, 90000, 6], [0, 4, 9e29, 310000, 9],
+    [0, 4, 3e28, 60000, 7], [0, 3, 5e24, 210000, 12], [0, 3, 7e22, 40000, 10], [0, 2, 1e19, 180000, 15], [0, 2, 4e17, 20000, 9], [0, 1, 9e13, 330000, 18],
+    [0, 1, 2e12, 12000, 11], [0, 0, 5e9, 260000, 10], [0, 0, 8e8, 70000, 10], [0, 0, 3e7, 5000, 8], [0, 0, 9e5, 120000, 5], [0, 0, 4e4, 800, 3], [0, 0, 2e3, 30, 1]]
+    .map(([loops, d, mark, taps, kills], i) => ({ rid: `dev-${i}`, loops, nb: !loops && !d && kills < 10, mark, taps, pts: Math.round(kills * killPt(d, loops) * 10) / 10 }));
+  const sp = seasonPts(k); ppl.push({ rid: 'dev-me', loops: loopsOf(k), nb: isNewbie(k), mark: rankValue(k), taps: rendaOf(k), pts: sp.pts });
+  masterPts(ppl);
+  const by = key => ppl.map(x => ({ rid: x.rid, loops: x.loops, nb: x.nb, v: x[key] })).filter(x => x.v > 0 || x.rid === 'dev-me').sort((a, b) => b.v - a.v);
+  return { master: by('master'), mark: by('mark'), renda: by('taps'), loop: by('pts') };
+}
+const boardsOn = () => !!(rankList && rankList.boards);
+// 別の「連打王」の欄をしまうか（壺の主の一覧が来たとき。シーズン2からは、参加する前も「ランキングに参加する」1つにまとめる）
+const rendaBoxOff = k => boardsOn() || (loopOn() && !k.rankJoin);
+const boardId = () => BOARDS.some(b => b[0] === S().board) ? S().board : 'master';
+function lordsBody(k) {
+  const ui = S(), id = boardId(), b = BOARDS.find(x => x[0] === id), all = rankList.boards[id] || [], nbOnly = !!ui.nbOnly, list = nbOnly ? all.filter(x => x.nb) : all;
+  const me = k.rankMe?.rid, idx = list.findIndex(x => x.rid === me), pages = Math.max(1, Math.ceil(list.length / PAGE));
+  const page = Math.min(pages - 1, Math.max(0, ui.page ?? (idx >= 0 ? Math.floor(idx / PAGE) : 0)));
+  const fmt = n => k.fullDigits ? Math.floor(n).toLocaleString('ja-JP') : fmtM(n);
+  const val = v => id === 'mark' ? `${fmt(v)} マーク` : id === 'renda' ? `${Math.floor(v).toLocaleString('ja-JP')} 回` : `${(+v).toLocaleString('ja-JP', { maximumFractionDigits: 1 })} 点`;
+  const sp = seasonPts(k), mineV = id === 'master' ? all.find(x => x.rid === me)?.v ?? 0 : { mark: rankValue(k), renda: rendaOf(k), loop: sp.pts }[id];
+  const admin = !!H.adminKey?.();
+  const adm = x => admin && x.rid !== me ? ['rank_del', 'rank_ban'].map(op => { const key = `${op}:${x.rid}`; return `<button class="link-btn k-rank-adm" data-act="kRankAdmin" data-v="${key}">${ui.rankConfirm === key ? 'もう一度押す' : op === 'rank_del' ? '消す' : '締め出す'}</button>`; }).join('') : '';
+  const rows = list.slice(page * PAGE, page * PAGE + PAGE).map((x, j) => { const i = page * PAGE + j, self = x.rid === me;
+    return `<li class="${[self ? 'me' : '', i < 3 ? `top${i + 1}` : ''].join(' ').trim()}"><b>${id === 'renda' && i < 3 ? rendaIco(i) : ''}${i + 1}位</b><span>${val(x.v)}</span>${loopTag(x.loops)}${x.nb ? '<span class="k-nb" title="まだ深き壺を開けていない人">🔰</span>' : ''}${self ? '<span class="badge">あなた</span>' : ''}${adm(x)}</li>`; }).join('');
+  const pager = pages > 1 ? `<div class="k-pager"><button class="chip mini" data-act="kPage" data-v="prev" ${page ? '' : 'disabled'}>‹ 前の10人</button><span>${page * PAGE + 1}〜${Math.min(list.length, page * PAGE + PAGE)}位</span><button class="chip mini" data-act="kPage" data-v="next" ${page < pages - 1 ? '' : 'disabled'}>次の10人 ›</button></div>`
+    + (idx >= 0 && Math.floor(idx / PAGE) !== page ? '<button class="link-btn k-pager-me" data-act="kPage" data-v="me">自分の順位へ</button>' : '') : '';
+  const now = Date.now();
+  return `<div class="k-boards" role="tablist">${BOARDS.map(([bid, label]) => `<button role="tab" data-act="kBoard" data-v="${bid}" aria-selected="${bid === id}" class="${bid === 'master' ? 'k-board-master' : ''}">${label}</button>`).join('')}</div>
+    <div class="k-nb-row"><button class="chip mini" data-act="kNbOnly" aria-pressed="${nbOnly}">🔰だけ見る</button><button class="k-info" data-act="kBoardInfo" aria-expanded="${!!ui.boardInfo}" aria-label="点数の説明" title="説明">!</button></div>
+    ${ui.boardInfo ? `<p class="hint k-board-info">${b[2].replace(/／/g, '<br>')}<br>${SEASON.name}（${SEASON.label}）${now >= SEASON.end ? '。終わりました。おつかれさまでした！' : ''}<br>🔰＝まだ深き壺を開けていない人</p>` : ''}
+    ${now >= SEASON.end ? '<p class="hint">このシーズンは終わりました。おつかれさまでした！</p>' : ''}
+    <p class="k-rank-me">${nbOnly ? '🔰の中で、' : ''}あなたは <b>${idx >= 0 ? `${idx + 1}位` : nbOnly ? '（🔰ではありません）' : '-'}</b>${idx >= 0 ? `（${val(mineV)}）` : ''}</p>
+    ${list.length ? `<ol class="k-rank-list">${rows}</ol>${pager}` : `<p class="hint">${nbOnly ? '🔰の人は、まだいません。' : 'まだ誰も参加していません。'}</p>`}
+    ${id === 'renda' ? '<p class="k-renda-note">連打ツールに縋るなかれ。<br>絡繰の指で玉座に就こうとも、誰も汝を王とは認めぬ。<br>鍛え上げし己が指で、壺を叩け。</p>' : ''}
+    <button class="link-btn dim-link k-rank-leave" data-act="kRankLeave">${ui.rankConfirm === 'leave' ? 'もう一度押すと、ランキングから抜けます' : 'ランキングから抜ける'}</button>`;
+}
 // 開発用の画面では本物に送らず、見本の順位・一覧を出す
 const DEV_RANK = () => ({ top: [9.1e33, 4.2e30, 7.7e27, 3.3e24, 8e20, 5.5e17, 2.1e15, 6e12, 9e10, 3e9].map((t, i) => ({ rid: i === 2 ? 'dev-me' : `dev-${i}`, total: t, loops: [3, 1][i] || 0 })) });
 const DEV_RENDA = () => ({ rank: 4, accepted: true, top: [98765, 54321, 32100, 20480, 12000, 8800, 5000, 3210, 1500, 900].map((n, i) => ({ rid: i === 3 ? 'dev-me' : `dev-${i}`, taps: n })) });
@@ -400,16 +491,16 @@ function rankSend(force) {
   syncSeason(); const k = st(); seasonBase(k); if (!k.rankJoin || rankLoading) return;
   if (!force && Date.now() - rankSentAt < RANK_SEND_GAP) return;
   rankSentAt = Date.now();
-  if (H.devHost) { k.rankMe = { rank: 3, rid: 'dev-me', accepted: true, at: Date.now() }; rankList = DEV_RANK(); rankListAt = Date.now();
+  if (H.devHost) { k.rankMe = { rank: 3, rid: 'dev-me', accepted: true, at: Date.now() }; rankList = DEV_RANK(); rankList.boards = devBoards(k); rankListAt = Date.now();
     if (Date.now() >= RENDA.start) { const d = DEV_RENDA(); k.rendaMe = { rank: d.rank, accepted: true }; rendaList = { top: d.top }; } paintRank(); return; }
   if (!navigator.onLine) { rankFailed = true; paintRank(); return; }
   rankLoading = true; rankFailed = false;
   const now = Date.now(), renda = now >= RENDA.start && now < RENDA_SHOW ? { rendaId: RENDA.id, renda: rendaOf(k) } : {};
-  const season = k.rankSeason === SEASON.id ? { season: SEASON.id } : {};
+  const season = k.rankSeason === SEASON.id ? { season: SEASON.id, pts: seasonPts(k).pts, nb: isNewbie(k) } : {};  // pts＝周回王の点・nb＝🔰（受け取り口はシーズン2から使う）
   H.postOnline({ type: 'kotsubo2', total: rankValue(k), maxDepth: maxDepthOf(k), depth: depthOf(k), loops: loopsOf(k), ...season, ...renda }).then(r => {
     if (!r?.ok) { if (r?.error === 'banned') { k.rankJoin = false; k.rankMe = null; rankList = null; H.save(); } else rankFailed = true; return; }
     k.rankMe = { rank: r.rank, rid: r.rid, accepted: r.accepted !== false, why: r.why === 'big' ? 'big' : 'fast', at: Date.now() }; H.save();
-    if (Array.isArray(r.top)) { rankList = { top: r.top.slice(0, 10) }; rankListAt = Date.now(); }
+    if (Array.isArray(r.top)) { rankList = { top: r.top.slice(0, 10), boards: r.boards && typeof r.boards === 'object' ? r.boards : null }; rankListAt = Date.now(); }
     if (r.renda && Array.isArray(r.renda.top)) { k.rendaMe = { rank: r.renda.rank, accepted: r.renda.accepted !== false }; rendaList = { top: r.renda.top.slice(0, 10) };
       // 受け取り口の回数のほうが多いとき（最初からにした・別の端末から戻したなど）は、そちらに合わせて続きから数える
       const srv = Math.floor(Number(r.renda.taps)) || 0; if (srv > rendaOf(k)) k.renda = { id: RENDA.id, n: srv };
@@ -421,8 +512,11 @@ function loadRank(force) { if (force || !rankList || Date.now() - rankListAt >= 
 function rankBody(k) {
   const now = Date.now(), inSeason = now >= SEASON.start;
   const what = inSeason ? `${SEASON.label} の間に稼いだマーク` : 'Ver.1.2.4 から後に稼いだマーク';
+  if (!k.rankJoin && loopOn()) return `<p class="hint">シーズンごとに「👑 壺の主」（総合）と「💰 マーク王」「🥊 連打王」「🔁 周回王」で、みんなと順位を比べます。名前は出ません（送るのは、マーク・叩いた回数・倒した夜の王の点数・進み具合と、端末ごとのランダムな番号だけ）。</p>
+    <button class="ghost small" data-act="kRankJoin">ランキングに参加する</button>`;
   if (!k.rankJoin) return `<p class="hint">${what}の多さで、みんなと順位を比べます。名前は出ません（送るのは、そのマークの数・進み具合と、端末ごとのランダムな番号だけ）。</p>
     <button class="ghost small" data-act="kRankJoin">ランキングに参加する</button>`;
+  if (boardsOn()) return lordsBody(k);
   const me = k.rankMe, ui = S(), admin = !!H.adminKey?.();
   const head = `<p class="hint">${what}のランキング${!inSeason ? `（${SEASON.label} は、その間に稼いだマークで数え直します）` : now >= SEASON.end ? '。終わりました。おつかれさまでした！' : ''}</p>`;
   const meLine = me ? `<p class="k-rank-me">あなたは <b>${me.rank || '-'}位</b>です</p>${me.accepted ? '' : me.why === 'big' ? '<p class="hint">今の記録は、たどり着いた深度にくらべて大きすぎるため、ランキングに入れていません（前の記録で順位を出しています）。おかしいと思ったら、おたよりで知らせてください。</p>' : '<p class="hint">急に増えた記録は、まだランキングに入れていません（前の記録で順位を出しています）。時間がたつと入ります。</p>'}`
@@ -472,7 +566,9 @@ function seasonBody(k) {
     <h3 class="k-season-h">🥊 連打王<small>期間中に小壺を叩いた回数</small></h3>${mine(d.renda?.rank)}${list(d.renda?.top, x => `${Number(x.taps).toLocaleString('ja-JP')} 回`, true)}`;
 }
 function paintSeason() { const b = $('k-season-body'); if (b) { b.innerHTML = seasonBody(st()); b.hidden = !S().seasonOpen; } }
-function paintRank() { const k = st(), b = $('k-rank-body'); if (b && !b.hidden) b.innerHTML = rankBody(k); const r = $('k-renda-body'); if (r) r.innerHTML = rendaBody(k); }
+function paintRank() { const k = st(), b = $('k-rank-body'); if (b && !b.hidden) b.innerHTML = rankBody(k); const r = $('k-renda-body'); if (r) r.innerHTML = rendaBody(k);
+  // 壺の主の一覧が届いたら、見出しを変えて、別の連打王の欄はしまう（中身は壺の主の「連打王」へ）
+  const h = b?.closest('.k-rank')?.querySelector('.sec-head h2'); if (h) h.textContent = rendaBoxOff(k) ? '👑 壺の主（ランキング）' : 'ランキング'; const rs = r?.closest('.k-renda'); if (rs) rs.style.display = rendaBoxOff(k) ? 'none' : ''; }
 
 // ミニゲームを開いたとき：離れていた間（アプリを閉じていた間・ほかの画面にいた間。最大8時間）の稼ぎを入れて、動かし始める
 export function startKotsubo() {
@@ -523,12 +619,12 @@ export function viewKotsubo() {
   const ownBtn = `<button class="chip mini" data-act="kOwned" aria-pressed="${ownOpen}">${ownOpen ? '売り場へ' : `所持遺物 ${owned.length}`}</button>`;
   // アイテム：絵・名前・数だけ（使うのは、夜の王に挑むときの確かめる画面から）。名前を押すと、効果とフレーバーテキストが開く（説明は開いたときだけ）
   const items = itemsOf(k), itemRows = ITEMS.filter(([id]) => id !== 'scar' || seesScar(k)).map(([id, icon, name, desc, flavor]) => { const n = items[id] || 0, open = S().itemOpen === id;
-    return `<div class="k-item ${open ? 'open' : ''} ${n ? '' : 'none'}"><button class="k-item-main" data-act="kItemInfo" data-v="${id}" aria-expanded="${open}"><span class="k-ico">${icon}</span><b>${esc(name)}</b><i id="k-item-${id}">${n}</i></button></div>
+    return `<div class="k-item ${open ? 'open' : ''} ${n ? '' : 'none'}"><button class="k-item-main" data-act="kItemInfo" data-v="${id}" aria-expanded="${open}"><span class="k-ico">${icon}</span><b>${esc(name)}</b><i id="k-item-${id}">${n}<small>/${ITEM_MAX}</small></i></button></div>
       <div class="k-flavor" data-flv="${id}" ${open ? '' : 'hidden'}><span class="k-eff">${esc(desc)}</span>${esc(flavor).replace(/\n/g, '<br>')}</div>`; }).join('');
   return `<div class="stack-lg kotsubo">
     <button class="ghost back-btn" data-act="kotsuboBack">‹ もどる</button>
     <section class="card-sec k-top">
-      <div class="k-mark"><span id="k-mark" class="${k.fullDigits ? 'full' : ''}">${markText(k)}</span><small>マーク</small></div>
+      <div class="k-mark"><span id="k-mark" class="${k.fullDigits ? 'full' : ''}">${markText(k)}</span><small>マーク</small><button class="k-info" data-act="kUnits" aria-label="数の単位の読み方" title="数の単位">!</button></div>
       <div class="hint k-rate" id="k-rate"></div>
       <button class="link-btn k-digits" data-act="kDigits" aria-pressed="${!!k.fullDigits}">${digitsLabel(k)}</button>
       <div class="k-stage" id="k-stage">
@@ -545,9 +641,9 @@ export function viewKotsubo() {
     <section class="card-sec"><div class="sec-head"><h2 id="k-relic-h">${ownOpen ? '所持遺物' : '遺物'}</h2>${ownBtn}</div><div class="k-list" id="k-own" ${ownOpen ? '' : 'hidden'}>${ownRows}</div><div class="k-list" id="k-shop" ${ownOpen ? 'hidden' : ''}>${upRows}</div></section>
     <section class="card-sec"><div class="sec-head"><h2>夜渡りを雇う</h2><div class="chips">${[1, 10].map(x => `<button class="chip mini" data-act="kBuyN" data-v="${x}" aria-pressed="${n === x}">×${x}</button>`).join('')}</div></div>
       <div class="k-list">${hireRows}</div></section>
-    <section class="card-sec k-rank"><div class="sec-head"><h2>ランキング</h2><button class="chip mini" data-act="kRank" aria-pressed="${!!S().rankOpen}">${S().rankOpen ? '閉じる' : '見る'}</button></div>
+    <section class="card-sec k-rank"><div class="sec-head"><h2>${rendaBoxOff(k) ? '👑 壺の主（ランキング）' : 'ランキング'}</h2><button class="chip mini" data-act="kRank" aria-pressed="${!!S().rankOpen}">${S().rankOpen ? '閉じる' : '見る'}</button></div>
       <div id="k-rank-body" ${S().rankOpen ? '' : 'hidden'}>${rankBody(k)}</div></section>
-    ${Date.now() < RENDA_SHOW ? `<section class="card-sec k-rank k-renda"><div class="sec-head"><h2>🥊 連打王</h2></div><div id="k-renda-body">${rendaBody(k)}</div></section>` : ''}
+    ${Date.now() < RENDA_SHOW && !rendaBoxOff(k) ? `<section class="card-sec k-rank k-renda"><div class="sec-head"><h2>🥊 連打王</h2></div><div id="k-renda-body">${rendaBody(k)}</div></section>` : ''}
     ${pastSeasons().length ? `<section class="card-sec k-rank k-season"><div class="sec-head"><h2>🏆 シーズンの結果</h2><div class="chips">${pastSeasons().map(x => `<button class="chip mini" data-act="kSeason" data-v="${x.id}" aria-pressed="${S().seasonOpen === x.id}">${x.name}</button>`).join('')}</div></div><div id="k-season-body" ${S().seasonOpen ? '' : 'hidden'}>${seasonBody(k)}</div></section>` : ''}
     <p class="hint k-stats">これまで<br>${[`${fmtM(k.total)} マーク`, `${fmtM(k.taps)} 回叩いた`, `常夜の小壺 ${k.jars || 0} 回`, `討伐 ${k.lords || 0}/${BOSSES.length}`, d ? `深度${d}` : ''].filter(Boolean).join('<br>')}</p>
     <button class="link-btn dim-link k-reset ${S().confirmReset ? 'danger-text' : ''}" data-act="kReset">${S().confirmReset ? 'もう一度押すと、小壺のデータを最初からにします' : '最初からやり直す'}</button>
@@ -585,6 +681,18 @@ function paintPrep(k) {
     </div></div>`;
 }
 function closePrep() { prep = null; $('k-prep')?.remove(); }
+// 数の単位の早見表（「!」から開く）。今のマークの単位に印を付ける
+function openUnits(k) {
+  closeUnits(); const box = document.createElement('div'); box.id = 'k-units'; document.body.appendChild(box);
+  const m = Math.floor(k.mark || 0), cur = [...UNIT_INFO].reverse().find(([e]) => m >= Math.pow(10, e));
+  box.innerHTML = `<div class="scrim" data-act="kUnitsClose"></div><div class="sheet k-prep k-units" role="dialog" aria-label="数の単位の読み方">
+    <div class="sheet-head"><h2>数の単位の読み方</h2><button class="ghost" data-act="kUnitsClose">閉じる</button></div>
+    <div class="k-prep-body"><p class="hint">単位は4桁ごとに変わります。<br>1万は1の後ろに0が4個（10の4乗）、1億は0が8個（10の8乗）。</p>
+      <ol class="k-unit-list">${UNIT_INFO.map(u => `<li class="${u === cur ? 'now' : ''}"><div class="k-unit-h"><b>${u[1]}</b><span class="k-unit-yomi">${u[2]}</span><span class="k-unit-e">10の${u[0]}乗</span>${u === cur ? '<span class="badge">今ここ</span>' : ''}</div><p>${u[3]}</p></li>`).join('')}</ol>
+    </div></div>`;
+  box.querySelector('.now')?.scrollIntoView({ block: 'center' });
+}
+function closeUnits() { $('k-units')?.remove(); }
 // 「3・2・1」：数字を大きく出してから、戦いを始める。カウントダウン中は叩けない
 function startCountdown(onGo, goText = '挑め！') {
   stopCountdown();
@@ -619,6 +727,9 @@ function beginFight(items) {
 }
 
 // ボタンを押したとき（app.js の click から呼ばれる）。true を返すと画面を作り直す
+// 雇ったあと、画面を作り直しても、押したボタンが同じ位置に見えるようにする（上の遺物の欄に心得が増えて、下へずれるため）。app.js が作り直したあとに使う
+let kAnchor = null;
+export const takeKAnchor = () => { const x = kAnchor; kAnchor = null; return x; };
 export function kotsuboAct(a, v) {
   const k = st(), ui = S();
   if (a !== 'kReset') ui.confirmReset = false;
@@ -672,6 +783,7 @@ export function kotsuboAct(a, v) {
     const i = HIRE.findIndex(([id]) => id === v); if (i < 0) return false;
     const n = ui.buyN || 1, cost = priceOf(i, k.hires[v] || 0, n, priceMult(k), priceUpOf(k));
     if (k.mark < cost) { H.toast('マークが足りません'); return false; }
+    const sel = `[data-act="kHire"][data-v="${v}"]`, b = document.querySelector(sel); kAnchor = b ? { sel, top: b.getBoundingClientRect().top } : null;
     k.mark -= cost; k.hires[v] = (k.hires[v] || 0) + n; return true;
   }
   if (a === 'kUp') {
@@ -699,6 +811,13 @@ export function kotsuboAct(a, v) {
   }
   if (a === 'kPrepLock') { if (!prep) return false; prep.lock = v === 'on'; paintPrep(k); return false; }
   if (a === 'kPrepClose') { closePrep(); return false; }
+  if (a === 'kUnits') { openUnits(k); return false; }
+  if (a === 'kBoard') { ui.board = v; ui.page = null; paintRank(); return false; }
+  if (a === 'kBoardInfo') { ui.boardInfo = !ui.boardInfo; paintRank(); return false; }
+  if (a === 'kNbOnly') { ui.nbOnly = !ui.nbOnly; ui.page = null; paintRank(); return false; }
+  if (a === 'kPage') { const all = rankList?.boards?.[boardId()] || [], list = ui.nbOnly ? all.filter(x => x.nb) : all, idx = list.findIndex(x => x.rid === k.rankMe?.rid);
+    const cur = ui.page ?? (idx >= 0 ? Math.floor(idx / PAGE) : 0); ui.page = v === 'me' ? null : Math.max(0, cur + (v === 'next' ? 1 : -1)); paintRank(); return false; }
+  if (a === 'kUnitsClose') { closeUnits(); return false; }
   // 夜の王の欄の「!」：説明を出す
   if (a === 'kBossInfo') { H.toast(`${FIGHT_SEC}秒のうちに削り切れば討伐。討伐するたびに、すべての稼ぎが永久に1.25倍（今 ${fmtX(globalMult(k))}倍）`); return false; }
   if (a === 'kRushGo') {

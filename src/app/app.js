@@ -9,7 +9,7 @@ import { HELP } from '../data/help.js';
 import { NIGHT_BOSSES } from '../data/night_bosses.js';
 import { load, save, exportJson, exportCsv, readJsonFile } from './store.js';
 import { scanRelics } from './scan.js';
-import { initKotsubo, viewKotsubo, kotsuboAct, kotsuboSub, startKotsubo, kotsuboBusy } from './kotsubo.js';
+import { initKotsubo, viewKotsubo, kotsuboAct, kotsuboSub, startKotsubo, kotsuboBusy, takeKAnchor } from './kotsubo.js';
 import { initKnowledge, viewKnowledge, knowledgeAct, knowledgeSub, knowledgeWheel } from './knowledge.js';
 import { ngHit } from '../data/ngwords.js';
 import { PRIVACY, PRIVACY_UPDATED } from '../data/privacy.js';
@@ -283,8 +283,8 @@ function viewRecord() {
   // 画面の下：新しく記録するときは「勝利」「敗北」を押した時点で記録する（敗北は、どこで倒れたかを押すと記録）。
   // 戦績の編集だけは、勝敗を選んでから「更新する」を押す（押しただけで書き換わらないように）
   if (S.editRun) BAR = `<button class="ghost" data-act="cancelEdit">やめる</button><button class="primary" data-act="save" ${canSave ? '' : 'disabled'}>${canSave ? '更新する' : `<span class="need">あと：${[...missing, !f.result && '結果', needFoe(f) && !f.lossBy && '倒された相手'].filter(Boolean).join('・')}</span>`}</button>`;
-  else if (S.lossPick === 'd1' || S.lossPick === 'd2') BAR = `<div class="rec-bar loss-pick foe-pick"><span class="rec-q">${LOSS[S.lossPick].name}、どの夜の強敵に倒された？</span>
-      <div class="foe-btns">${nightFoes(f.lordId, S.lossPick).map(n => `<button class="result-btn loss" data-act="recLossBy" data-v="${esc(n)}">${esc(n)}</button>`).join('')}</div>
+  else if (S.lossPick === 'd1' || S.lossPick === 'd2') BAR = `<div class="rec-bar loss-pick foe-pick"><span class="rec-q">${LOSS[S.lossPick].name}、どの夜の強敵（か前哨戦）に倒された？</span>
+      <div class="foe-btns">${foeChoices(f.lordId, S.lossPick).map(n => `<button class="result-btn loss" data-act="recLossBy" data-v="${esc(n)}">${esc(n)}</button>`).join('')}</div>
       <button class="link-btn" data-act="recLossBack">戻る</button></div>`;
   else if (S.lossPick) BAR = `<div class="rec-bar loss-pick"><span class="rec-q">どこで倒れた？</span>
       <div class="rec-btns">${LOSS_AT.map(x => `<button class="result-btn loss" data-act="recLossAt" data-v="${x.id}">${x.name}</button>`).join('')}</div>
@@ -321,13 +321,15 @@ function viewRecord() {
         <button class="result-btn loss" data-act="result" data-v="loss" ${pressed(f.result === 'loss')}>敗北</button></div>
       ${f.result === 'loss' ? `<div class="subpanel"><div class="label">どこで倒れた？</div>
         <div class="chips">${LOSS_AT.map(x => chip('lossAt', x.id, x.name, f.lossAt === x.id)).join('')}</div>
-        ${needFoe(f) ? `<div class="label">どの夜の強敵に倒された？（必ず選ぶ）</div><div class="chips">${nightFoes(f.lordId, f.lossAt).map(n => `<button class="chip" data-act="lossBy" data-v="${esc(n)}" ${pressed(f.lossBy === n)}>${esc(n)}</button>`).join('')}</div>` : ''}</div>` : ''}`) : ''}
+        ${needFoe(f) ? `<div class="label">どの夜の強敵（か前哨戦）に倒された？（必ず選ぶ）</div><div class="chips">${foeChoices(f.lordId, f.lossAt).map(n => `<button class="chip" data-act="lossBy" data-v="${esc(n)}" ${pressed(f.lossBy === n)}>${esc(n)}</button>`).join('')}</div>` : ''}</div>` : ''}`) : ''}
   </div>`;
 }
 // 記録する（新しい戦績）・更新する（編集中の戦績）。勝敗は呼ぶ前に S.form に入れておく
 // 1日目・2日目に負けたときの相手（夜の強敵）の候補。夜の王で出る相手が決まっていればその分だけ、決まっていなければ（ナメレス）全部
 // ナメレスは「DLCを含まない全種類」なので、DLCの夜の王（ハルモニア・ストラゲス）の夜の強敵は入れない
 const nightFoes = (lordId, day) => NIGHT_BOSSES[lordId]?.[day] || [...new Set(Object.entries(NIGHT_BOSSES).filter(([k, x]) => x && !['harmonia', 'strages'].includes(k)).flatMap(([, x]) => x[day]))];
+// 1日目・2日目に倒された相手：その日の夜の強敵＋「前哨戦」（夜の強敵の前に出る敵に倒されたとき）
+const PRE_FOE = '前哨戦', foeChoices = (lordId, day) => [...nightFoes(lordId, day), PRE_FOE];
 const needFoe = f => f.result === 'loss' && (f.lossAt === 'd1' || f.lossAt === 'd2');  // 1日目・2日目の敗北は、相手を必ず選ぶ
 // 型のいちばん上の分け方（近接 melee／スペル spell／弓 bow）
 const styleTop = st => st.group === 'sorc' || st.group === 'inc' ? 'spell' : st.group;
@@ -2693,6 +2695,9 @@ document.addEventListener('click', e => {
   // 敵の行を開いたとき：上の行が閉じても、タップした行が同じ位置に見えるようにスクロールを合わせる
   const anc = S.enemy.anchor; S.enemy.anchor = null;
   if (anc) { const el = [...document.querySelectorAll('[data-act=enemyOpen]')].find(b => b.dataset.v === anc.v); if (el) window.scrollBy(0, el.getBoundingClientRect().top - anc.top); }
+  // 壺渡りで雇ったとき：上の欄の行が増えても、押したボタンが同じ位置に見えるように
+  const ka = takeKAnchor(); if (ka) { const fix = () => { const el = document.querySelector(ka.sel); if (el) window.scrollBy(0, el.getBoundingClientRect().top - ka.top); };
+    fix(); requestAnimationFrame(fix); setTimeout(fix, 120); setTimeout(fix, 350); }  // 行の大きさが少しあとに決まることがあるので、何回か合わせ直す
 });
 document.addEventListener('input', e => {
   const t = e.target;
