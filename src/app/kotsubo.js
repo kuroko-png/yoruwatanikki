@@ -305,7 +305,7 @@ function tick() {
 function paint(k) {
   const m = $('k-mark'); if (!m) return;
   m.textContent = markText(k); m.classList.toggle('full', !!k.fullDigits);
-  $('k-rate').textContent = `毎秒 ${fmtRate(prodOf(k))}・1回 ${fmtRate(tapOf(k))}`;
+  $('k-rate').textContent = rateText(k);
   document.querySelectorAll('[data-kcost]').forEach(b => b.classList.toggle('cant', k.mark < +b.dataset.kcost));
   const r = $('k-rush'); if (r) r.hidden = !(rushUntil > Date.now());
   if (fight) {
@@ -625,7 +625,7 @@ export function viewKotsubo() {
     <button class="ghost back-btn" data-act="kotsuboBack">‹ もどる</button>
     <section class="card-sec k-top">
       <div class="k-mark"><span id="k-mark" class="${k.fullDigits ? 'full' : ''}">${markText(k)}</span><small>マーク</small><button class="k-info" data-act="kUnits" aria-label="数の単位の読み方" title="数の単位">!</button></div>
-      <div class="hint k-rate" id="k-rate"></div>
+      <div class="hint k-rate" id="k-rate">${rateText(k)}</div>
       <button class="link-btn k-digits" data-act="kDigits" aria-pressed="${!!k.fullDigits}">${digitsLabel(k)}</button>
       <div class="k-stage" id="k-stage">
         <button class="k-tap" id="k-tap" aria-label="小壺を叩く"><span class="k-art" id="k-art">${jarArt()}</span></button>
@@ -680,6 +680,8 @@ function paintPrep(k) {
       <button class="primary k-prep-go" data-act="kPrepGo">挑む</button>
     </div></div>`;
 }
+// 「毎秒・1回」の行（画面を作り直すときも最初から入れておく。空だと一瞬で1行ぶん縮んで、下の欄がガクッと動くため）
+const rateText = k => `毎秒 ${fmtRate(prodOf(k))}・1回 ${fmtRate(tapOf(k))}`;
 function closePrep() { prep = null; $('k-prep')?.remove(); }
 // 数の単位の早見表（「!」から開く）。今のマークの単位に印を付ける
 function openUnits(k) {
