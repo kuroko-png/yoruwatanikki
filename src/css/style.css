@@ -1573,3 +1573,4 @@ i.ico { display: inline-block; background-position: center; background-size: con
 .k-nb { font-size: 13px; line-height: 1; }
 .k-nb-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 2px 0 4px; }
 .k-board-info { margin: 2px 0 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.04); }
+.k-taps { text-align: center; font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; margin-top: -2px; }

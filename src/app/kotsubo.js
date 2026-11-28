@@ -305,7 +305,7 @@ function tick() {
 function paint(k) {
   const m = $('k-mark'); if (!m) return;
   m.textContent = markText(k); m.classList.toggle('full', !!k.fullDigits);
-  $('k-rate').textContent = rateText(k);
+  $('k-rate').textContent = rateText(k); const tc = $('k-taps'); if (tc) tc.textContent = tapsText(k);
   document.querySelectorAll('[data-kcost]').forEach(b => b.classList.toggle('cant', k.mark < +b.dataset.kcost));
   const r = $('k-rush'); if (r) r.hidden = !(rushUntil > Date.now());
   if (fight) {
@@ -324,6 +324,7 @@ function tapMerchant(e) {
   if (countdown) return;  // 挑む前のカウントダウン中は叩けない
   const k = st(), v = tapOf(k);
   k.taps++; combo++;
+  { const tc = $('k-taps'); if (tc) queueMicrotask(() => { tc.textContent = tapsText(k); }); }  // 叩いた回数はすぐ数字を変える
   if (rendaOn()) { if (!k.renda || k.renda.id !== RENDA.id) k.renda = { id: RENDA.id, n: 0 }; k.renda.n++; const r = $('k-renda-n'); if (r) r.textContent = k.renda.n.toLocaleString('ja-JP'); }
   if (fight) { const h = hitOf(k); fight.hp -= h; floatText(e.clientX, e.clientY, `-${fmtM(h)}`, 'hit'); if (fight.hp <= 0) endFight(true); }
   else { gain(k, v); floatText(e.clientX, e.clientY, `+${fmtM(v)}`); }
@@ -626,6 +627,7 @@ export function viewKotsubo() {
     <section class="card-sec k-top">
       <div class="k-mark"><span id="k-mark" class="${k.fullDigits ? 'full' : ''}">${markText(k)}</span><small>マーク</small><button class="k-info" data-act="kUnits" aria-label="数の単位の読み方" title="数の単位">!</button></div>
       <div class="hint k-rate" id="k-rate">${rateText(k)}</div>
+      <div class="k-taps" id="k-taps">${tapsText(k)}</div>
       <button class="link-btn k-digits" data-act="kDigits" aria-pressed="${!!k.fullDigits}">${digitsLabel(k)}</button>
       <div class="k-stage" id="k-stage">
         <button class="k-tap" id="k-tap" aria-label="小壺を叩く"><span class="k-art" id="k-art">${jarArt()}</span></button>
@@ -682,6 +684,8 @@ function paintPrep(k) {
 }
 // 「毎秒・1回」の行（画面を作り直すときも最初から入れておく。空だと一瞬で1行ぶん縮んで、下の欄がガクッと動くため）
 const rateText = k => `毎秒 ${fmtRate(prodOf(k))}・1回 ${fmtRate(tapOf(k))}`;
+// 叩いた回数（シーズン中は、そのシーズンに叩いた回数＝連打王の数）
+const tapsText = k => rendaOn() ? `今シーズン叩いた回数 ${rendaOf(k).toLocaleString('ja-JP')}回` : `叩いた回数 ${(k.taps || 0).toLocaleString('ja-JP')}回`;
 function closePrep() { prep = null; $('k-prep')?.remove(); }
 // 数の単位の早見表（「!」から開く）。今のマークの単位に印を付ける
 function openUnits(k) {
